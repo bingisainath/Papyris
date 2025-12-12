@@ -1,0 +1,6 @@
+websockets==12.0
+redis[hiredis]==5.0.1
+python-jose==3.3.0
+uvloop==0.19.0      # improves websocket performance (optional)
+orjson==3.9.15      # faster JSON
+PyJWT==2.8.0
