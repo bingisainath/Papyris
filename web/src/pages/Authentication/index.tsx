@@ -33,48 +33,10 @@ const LoginPage: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
-    // try {
-    //   const response: ApiResponse = await axiosHelper(
-    //     "post",
-    //     `${process.env.REACT_APP_BACKEND_URL}/api/login`,
-    //     { email: loginEmail, password: loginPassword }
-    //   );
-    //   console.log("login res", response);
-    //   if (response.success) {
-    //     dispatch(setToken(response?.token));
-    //     localStorage.setItem("token", response?.token || "");
-    //     navigate("/home");
-    //   } else {
-    //     setLoginError("Failed to login. Please check your credentials.");
-    //   }
-    // } catch (error) {
-    //   setLoginError("Failed to login. Please check your credentials.");
-    // }
   };
 
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
-    // try {
-    //   const response: ApiResponse = await axiosHelper(
-    //     "post",
-    //     `${process.env.REACT_APP_BACKEND_URL}/api/register`,
-    //     {
-    //       name: registerUsername,
-    //       email: registerEmail,
-    //       password: registerPassword,
-    //     }
-    //   );
-    //   console.log("reg res", response);
-    //   if (response.success) {
-    //     dispatch(setToken(response?.token));
-    //     localStorage.setItem("token", response?.token || "");
-    //     navigate("/home");
-    //   } else {
-    //     setRegisterError("Failed to register. Please try again.");
-    //   }
-    // } catch (error) {
-    //   setRegisterError("Failed to register. Please try again.");
-    // }
   };
 
   const loginData = {
