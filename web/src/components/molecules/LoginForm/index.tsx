@@ -13,16 +13,26 @@ interface LoginFormProps {
   error: string | null;
 }
 
-const LoginForm: React.FC<LoginFormProps> = ({ 
-  email, 
-  setEmail, 
-  password, 
-  setPassword, 
-  onSubmit, 
-  error 
+const LoginForm: React.FC<LoginFormProps> = ({
+  email,
+  setEmail,
+  password,
+  setPassword,
+  onSubmit,
+  error,
 }) => {
+  const handleButtonClick = () => {
+    console.log("Button clicked");
+    // Create a fake form event
+    const fakeEvent = {
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    } as React.FormEvent<HTMLFormElement>;
+    onSubmit(fakeEvent);
+  };
+
   return (
-    <form onSubmit={onSubmit} className="auth-form">
+    <form className="auth-form">
       <h1 className="auth-form-title">Sign In</h1>
       <ErrorMessage message={error} />
       <Input
@@ -43,8 +53,17 @@ const LoginForm: React.FC<LoginFormProps> = ({
         name="loginPassword"
         autoComplete="current-password"
       />
-      <a href="#" className="forgot-password">Forget Your Password?</a>
-      <Button type="submit" variant="submit">
+      {/* <a href="#" className="forgot-password">
+        Forget Your Password?
+      </a> */}
+      {/* <button
+        type="button"
+        className="forgot-password"
+        onClick={() => console.log("Forgot password")}
+      >
+        Forgot your password?
+      </button> */}
+      <Button type="button" variant="submit" onClick={handleButtonClick}>
         Sign In
       </Button>
     </form>
