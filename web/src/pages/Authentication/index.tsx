@@ -1,18 +1,19 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useDispatch } from "react-redux";
+// import { useDispatch } from "react-redux";
 // import axiosHelper from "../../helper/axiosHelper";
 // import { setToken } from "../../redux/userSlice";
 import AuthContainer from "../../components/organisms/AuthContainer";
 import "./LoginPage.css";
+import { useAuth } from "../../app/AuthProvider";
+import { validatePassword } from "../../utils/passwordPolicy";
 
-interface ApiResponse {
-  success: boolean;
-  token?: string;
-  message?: string;
-}
+import { toast } from "react-toastify";
 
-const LoginPage: React.FC = () => {
+const AuthenticationPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { login, register } = useAuth();
+
   const [isActive, setIsActive] = useState<boolean>(false);
   // const navigate = useNavigate();
   // const dispatch = useDispatch();
@@ -31,50 +32,69 @@ const LoginPage: React.FC = () => {
   const handleRegisterClick = (): void => setIsActive(true);
   const handleLoginClick = (): void => setIsActive(false);
 
-  const handleLogin = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+    // These should be the VERY FIRST lines
     e.preventDefault();
-    // try {
-    //   const response: ApiResponse = await axiosHelper(
-    //     "post",
-    //     `${process.env.REACT_APP_BACKEND_URL}/api/login`,
-    //     { email: loginEmail, password: loginPassword }
-    //   );
-    //   console.log("login res", response);
-    //   if (response.success) {
-    //     dispatch(setToken(response?.token));
-    //     localStorage.setItem("token", response?.token || "");
-    //     navigate("/home");
-    //   } else {
-    //     setLoginError("Failed to login. Please check your credentials.");
-    //   }
-    // } catch (error) {
-    //   setLoginError("Failed to login. Please check your credentials.");
-    // }
+    e.stopPropagation();
+
+    console.log("=== LOGIN HANDLER CALLED ===");
+    console.log("Event default prevented");
+
+    setLoginError(null);
+
+    try {
+      console.log("Attempting login...");
+      const ok = await login(loginEmail, loginPassword);
+      console.log("Login result:", ok);
+
+      if (ok) {
+        toast.success("Logged in successfully");
+        console.log("Login successful, navigating...");
+        navigate("/", { replace: true });
+      } else {
+        toast.error("Login failed");
+        console.log("Login returned false");
+        setLoginError("Login failed");
+      }
+    } catch (err: any) {
+      console.error("Login error caught:", err);
+      toast.error(err.message || "Login failed");
+      setLoginError(err.message || "Invalid credentials");
+      // Make sure we're NOT navigating here
+    }
   };
 
-  const handleRegister = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // try {
-    //   const response: ApiResponse = await axiosHelper(
-    //     "post",
-    //     `${process.env.REACT_APP_BACKEND_URL}/api/register`,
-    //     {
-    //       name: registerUsername,
-    //       email: registerEmail,
-    //       password: registerPassword,
-    //     }
-    //   );
-    //   console.log("reg res", response);
-    //   if (response.success) {
-    //     dispatch(setToken(response?.token));
-    //     localStorage.setItem("token", response?.token || "");
-    //     navigate("/home");
-    //   } else {
-    //     setRegisterError("Failed to register. Please try again.");
-    //   }
-    // } catch (error) {
-    //   setRegisterError("Failed to register. Please try again.");
-    // }
+    e.stopPropagation();
+    setRegisterError(null);
+
+    const pwdErr = validatePassword(registerPassword);
+    if (pwdErr) {
+      setRegisterError(pwdErr);
+      toast.error(pwdErr);
+      return;
+    }
+    
+    try {
+      const ok = await register(
+        registerUsername,
+        registerEmail,
+        registerPassword
+      );
+      if (ok) {
+        toast.success("Registered successfully");
+        console.log("[UI] Registered");
+        setIsActive(false);
+      } else {
+        toast.error("Register failed");
+        setRegisterError("Register failed");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Register failed");
+      setRegisterError(err.message || "Register failed");
+      console.log("[UI] Register error:", err.message);
+    }
   };
 
   const loginData = {
@@ -110,4 +130,4 @@ const LoginPage: React.FC = () => {
   );
 };
 
-export default LoginPage;
+export default AuthenticationPage;

@@ -24,7 +24,7 @@ const TogglePanel: React.FC<TogglePanelProps> = ({
       <img src={logo} alt="logo" width={150} />
       <h1>{title}</h1>
       <p>{description}</p>
-      <Button onClick={onButtonClick} variant="secondary">
+      <Button onClick={onButtonClick} variant="secondary" type="button">
         {buttonText}
       </Button>
     </div>

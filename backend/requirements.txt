@@ -4,26 +4,29 @@ uvicorn[standard]==0.27.1
 # Database ORM
 sqlalchemy==2.0.25
 psycopg2-binary==2.9.9
+asyncpg==0.29.0
+alembic==1.13.2
 
-# Pydantic validation
+# Validation
 pydantic==2.6.1
 pydantic-settings==2.1.0
+email-validator==2.2.0
 
 # Redis
 redis[hiredis]==5.0.1
 
-# Authentication
-python-jose==3.3.0
+# Auth & Security
 passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+python-jose==3.3.0
+PyJWT==2.8.0
 
-# CORS & Middleware
+# Middleware
 python-multipart==0.0.9
 
 # Utils
 requests==2.31.0
 
-# Testing (optional)
+# Testing
 pytest==8.0.1
 pytest-asyncio==0.23.5
-
-PyJWT==2.8.0
