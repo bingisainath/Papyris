@@ -73,6 +73,8 @@
 
 
 import json
+import uuid  # ADD THIS
+from datetime import datetime, timezone  # ADD THIS
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +82,12 @@ from app.db.session import async_session_maker
 from app.websocket.manager import WSManager
 from app.websocket.auth import get_token_from_ws, verify_ws_token
 from app.websocket.pubsub import PubSub
+from app.websocket.streams import RedisStreams
+from app.models.message import Message  # FIX THIS
+from app.models.message_receipt import MessageReceipt  # FIX THIS
+from sqlalchemy import select
+
+streams = RedisStreams()
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 manager = WSManager()
@@ -96,8 +104,13 @@ async def on_redis_event(evt: dict):
     if room_id and payload:
         await manager.broadcast_room(room_id, payload)
 
+# @router.on_event("startup")
+# async def _ws_start():
+#     pubsub.start(on_redis_event)
+
 @router.on_event("startup")
 async def _ws_start():
+    await streams.init_stream()
     pubsub.start(on_redis_event)
 
 @router.websocket("/chat")
@@ -146,18 +159,56 @@ async def ws_chat(ws: WebSocket):
                 continue
 
             # MESSAGE
+            # if t == "message" and room_id:
+            #     text = (data.get("text") or "").strip()
+            #     if not text:
+            #         await ws.send_json({"type": "error", "message": "Empty message"})
+            #         continue
+
+            #     # Persist message in DB
+            #     async with async_session_maker() as db:  # AsyncSession
+            #         msg_id = await _persist_message(db, room_id, user_id, text)
+
+            #     payload = {"type": "message", "roomId": room_id, "id": msg_id, "text": text, "senderId": user_id}
+            #     await publish_room(room_id, payload)
+            #     continue
+
+            # MESSAGE
             if t == "message" and room_id:
                 text = (data.get("text") or "").strip()
                 if not text:
                     await ws.send_json({"type": "error", "message": "Empty message"})
                     continue
-
-                # Persist message in DB
-                async with async_session_maker() as db:  # AsyncSession
-                    msg_id = await _persist_message(db, room_id, user_id, text)
-
-                payload = {"type": "message", "roomId": room_id, "id": msg_id, "text": text, "senderId": user_id}
+                
+                msg_id = str(uuid.uuid4())
+                timestamp = datetime.now(timezone.utc).isoformat()
+                
+                # ✅ Push to Redis Streams
+                await streams.add_message({
+                    "id": msg_id,
+                    "roomId": room_id,
+                    "senderId": user_id,
+                    "text": text,
+                    "timestamp": timestamp
+                })
+                
+                # ✅ Broadcast via Pub/Sub
+                payload = {
+                    "type": "message",
+                    "roomId": room_id,
+                    "id": msg_id,
+                    "text": text,
+                    "senderId": user_id,
+                    "createdAt": timestamp
+                }
                 await publish_room(room_id, payload)
+                
+                # ✅ Send ACK
+                await ws.send_json({
+                    "type": "message_ack",
+                    "messageId": msg_id,
+                    "status": "sent"
+                })
                 continue
 
             # READ RECEIPT
@@ -178,12 +229,6 @@ async def ws_chat(ws: WebSocket):
         manager.untrack(user_id, ws)
         await pubsub.redis.srem(ONLINE_SET_KEY, user_id)
         await pubsub.publish({"roomId": "__presence__", "payload": {"type": "offline", "userId": user_id}})
-
-
-# ---------- DB helpers (keep in services in real code) ----------
-import uuid
-from app.models.message import Message, MessageReceipt
-from sqlalchemy import select
 
 async def _persist_message(db: AsyncSession, conversation_id: str, sender_id: str, text: str) -> str:
     msg_id = str(uuid.uuid4())
