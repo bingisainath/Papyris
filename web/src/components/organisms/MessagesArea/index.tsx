@@ -2,7 +2,7 @@
 // src/components/organisms/MessagesArea.tsx
 import React from 'react';
 import MessageBubble from '../../molecules/MessageBubble';
-import Loading from '../../Loading';
+import Loading from '../../atoms/Loading';
 
 interface Message {
   _id: string;
