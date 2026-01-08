@@ -37,25 +37,16 @@ const AuthenticationPage: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    console.log("=== LOGIN HANDLER CALLED ===");
-    console.log("Event default prevented");
-
     setLoginError(null);
 
     try {
       console.log("Attempting login...");
-      const ok = await login(loginEmail, loginPassword);
-      console.log("Login result:", ok);
+      const loginMail = loginEmail.toLocaleLowerCase();
+      await login(loginMail, loginPassword);
 
-      if (ok) {
-        toast.success("Logged in successfully");
-        console.log("Login successful, navigating...");
-        navigate("/", { replace: true });
-      } else {
-        toast.error("Login failed");
-        console.log("Login returned false");
-        setLoginError("Login failed");
-      }
+      toast.success("Logged in successfully");
+      console.log("Login successful, navigating...");
+      navigate("/", { replace: true });
     } catch (err: any) {
       console.error("Login error caught:", err);
       toast.error(err.message || "Login failed");
@@ -77,19 +68,18 @@ const AuthenticationPage: React.FC = () => {
     }
     
     try {
-      const ok = await register(
-        registerUsername,
-        registerEmail,
+      const loewCaseregisterUserName = registerUsername.toLocaleLowerCase();
+      const lowerCaseEmail = registerEmail.toLocaleLowerCase();
+      await register(
+        loewCaseregisterUserName,
+        lowerCaseEmail,
         registerPassword
       );
-      if (ok) {
-        toast.success("Registered successfully");
-        console.log("[UI] Registered");
-        setIsActive(false);
-      } else {
-        toast.error("Register failed");
-        setRegisterError("Register failed");
-      }
+
+      toast.success("Registered successfully");
+      console.log("[UI] Registered");
+      setIsActive(false);
+
     } catch (err: any) {
       toast.error(err.message || "Register failed");
       setRegisterError(err.message || "Register failed");

@@ -13,9 +13,6 @@ import { parseApiError } from "../utils/apiError";
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data?: T };
 
-// works with BOTH:
-// - old backend: Token/UserResponse directly
-// - new backend: { success, message, data }
 function unwrap<T>(res: any): ApiEnvelope<T> {
   if (res && typeof res === "object" && "success" in res)
     return res as ApiEnvelope<T>;
@@ -26,9 +23,11 @@ type AuthContextType = {
   user: UserResponse | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (u: string, e: string, p: string) => Promise<boolean>;
+  error: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  register: (u: string, e: string, p: string) => Promise<void>;
   logout: () => void;
+  clearError: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -36,10 +35,14 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<UserResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const clearError = useCallback(() => setError(null), []);
 
   const logout = useCallback(() => {
     tokenStore.clear();
     setUser(null);
+    setError(null);
     console.log("[AUTH] Logged out");
   }, []);
 
@@ -60,7 +63,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(res.data);
         console.log("[AUTH] Session restored:", res.data.email);
-      } catch {
+      } catch (err) {
+        console.error("[AUTH] Session restore failed:", err);
         logout();
       } finally {
         setIsLoading(false);
@@ -71,13 +75,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [logout]);
 
   const login = useCallback(
-    async (email: string, password: string): Promise<boolean> => {
+    async (email: string, password: string): Promise<void> => {
+      setError(null);
+      setIsLoading(true);
+
       try {
+        // Validate inputs
+        if (!email.trim()) throw new Error("Email is required");
+        if (!password.trim()) throw new Error("Password is required");
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          throw new Error("Please enter a valid email address");
+        }
+
         const res = unwrap<{ access_token: string; token_type: string }>(
           await loginUser({ email, password })
         );
 
-        // If backend returned success=false (rare, because errors usually throw)
+        // Backend returned success=false (e.g., user not found)
         if (!res.success) {
           throw new Error(res.message || "Login failed");
         }
@@ -88,41 +102,67 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         tokenStore.set(res.data.access_token);
 
-        // fetch /me to set user
+        // Fetch user profile
         const meRes = unwrap<UserResponse>(await getMe());
         if (!meRes.success || !meRes.data) {
           throw new Error(meRes.message || "Unable to fetch user profile");
         }
 
         setUser(meRes.data);
+        setError(null);
         console.log("[AUTH] LOGIN SUCCESS:", meRes.data.email);
-        return true;
       } catch (err) {
-        const msg = parseApiError(err); // "Email does not exist" / "Invalid credentials"
-        console.log("[AUTH] LOGIN ERROR:", msg);
+        const msg = parseApiError(err);
+        setError(msg);
+        console.error("[AUTH] LOGIN ERROR:", msg);
         throw new Error(msg);
+      } finally {
+        setIsLoading(false);
       }
     },
     []
   );
 
   const register = useCallback(
-    async (u: string, e: string, p: string): Promise<boolean> => {
+    async (username: string, email: string, password: string): Promise<void> => {
+      setError(null);
+      setIsLoading(true);
+
       try {
+        // Validate inputs
+        if (!username.trim()) throw new Error("Username is required");
+        if (!email.trim()) throw new Error("Email is required");
+        if (!password.trim()) throw new Error("Password is required");
+        
+        if (username.length < 3) {
+          throw new Error("Username must be at least 3 characters");
+        }
+        
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          throw new Error("Please enter a valid email address");
+        }
+        
+        if (password.length < 6) {
+          throw new Error("Password must be at least 6 characters");
+        }
+
         const res = unwrap<UserResponse>(
-          await registerUser({ username: u, email: e, password: p })
+          await registerUser({ username, email, password })
         );
 
         if (!res.success) {
           throw new Error(res.message || "Registration failed");
         }
 
-        console.log("[AUTH] REGISTER SUCCESS:", res.data?.email ?? e);
-        return true;
+        setError(null);
+        console.log("[AUTH] REGISTER SUCCESS:", res.data?.email ?? email);
       } catch (err) {
-        const msg = parseApiError(err); // "Email already registered" etc
-        console.log("[AUTH] REGISTER ERROR:", msg);
+        const msg = parseApiError(err);
+        setError(msg);
+        console.error("[AUTH] REGISTER ERROR:", msg);
         throw new Error(msg);
+      } finally {
+        setIsLoading(false);
       }
     },
     []
@@ -133,11 +173,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       user,
       isAuthenticated: !!user,
       isLoading,
+      error,
       login,
       register,
       logout,
+      clearError,
     }),
-    [user, isLoading, login, register, logout]
+    [user, isLoading, error, login, register, logout, clearError]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
