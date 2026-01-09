@@ -1,96 +1,249 @@
-
 // src/components/organisms/ChatList.tsx
-import React, { useState } from 'react';
-import { FiArrowUpLeft } from 'react-icons/fi';
-import { AiOutlineUsergroupAdd } from 'react-icons/ai';
-import ChatListItem from '../../molecules/ChatListItem';
-import GroupListItem from '../../molecules/GroupListItem';
+import React, { useState, useMemo } from 'react';
+import { Input, Button, Typography, Loading } from '../../atoms';
+import Icon from '../../atoms/Icon';
+import { ChatListItem } from '../../molecules';
 
-interface Chat {
-  _id: string;
-  userDetails?: {
-    _id: string;
-    name: string;
-    email: string;
-    profile_pic?: string;
-  };
-  groupName?: string;
-  groupImage?: string;
-  lastMsg?: {
-    text?: string;
-    imageUrl?: string;
-    videoUrl?: string;
-  };
-  unseenMsg?: number;
+interface Conversation {
+  id: string;
+  name: string;
+  avatar?: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unreadCount?: number;
+  isOnline?: boolean;
+  isTyping?: boolean;
+  isPinned?: boolean;
+  isGroup?: boolean;
 }
 
 interface ChatListProps {
-  chats: Chat[];
-  type: 'chat' | 'group';
-  onCreateGroup?: () => void;
+  conversations: Conversation[];
+  activeConversationId?: string;
+  onSelectConversation: (id: string) => void;
+  onNewChat?: () => void;
+  onNewGroup?: () => void;
+  isLoading?: boolean;
+  className?: string;
 }
 
-const ChatList: React.FC<ChatListProps> = ({ chats, type, onCreateGroup }) => {
+const ChatList: React.FC<ChatListProps> = ({
+  conversations,
+  activeConversationId,
+  onSelectConversation,
+  onNewChat,
+  onNewGroup,
+  isLoading = false,
+  className = ''
+}) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<'all' | 'direct' | 'groups'>('all');
+
+  // Filter and search conversations
+  const filteredConversations = useMemo(() => {
+    // Safety check: default to empty array if conversations is undefined/null
+    if (!conversations || !Array.isArray(conversations)) {
+      return [];
+    }
+
+    let filtered = [...conversations]; // Create a copy to avoid mutating original
+
+    // Apply type filter
+    if (filter === 'direct') {
+      filtered = filtered.filter(c => !c.isGroup);
+    } else if (filter === 'groups') {
+      filtered = filtered.filter(c => c.isGroup);
+    }
+
+    // Apply search
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(c => 
+        c.name.toLowerCase().includes(query) ||
+        c.lastMessage?.toLowerCase().includes(query)
+      );
+    }
+
+    // Sort: pinned first, then by last message time
+    return filtered.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return 0; // Maintain original order for same pin status
+    });
+  }, [conversations, searchQuery, filter]);
+
+  // Calculate stats
+  const stats = useMemo(() => {
+    // Safety check
+    if (!conversations || !Array.isArray(conversations)) {
+      return {
+        total: 0,
+        direct: 0,
+        groups: 0,
+        unread: 0
+      };
+    }
+
+    return {
+      total: conversations.length,
+      direct: conversations.filter(c => !c.isGroup).length,
+      groups: conversations.filter(c => c.isGroup).length,
+      unread: conversations.filter(c => c.unreadCount && c.unreadCount > 0).length
+    };
+  }, [conversations]);
+
   return (
-    <div className="w-full h-full flex flex-col">
-      <div className="h-16 flex items-center justify-between px-4">
-        <h2 className="text-xl font-bold text-slate-800">
-          {type === 'chat' ? 'Messages' : 'Groups'}
-        </h2>
-        {type === 'group' && onCreateGroup && (
+    <div className={`flex flex-col h-full bg-white/80 backdrop-blur-sm ${className}`}>
+      {/* Header */}
+      <div className="px-4 py-4 border-b border-muted-200">
+        <div className="flex items-center justify-between mb-4">
+          <Typography variant="h4" weight="bold" className="text-muted-900">
+            Chats
+          </Typography>
+          <div className="flex items-center gap-2">
+            {onNewChat && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Icon name="message" size={20} />}
+                onClick={onNewChat}
+                title="New chat"
+              />
+            )}
+            {onNewGroup && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Icon name="plus" size={20} />}
+                onClick={onNewGroup}
+                title="New group"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Search */}
+        <Input
+          type="search"
+          placeholder="Search conversations..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          leftIcon={<Icon name="search" size={18} />}
+          className="mb-3"
+        />
+
+        {/* Filters */}
+        <div className="flex items-center gap-2">
           <button
-            onClick={onCreateGroup}
-            className="hover:text-primary transition-colors"
-            title="Create new group"
+            onClick={() => setFilter('all')}
+            className={`
+              px-3 py-1.5 rounded-lg text-sm font-medium transition-all
+              ${filter === 'all' 
+                ? 'bg-primary-600 text-white shadow-sm' 
+                : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
+              }
+            `}
           >
-            <AiOutlineUsergroupAdd size={28} />
+            All ({stats.total})
           </button>
-        )}
+          <button
+            onClick={() => setFilter('direct')}
+            className={`
+              px-3 py-1.5 rounded-lg text-sm font-medium transition-all
+              ${filter === 'direct' 
+                ? 'bg-primary-600 text-white shadow-sm' 
+                : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
+              }
+            `}
+          >
+            Direct ({stats.direct})
+          </button>
+          <button
+            onClick={() => setFilter('groups')}
+            className={`
+              px-3 py-1.5 rounded-lg text-sm font-medium transition-all
+              ${filter === 'groups' 
+                ? 'bg-primary-600 text-white shadow-sm' 
+                : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
+              }
+            `}
+          >
+            Groups ({stats.groups})
+          </button>
+          {stats.unread > 0 && (
+            <div className="ml-auto px-2 py-1 bg-accent-100 text-accent-600 rounded-full text-xs font-semibold">
+              {stats.unread} unread
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="bg-slate-200 h-[1px]" />
-
-      <div className="flex-1 overflow-y-auto scrollbar">
-        {chats.length === 0 && (
-          <div className="mt-12 px-4">
-            <div className="flex justify-center items-center my-4 text-slate-500">
-              <FiArrowUpLeft size={50} />
-            </div>
-            <p className="text-lg text-center text-slate-400">
-              {type === 'chat'
-                ? 'Explore users to start a conversation'
-                : 'Create or join groups to start chatting'}
-            </p>
+      {/* Conversation list */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loading variant="spinner" size="lg" text="Loading chats..." />
           </div>
+        ) : filteredConversations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center">
+            {searchQuery ? (
+              <>
+                <div className="w-20 h-20 mb-4 rounded-full bg-muted-100 flex items-center justify-center">
+                  <Icon name="search" size={32} className="text-muted-400" />
+                </div>
+                <Typography variant="h6" weight="semibold" className="text-muted-900 mb-2">
+                  No results found
+                </Typography>
+                <Typography variant="body2" className="text-muted-500 max-w-xs">
+                  Try searching with different keywords
+                </Typography>
+              </>
+            ) : (
+              <>
+                <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center">
+                  <Icon name="message" size={32} className="text-primary-600" />
+                </div>
+                <Typography variant="h6" weight="semibold" className="text-muted-900 mb-2">
+                  No conversations yet
+                </Typography>
+                <Typography variant="body2" className="text-muted-500 max-w-xs mb-4">
+                  Start a new conversation or create a group
+                </Typography>
+                <div className="flex gap-2">
+                  {onNewChat && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<Icon name="message" size={18} />}
+                      onClick={onNewChat}
+                    >
+                      New Chat
+                    </Button>
+                  )}
+                  {onNewGroup && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Icon name="users" size={18} />}
+                      onClick={onNewGroup}
+                    >
+                      New Group
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          filteredConversations.map((conversation) => (
+            <ChatListItem
+              key={conversation.id}
+              {...conversation}
+              isActive={conversation.id === activeConversationId}
+              onClick={() => onSelectConversation(conversation.id)}
+            />
+          ))
         )}
-
-        {chats.map((chat) => {
-          if (type === 'chat' && chat.userDetails) {
-            return (
-              <ChatListItem
-                key={chat._id}
-                userId={chat.userDetails._id}
-                name={chat.userDetails.name}
-                email={chat.userDetails.email}
-                profilePic={chat.userDetails.profile_pic}
-                lastMessage={chat.lastMsg}
-                unseenMsg={chat.unseenMsg}
-              />
-            );
-          } else if (type === 'group') {
-            return (
-              <GroupListItem
-                key={chat._id}
-                groupId={chat._id}
-                groupName={chat.groupName || ''}
-                groupImage={chat.groupImage}
-                lastMessage={chat.lastMsg}
-                unseenMsg={chat.unseenMsg}
-              />
-            );
-          }
-          return null;
-        })}
       </div>
     </div>
   );
