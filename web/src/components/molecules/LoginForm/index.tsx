@@ -1,6 +1,6 @@
 import React from "react";
-import Input from "../../atoms/Input";
-import Button from "../../atoms/Button";
+import Input from "../../atoms/AuthInput";
+import Button from "../../atoms/AuthButton";
 import ErrorMessage from "../../atoms/ErrorMessage";
 import "./LoginForm.css";
 
