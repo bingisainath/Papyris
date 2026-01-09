@@ -1,22 +1,17 @@
-// src/components/organisms/ChatWindow.tsx
-import React, { useState, useRef, useEffect } from 'react';
-import { Avatar, Button, Typography } from '../../atoms';
-import Icon from '../../atoms/Icon';
-import { MessageBubble, MessageInput } from '../../molecules';
+// src/components/organisms/ChatWindow.tsx - WITH WEBSOCKET INTEGRATION
 
-interface Message {
-  id: string;
-  text: string;
-  timestamp: string;
-  senderId: string;
-  senderName?: string;
-  senderAvatar?: string;
-  senderColor?: string;
-  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
-  mediaUrl?: string;
-  mediaType?: 'image' | 'video' | 'file';
-  reactions?: { emoji: string; count: number }[];
-}
+import React, { useState, useEffect, useRef } from 'react';
+import { MessageBubble, MessageInput } from '../../molecules';
+import { Avatar, Loading } from '../../atoms';
+import { 
+  useConversationRoom, 
+  useSendMessage, 
+  useTypingIndicator,
+  useReadReceipt,
+  useOnlinePresence 
+} from '../../../hooks/useWebSocket';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../../redux/store';
 
 interface ChatWindowProps {
   conversationId: string;
@@ -24,257 +19,196 @@ interface ChatWindowProps {
   conversationAvatar?: string;
   isGroup?: boolean;
   isOnline?: boolean;
-  lastSeen?: string;
-  memberCount?: number;
-  messages: Message[];
   currentUserId: string;
-  isTyping?: boolean;
-  typingUsers?: string[]; // For group chats
-  onSendMessage: (message: string, file?: File) => void;
-  onTyping?: (isTyping: boolean) => void;
-  onLoadMore?: () => void;
-  onVideoCall?: () => void;
-  onVoiceCall?: () => void;
-  onViewInfo?: () => void;
-  onViewExpenses?: () => void;
-  onBack?: () => void; // For mobile
-  className?: string;
+  onBack?: () => void;
 }
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
   conversationId,
   conversationName,
   conversationAvatar,
-  isGroup = false,
-  isOnline = false,
-  lastSeen,
-  memberCount,
-  messages,
+  isGroup,
+  isOnline,
   currentUserId,
-  isTyping = false,
-  typingUsers = [],
-  onSendMessage,
-  onTyping,
-  onLoadMore,
-  onVideoCall,
-  onVoiceCall,
-  onViewInfo,
-  onViewExpenses,
-  onBack,
-  className = ''
+  onBack
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [inputText, setInputText] = useState('');
 
-  // Auto-scroll to bottom on new messages
+  // ✅ WebSocket: Auto join/leave conversation room
+  useConversationRoom(conversationId);
+
+  // ✅ WebSocket: Get messages from Redux (populated by WebSocket)
+  const messages = useSelector((state: RootState) => 
+    state.chat?.messages[conversationId] || []
+  );
+
+  // ✅ WebSocket: Send message functionality
+  const { sendMessage, isConnected } = useSendMessage();
+
+  // ✅ WebSocket: Typing indicators
+  const { isTyping, typingUsers, startTyping, stopTyping } = useTypingIndicator(conversationId);
+
+  // ✅ WebSocket: Read receipts
+  const { markAsRead } = useReadReceipt(conversationId);
+
+  // ✅ WebSocket: Online presence (for group members)
+  const memberIds = ['user1', 'user2']; // Get from conversation data
+  const { isOnline: checkOnline } = useOnlinePresence(memberIds);
+
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const handleScroll = () => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    // Show scroll-to-bottom button if not at bottom
-    const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
-    setShowScrollButton(!isAtBottom);
-
-    // Load more messages when scrolling to top
-    if (container.scrollTop < 100 && onLoadMore) {
-      onLoadMore();
-    }
-  };
-
-  const getTypingText = () => {
-    if (!isTyping) return null;
-    
-    if (isGroup && typingUsers.length > 0) {
-      if (typingUsers.length === 1) {
-        return `${typingUsers[0]} is typing...`;
-      } else if (typingUsers.length === 2) {
-        return `${typingUsers[0]} and ${typingUsers[1]} are typing...`;
-      } else {
-        return `${typingUsers.length} people are typing...`;
+  // Mark messages as read when viewing
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.senderId !== currentUserId) {
+        markAsRead(lastMessage.id);
       }
     }
-    
-    return 'typing...';
+  }, [messages, currentUserId, markAsRead]);
+
+  // Handle send message
+  const handleSendMessage = (text: string, file?: File) => {
+    if (!text.trim() && !file) return;
+
+    // Stop typing indicator
+    stopTyping();
+
+    // ✅ Send via WebSocket
+    sendMessage(conversationId, text);
+
+    // Clear input
+    setInputText('');
+  };
+
+  // Handle typing
+  const handleTyping = (isTyping: boolean) => {
+    if (isTyping) {
+      startTyping();
+    } else {
+      stopTyping();
+    }
   };
 
   return (
-    <div className={`flex flex-col h-full bg-gradient-to-br from-muted-50 to-primary-50/20 ${className}`}>
+    <div className="flex flex-col h-full bg-white">
       {/* Header */}
-      <div className="glass border-b border-muted-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          {/* Left section */}
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            {/* Back button for mobile */}
-            {onBack && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Icon name="back" size={20} />}
-                onClick={onBack}
-                className="md:hidden"
-              />
-            )}
+      <div className="flex items-center gap-4 px-6 py-4 border-b border-muted-200 bg-white/80 backdrop-blur-sm">
+        {/* Back button (mobile) */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="md:hidden p-2 hover:bg-muted-100 rounded-lg transition-colors"
+          >
+            <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
 
-            {/* Avatar and info */}
-            <div 
-              className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
-              onClick={onViewInfo}
-            >
-              <Avatar
-                src={conversationAvatar}
-                alt={conversationName}
-                size="lg"
-                online={!isGroup && isOnline}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  {isGroup && <Icon name="users" size={16} className="text-primary-600 flex-shrink-0" />}
-                  <Typography variant="body1" weight="semibold" className="text-muted-900 truncate">
-                    {conversationName}
-                  </Typography>
-                </div>
-                <Typography variant="caption" className="text-muted-500">
-                  {isGroup 
-                    ? `${memberCount} members`
-                    : isOnline 
-                      ? <span className="flex items-center gap-1"><span className="w-2 h-2 bg-success-500 rounded-full" /> Online</span>
-                      : lastSeen || 'Offline'
-                  }
-                </Typography>
-              </div>
-            </div>
-          </div>
+        {/* Avatar */}
+        <Avatar
+          src={conversationAvatar}
+          name={conversationName}
+          size="md"
+          online={isOnline}
+        />
 
-          {/* Right section - Actions */}
-          <div className="flex items-center gap-2">
-            {onViewExpenses && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Icon name="dollar" size={20} className="text-accent-600" />}
-                onClick={onViewExpenses}
-                title="View expenses"
-              />
-            )}
-            {onVideoCall && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Icon name="video" size={20} />}
-                onClick={onVideoCall}
-                title="Video call"
-              />
-            )}
-            {onVoiceCall && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Icon name="phone" size={20} />}
-                onClick={onVoiceCall}
-                title="Voice call"
-              />
-            )}
-            {onViewInfo && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Icon name="info" size={20} />}
-                onClick={onViewInfo}
-                title="Chat info"
-              />
-            )}
-          </div>
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <h2 className="text-lg font-semibold text-muted-900 truncate">
+            {conversationName}
+          </h2>
+          
+          {/* Status */}
+          {isTyping ? (
+            <p className="text-sm text-primary-600 font-medium">
+              Typing...
+            </p>
+          ) : (
+            <p className="text-sm text-muted-500">
+              {isOnline ? 'Online' : 'Offline'}
+            </p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          {/* Connection status indicator */}
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success-500' : 'bg-muted-300'}`} 
+               title={isConnected ? 'Connected' : 'Disconnected'} 
+          />
+          
+          <button className="p-2 hover:bg-muted-100 rounded-lg transition-colors">
+            <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+            </svg>
+          </button>
         </div>
       </div>
 
-      {/* Messages area */}
-      <div 
-        ref={messagesContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-6 scroll-smooth"
-      >
-        {/* Empty state */}
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-24 h-24 mb-4 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center">
-              <Icon name="message" size={40} className="text-primary-600" />
-            </div>
-            <Typography variant="h5" weight="semibold" className="text-muted-900 mb-2">
-              No messages yet
-            </Typography>
-            <Typography variant="body2" className="text-muted-500 max-w-sm">
-              Start the conversation by sending a message below
-            </Typography>
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        {messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-muted-400">No messages yet. Say hi! 👋</p>
           </div>
+        ) : (
+          <>
+            {messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                text={message.text}
+                timestamp={message.timestamp}
+                isSent={message.senderId === currentUserId}
+                senderName={message.senderName}
+                senderAvatar={message.senderAvatar}
+                status={message.status}
+                mediaUrl={message.mediaUrl}
+                mediaType={message.mediaType}
+              />
+            ))}
+            <div ref={messagesEndRef} />
+          </>
         )}
-
-        {/* Messages */}
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            {...message}
-            isSent={message.senderId === currentUserId}
-            isGroup={isGroup}
-            onReply={() => console.log('Reply to', message.id)}
-            onReact={(emoji) => console.log('React', emoji, 'to', message.id)}
-            onDelete={() => console.log('Delete', message.id)}
-          />
-        ))}
-
-        {/* Typing indicator */}
-        {isTyping && (
-          <div className="flex items-center gap-2 mb-3">
-            <Avatar size="sm" />
-            <div className="bg-white border-2 border-muted-100 rounded-2xl rounded-bl-sm px-4 py-3 shadow-soft">
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-                  <span className="w-2 h-2 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                  <span className="w-2 h-2 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
-                </div>
-                <Typography variant="caption" className="text-primary-600">
-                  {getTypingText()}
-                </Typography>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Scroll anchor */}
-        <div ref={messagesEndRef} />
       </div>
 
-      {/* Scroll to bottom button */}
-      {showScrollButton && (
-        <div className="absolute bottom-24 right-8 z-10 animate-scale-in">
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Icon name="forward" size={20} className="rotate-90" />}
-            onClick={scrollToBottom}
-            className="rounded-full shadow-elevated"
-          />
+      {/* Typing Indicator */}
+      {isTyping && (
+        <div className="px-6 py-2 text-sm text-muted-500">
+          {typingUsers.length === 1 ? 'Someone is' : 'Multiple people are'} typing
+          <span className="inline-flex gap-1 ml-2">
+            <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+            <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+            <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+          </span>
         </div>
       )}
 
-      {/* Message input */}
-      <div className="px-4 py-3 bg-white/80 backdrop-blur-sm border-t border-muted-200">
+      {/* Message Input */}
+      <div className="border-t border-muted-200 bg-white">
         <MessageInput
-          onSend={onSendMessage}
-          onTyping={onTyping}
-          showExpense={isGroup}
-          placeholder={`Message ${conversationName}...`}
+          value={inputText}
+          onChange={setInputText}
+          onSend={handleSendMessage}
+          onTyping={handleTyping}
+          placeholder="Type a message..."
+          disabled={!isConnected}
         />
       </div>
+
+      {/* Not connected warning */}
+      {!isConnected && (
+        <div className="px-6 py-2 bg-warning-50 border-t border-warning-200">
+          <p className="text-sm text-warning-700">
+            ⚠️ Not connected. Trying to reconnect...
+          </p>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,0 +1,566 @@
+//websocker/auth.py
+
+from fastapi import WebSocket
+from jose import jwt, JWTError
+from app.config.settings import settings
+
+def get_token_from_ws(ws: WebSocket) -> str | None:
+    # browser-friendly: ws://.../ws/chat?token=xxx
+    token = ws.query_params.get("token")
+    if token:
+        return token
+
+    # Postman can send headers
+    auth = ws.headers.get("authorization")
+    if auth and auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip()
+    return None
+
+def verify_ws_token(token: str) -> str:
+    # returns user_id (subject)
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        sub = payload.get("sub") or payload.get("subject") or payload.get("user_id")
+        if not sub:
+            raise JWTError("Missing subject")
+        return str(sub)
+    except Exception:
+        raise
+
+
+
+//websocket/manager.py
+
+from __future__ import annotations
+from typing import Dict, Set
+from fastapi import WebSocket
+
+class WSManager:
+    def __init__(self) -> None:
+        self.user_sockets: Dict[str, Set[WebSocket]] = {}
+        self.room_sockets: Dict[str, Set[WebSocket]] = {}
+
+    async def accept(self, ws: WebSocket) -> None:
+        await ws.accept()
+
+    def track_user(self, user_id: str, ws: WebSocket) -> None:
+        self.user_sockets.setdefault(user_id, set()).add(ws)
+
+    def untrack(self, user_id: str, ws: WebSocket) -> None:
+        self.user_sockets.get(user_id, set()).discard(ws)
+        for room in list(self.room_sockets.keys()):
+            self.room_sockets[room].discard(ws)
+            if not self.room_sockets[room]:
+                self.room_sockets.pop(room, None)
+
+    def join_room(self, room_id: str, ws: WebSocket) -> None:
+        self.room_sockets.setdefault(room_id, set()).add(ws)
+
+    async def broadcast_room(self, room_id: str, payload: dict) -> None:
+        for ws in list(self.room_sockets.get(room_id, set())):
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                pass
+
+    async def send_user(self, user_id: str, payload: dict) -> None:
+        for ws in list(self.user_sockets.get(user_id, set())):
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                pass
+
+
+//websocket/pubsub.py
+
+import json
+import asyncio
+from redis.asyncio import Redis
+from app.config.settings import settings
+
+CHANNEL = "papyris:ws:events"
+
+class PubSub:
+    def __init__(self) -> None:
+        self.redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
+        self._task: asyncio.Task | None = None
+
+    async def publish(self, payload: dict) -> None:
+        await self.redis.publish(CHANNEL, json.dumps(payload))
+
+    async def run(self, on_event):
+        pubsub = self.redis.pubsub()
+        await pubsub.subscribe(CHANNEL)
+        async for msg in pubsub.listen():
+            if msg["type"] != "message":
+                continue
+            data = json.loads(msg["data"])
+            await on_event(data)
+
+    def start(self, on_event):
+        self._task = asyncio.create_task(self.run(on_event))
+
+    async def stop(self):
+        if self._task:
+            self._task.cancel()
+
+
+//websocker/routes.py
+# import json
+# from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+# from app.websocket.manager import ConnectionManager
+
+# router = APIRouter(prefix="/ws", tags=["WebSocket"])
+# manager = ConnectionManager()
+
+
+# @router.websocket("/ping")
+# async def ws_ping(ws: WebSocket):
+#     """
+#     Basic echo test: send any text -> gets 'echo: <text>'
+#     """
+#     await manager.connect(ws)
+#     try:
+#         while True:
+#             msg = await ws.receive_text()
+#             await ws.send_text(f"echo: {msg}")
+#     except WebSocketDisconnect:
+#         manager.disconnect(ws)
+
+
+# @router.websocket("/chat")
+# async def ws_chat(ws: WebSocket):
+#     """
+#     Rooms-based chat:
+#     - join:    { "type": "join", "roomId": "dm:1:2" }
+#     - leave:   { "type": "leave", "roomId": "dm:1:2" }
+#     - message: { "type": "message", "roomId": "dm:1:2", "text": "hi" }
+#     """
+#     await manager.connect(ws)
+
+#     try:
+#         while True:
+#             raw = await ws.receive_text()
+#             data = json.loads(raw)
+
+#             msg_type = data.get("type")
+#             room_id = data.get("roomId")
+
+#             if msg_type == "join" and room_id:
+#                 manager.join(room_id, ws)
+#                 await ws.send_json({"type": "joined", "roomId": room_id})
+#                 continue
+
+#             if msg_type == "leave" and room_id:
+#                 manager.leave(room_id, ws)
+#                 await ws.send_json({"type": "left", "roomId": room_id})
+#                 continue
+
+#             if msg_type == "message" and room_id:
+#                 text = (data.get("text") or "").strip()
+#                 if not text:
+#                     await ws.send_json({"type": "error", "message": "Empty message"})
+#                     continue
+
+#                 await manager.broadcast(room_id, {
+#                     "type": "message",
+#                     "roomId": room_id,
+#                     "text": text,
+#                 })
+#                 continue
+
+#             await ws.send_json({"type": "error", "message": "Invalid event"})
+#     except WebSocketDisconnect:
+#         manager.disconnect(ws)
+#     except Exception as e:
+#         manager.disconnect(ws)
+#         try:
+#             await ws.close()
+#         except Exception:
+#             pass
+
+
+import json
+import uuid  # ADD THIS
+from datetime import datetime, timezone  # ADD THIS
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import async_session_maker
+from app.websocket.manager import WSManager
+from app.websocket.auth import get_token_from_ws, verify_ws_token
+from app.websocket.pubsub import PubSub
+from app.websocket.streams import RedisStreams
+from app.models.message import Message  # FIX THIS
+from app.models.message_receipt import MessageReceipt  # FIX THIS
+from sqlalchemy import select
+
+streams = RedisStreams()
+
+router = APIRouter(prefix="/ws", tags=["WebSocket"])
+manager = WSManager()
+pubsub = PubSub()
+
+ONLINE_SET_KEY = "papyris:online_users"
+
+async def publish_room(room_id: str, payload: dict):
+    await pubsub.publish({"roomId": room_id, "payload": payload})
+
+async def on_redis_event(evt: dict):
+    room_id = evt.get("roomId")
+    payload = evt.get("payload")
+    if room_id and payload:
+        await manager.broadcast_room(room_id, payload)
+
+# @router.on_event("startup")
+# async def _ws_start():
+#     pubsub.start(on_redis_event)
+
+@router.on_event("startup")
+async def _ws_start():
+    await streams.init_stream()
+    pubsub.start(on_redis_event)
+
+@router.websocket("/chat")
+async def ws_chat(ws: WebSocket):
+    token = get_token_from_ws(ws)
+    if not token:
+        await ws.close(code=1008)
+        return
+
+    try:
+        user_id = verify_ws_token(token)
+    except Exception:
+        await ws.close(code=1008)
+        return
+
+    await manager.accept(ws)
+    manager.track_user(user_id, ws)
+
+    # online presence (per-instance)
+    # For multi-instance: keep a Redis set + publish online updates similarly.
+    async with pubsub.redis.pipeline() as p:
+        await p.sadd(ONLINE_SET_KEY, user_id)
+        await p.execute()
+
+    try:
+        await pubsub.publish({"roomId": "__presence__", "payload": {"type": "online", "userId": user_id}})
+
+        while True:
+            raw = await ws.receive_text()
+            data = json.loads(raw)
+
+            t = data.get("type")
+            room_id = data.get("roomId")
+
+            # JOIN room
+            if t == "join" and room_id:
+                # TODO production: validate membership in DB before joining
+                manager.join_room(room_id, ws)
+                await ws.send_json({"type": "joined", "roomId": room_id})
+                continue
+
+            # TYPING
+            if t == "typing" and room_id:
+                payload = {"type": "typing", "roomId": room_id, "userId": user_id, "isTyping": bool(data.get("isTyping"))}
+                await publish_room(room_id, payload)
+                continue
+
+            # MESSAGE
+            # if t == "message" and room_id:
+            #     text = (data.get("text") or "").strip()
+            #     if not text:
+            #         await ws.send_json({"type": "error", "message": "Empty message"})
+            #         continue
+
+            #     # Persist message in DB
+            #     async with async_session_maker() as db:  # AsyncSession
+            #         msg_id = await _persist_message(db, room_id, user_id, text)
+
+            #     payload = {"type": "message", "roomId": room_id, "id": msg_id, "text": text, "senderId": user_id}
+            #     await publish_room(room_id, payload)
+            #     continue
+
+            # MESSAGE
+            if t == "message" and room_id:
+                text = (data.get("text") or "").strip()
+                if not text:
+                    await ws.send_json({"type": "error", "message": "Empty message"})
+                    continue
+                
+                msg_id = str(uuid.uuid4())
+                timestamp = datetime.now(timezone.utc).isoformat()
+                
+                # ✅ Push to Redis Streams
+                await streams.add_message({
+                    "id": msg_id,
+                    "roomId": room_id,
+                    "senderId": user_id,
+                    "text": text,
+                    "timestamp": timestamp
+                })
+                
+                # ✅ Broadcast via Pub/Sub
+                payload = {
+                    "type": "message",
+                    "roomId": room_id,
+                    "id": msg_id,
+                    "text": text,
+                    "senderId": user_id,
+                    "createdAt": timestamp
+                }
+                await publish_room(room_id, payload)
+                
+                # ✅ Send ACK
+                await ws.send_json({
+                    "type": "message_ack",
+                    "messageId": msg_id,
+                    "status": "sent"
+                })
+                continue
+
+            # READ RECEIPT
+            if t == "read" and room_id:
+                last_id = data.get("lastMessageId")
+                async with async_session_maker() as db:
+                    await _mark_read(db, user_id, room_id, last_id)
+
+                payload = {"type": "read", "roomId": room_id, "userId": user_id, "lastMessageId": last_id}
+                await publish_room(room_id, payload)
+                continue
+
+            await ws.send_json({"type": "error", "message": "Invalid event"})
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.untrack(user_id, ws)
+        await pubsub.redis.srem(ONLINE_SET_KEY, user_id)
+        await pubsub.publish({"roomId": "__presence__", "payload": {"type": "offline", "userId": user_id}})
+
+async def _persist_message(db: AsyncSession, conversation_id: str, sender_id: str, text: str) -> str:
+    msg_id = str(uuid.uuid4())
+    db.add(Message(id=msg_id, conversation_id=conversation_id, sender_id=sender_id, text=text))
+    await db.commit()
+    return msg_id
+
+async def _mark_read(db: AsyncSession, user_id: str, conversation_id: str, last_message_id: str | None):
+    # simplest: mark receipt for last_message_id only
+    if not last_message_id:
+        return
+    exists = await db.execute(select(MessageReceipt).where(
+        MessageReceipt.message_id == last_message_id,
+        MessageReceipt.user_id == user_id
+    ))
+    if exists.scalar_one_or_none() is None:
+        db.add(MessageReceipt(message_id=last_message_id, user_id=user_id))
+        await db.commit()
+
+
+//websocker/stresms.py
+import json
+from redis.asyncio import Redis
+from app.config.settings import settings
+
+STREAM_KEY = "papyris:messages"
+CONSUMER_GROUP = "papyris-workers"
+
+class RedisStreams:
+    def __init__(self):
+        self.redis = Redis.from_url(settings.redis_dsn, decode_responses=True)
+    
+    async def init_stream(self):
+        try:
+            await self.redis.xgroup_create(STREAM_KEY, CONSUMER_GROUP, id='0', mkstream=True)
+        except Exception as e:
+            if "BUSYGROUP" not in str(e):
+                print(f"Stream init: {e}")
+    
+    async def add_message(self, payload: dict) -> str:
+        redis_payload = {"data": json.dumps(payload)}
+        return await self.redis.xadd(STREAM_KEY, redis_payload, maxlen=100000)
+    
+    async def read_messages(self, consumer_name: str, count: int = 10, block: int = 5000):
+        return await self.redis.xreadgroup(CONSUMER_GROUP, consumer_name, {STREAM_KEY: '>'}, count=count, block=block)
+    
+    async def ack_message(self, msg_id: str):
+        return await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, msg_id)
+    
+    async def close(self):
+        await self.redis.close()
+
+
+//models/conversation.py
+
+import uuid
+from sqlalchemy import String, DateTime, func, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    kind: Mapped[str] = mapped_column(String, index=True)  # "dm" | "group"
+    title: Mapped[str | None] = mapped_column(String, nullable=True)  # group name
+    avatar_url: Mapped[str] = mapped_column(String, default="")       # group profile pic
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    members = relationship("ConversationMember", back_populates="conversation", cascade="all, delete-orphan")
+
+
+//models/message.py
+
+import uuid
+from datetime import datetime
+from sqlalchemy import String, Text, DateTime, ForeignKey, func, Index
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+from app.db.base import Base
+
+class Message(Base):
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index('idx_conversation_created', 'conversation_id', 'created_at'),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    conversation_id: Mapped[str] = mapped_column(String, ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    
+    # FIX: Change from String to UUID
+    sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    media_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="sent")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+//models/user.py
+import uuid
+from datetime import datetime
+from sqlalchemy import String, Boolean, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+from app.db.base import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+//models/conversation_member.py
+
+
+from sqlalchemy import String, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.db.base import Base
+import uuid
+
+class ConversationMember(Base):
+    __tablename__ = "conversation_members"
+    __table_args__ = (UniqueConstraint("conversation_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(String, ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    
+    # FIX: Change from String to UUID
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    conversation = relationship("Conversation", back_populates="members")
+
+
+//app/main.py
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+import app.models
+from app.config.settings import settings
+from app.api.v1 import api_router
+from app.websocket.routes import router as ws_router
+
+app = FastAPI(title=settings.APP_NAME)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ✅ Wrap FastAPI HTTPException -> {success:false, message, data:null}
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": exc.detail,
+            "data": None,
+        },
+    )
+
+# ✅ Wrap validation errors too (422)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "message": "Validation error",
+            "data": exc.errors(),
+        },
+    )
+
+app.include_router(api_router, prefix="/api/v1")
+
+app.include_router(ws_router, prefix="/api/v1")
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+@app.get("/")
+async def root():
+    return {"message": "Backend works"}
+
+
+
+//core/config.py
+
+i dont have anything in this file
+
+//db/__init__.py
+
+from app.db.session import get_db, engine
+from app.db.base import Base
+
+__all__ = ["get_db", "engine", "Base"]
+
+
+//alembic/versions/
+
+I dont have anthing in this file
+
+
+
