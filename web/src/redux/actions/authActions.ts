@@ -101,22 +101,27 @@ export const logout = () => (dispatch: AppDispatch) => {
 };
 
 /**
- * Load user from token (on app startup)
+ * Load user from token (on app startup or page refresh)
  */
 export const loadUser = () => async (dispatch: AppDispatch, getState: any) => {
   try {
     const token = getState().auth.token;
 
     if (!token) {
+      console.log('⚠️ No token found');
       return;
     }
 
+    console.log('📥 Loading user from backend...');
     dispatch(authStart());
 
+    // Call backend API to get user info
     const response = await authService.getCurrentUser(token);
 
     if (response.success && response.data) {
       const user = response.data;
+
+      console.log('✅ User loaded successfully:', user.username);
 
       dispatch(authSuccess({
         user: {
@@ -131,13 +136,57 @@ export const loadUser = () => async (dispatch: AppDispatch, getState: any) => {
         token,
       }));
 
-      // Connect WebSocket
+      // Connect WebSocket after loading user
       dispatch(connectWebSocket(token));
     } else {
+      console.error('❌ Failed to load user, logging out');
       dispatch(logout());
     }
-  } catch (error) {
-    console.error('Failed to load user:', error);
+  } catch (error: any) {
+    console.error('❌ Error loading user:', error);
+    // If token is invalid, logout
     dispatch(logout());
   }
 };
+
+/**
+ * Load user from token (on app startup)
+ */
+// export const loadUser = () => async (dispatch: AppDispatch, getState: any) => {
+//   try {
+//     const token = getState().auth.token;
+
+//     if (!token) {
+//       return;
+//     }
+
+//     dispatch(authStart());
+
+//     const response = await authService.getCurrentUser(token);
+
+//     if (response.success && response.data) {
+//       const user = response.data;
+
+//       dispatch(authSuccess({
+//         user: {
+//           id: user.id,
+//           username: user.username,
+//           email: user.email,
+//           avatar: user.avatar,
+//           name: user.name,
+//           bio: user.bio,
+//           createdAt: user.created_at,
+//         },
+//         token,
+//       }));
+
+//       // Connect WebSocket
+//       dispatch(connectWebSocket(token));
+//     } else {
+//       dispatch(logout());
+//     }
+//   } catch (error) {
+//     console.error('Failed to load user:', error);
+//     dispatch(logout());
+//   }
+// };

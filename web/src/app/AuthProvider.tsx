@@ -133,15 +133,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!username.trim()) throw new Error("Username is required");
         if (!email.trim()) throw new Error("Email is required");
         if (!password.trim()) throw new Error("Password is required");
-        
+
         if (username.length < 3) {
           throw new Error("Username must be at least 3 characters");
         }
-        
+
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
           throw new Error("Please enter a valid email address");
         }
-        
+
         if (password.length < 6) {
           throw new Error("Password must be at least 6 characters");
         }

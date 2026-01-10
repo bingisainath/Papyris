@@ -2,6 +2,7 @@
 
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { RootState } from '../store';
+import { tokenStore } from '../../utils/token'
 
 interface User {
   id: string;
@@ -24,9 +25,9 @@ interface AuthState {
 
 const initialState: AuthState = {
   user: null,
-  token: localStorage.getItem('token'),
+  token: tokenStore.get(),
   refreshToken: localStorage.getItem('refreshToken'),
-  isAuthenticated: !!localStorage.getItem('token'),
+  isAuthenticated: !!tokenStore.get(),
   isLoading: false,
   error: null,
 };

@@ -1,6 +1,6 @@
 // src/services/websocket.service.ts
 
-import { io, Socket } from 'socket.io-client';
+// import { io, Socket } from 'socket.io-client';
 
 export interface Message {
   id: string;
@@ -53,70 +53,119 @@ class WebSocketService {
    */
   connect(token: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        console.log('✅ WebSocket already connected');
+
+      // ✅ FIX 1: handle CONNECTING state
+      if (
+        this.ws &&
+        (this.ws.readyState === WebSocket.OPEN ||
+          this.ws.readyState === WebSocket.CONNECTING)
+      ) {
+        console.log('⏳ WebSocket already open or connecting');
         resolve();
         return;
       }
 
       if (this.isConnecting) {
         console.log('⏳ Connection already in progress');
-        reject(new Error('Connection already in progress'));
-        return;
+        return; // ❌ DO NOT reject
       }
 
-      this.token = token;
       this.isConnecting = true;
+      this.token = token;
       this.shouldReconnect = true;
 
-      try {
-        // Add token as query parameter
-        const url = `${this.wsUrl}?token=${encodeURIComponent(token)}`;
-        this.ws = new WebSocket(url);
+      const url = `${this.wsUrl}?token=${encodeURIComponent(token)}`;
+      this.ws = new WebSocket(url);
 
-        this.ws.onopen = () => {
-          console.log('✅ WebSocket connected');
-          this.isConnecting = false;
-          this.reconnectAttempts = 0;
-          this.startHeartbeat();
-          this.emit('connected', {});
-          resolve();
-        };
-
-        this.ws.onmessage = (event) => {
-          try {
-            const data: WebSocketEvent = JSON.parse(event.data);
-            this.handleMessage(data);
-          } catch (error) {
-            console.error('❌ Failed to parse WebSocket message:', error);
-          }
-        };
-
-        this.ws.onerror = (error) => {
-          console.error('❌ WebSocket error:', error);
-          this.isConnecting = false;
-          this.emit('error', { type: 'error', message: 'Connection error' });
-          reject(error);
-        };
-
-        this.ws.onclose = (event) => {
-          console.log('🔌 WebSocket disconnected:', event.code, event.reason);
-          this.isConnecting = false;
-          this.stopHeartbeat();
-          this.emit('disconnected', {});
-
-          // Auto-reconnect if not intentional disconnect
-          if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.scheduleReconnect();
-          }
-        };
-      } catch (error) {
-        console.error('❌ Failed to create WebSocket connection:', error);
+      this.ws.onopen = () => {
+        console.log('✅ WebSocket connected');
         this.isConnecting = false;
-        reject(error);
-      }
+        this.reconnectAttempts = 0;
+        this.startHeartbeat();
+        resolve();
+      };
+
+      this.ws.onerror = (err) => {
+        this.isConnecting = false;
+        reject(err);
+      };
+
+      this.ws.onclose = () => {
+        this.isConnecting = false;
+        this.stopHeartbeat();
+        if (this.shouldReconnect) {
+          this.scheduleReconnect();
+        }
+      };
     });
   }
+
+  // connect(token: string): Promise<void> {
+  //   return new Promise((resolve, reject) => {
+  //     if (this.ws?.readyState === WebSocket.OPEN) {
+  //       console.log('✅ WebSocket already connected');
+  //       resolve();
+  //       return;
+  //     }
+
+  //     if (this.isConnecting) {
+  //       console.log('⏳ Connection already in progress');
+  //       reject(new Error('Connection already in progress'));
+  //       return;
+  //     }
+
+  //     this.token = token;
+  //     this.isConnecting = true;
+  //     this.shouldReconnect = true;
+
+  //     try {
+  //       // Add token as query parameter
+  //       const url = `${this.wsUrl}?token=${encodeURIComponent(token)}`;
+  //       this.ws = new WebSocket(url);
+
+  //       this.ws.onopen = () => {
+  //         console.log('✅ WebSocket connected');
+  //         this.isConnecting = false;
+  //         this.reconnectAttempts = 0;
+  //         this.startHeartbeat();
+  //         this.emit('connected', {});
+  //         resolve();
+  //       };
+
+  //       this.ws.onmessage = (event) => {
+  //         try {
+  //           const data: WebSocketEvent = JSON.parse(event.data);
+  //           this.handleMessage(data);
+  //         } catch (error) {
+  //           console.error('❌ Failed to parse WebSocket message:', error);
+  //         }
+  //       };
+
+  //       this.ws.onerror = (error) => {
+  //         console.error('❌ WebSocket error:', error);
+  //         this.isConnecting = false;
+  //         this.emit('error', { type: 'error', message: 'Connection error' });
+  //         reject(error);
+  //       };
+
+  //       this.ws.onclose = (event) => {
+  //         console.log('🔌 WebSocket disconnected:', event.code, event.reason);
+  //         this.isConnecting = false;
+  //         this.stopHeartbeat();
+  //         this.emit('disconnected', {});
+
+  //         // Auto-reconnect if not intentional disconnect
+  //         if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+  //           this.scheduleReconnect();
+  //         }
+  //       };
+  //     } catch (error) {
+  //       console.error('❌ Failed to create WebSocket connection:', error);
+  //       this.isConnecting = false;
+  //       reject(error);
+  //     }
+  //   });
+  // }
 
   /**
    * Disconnect from WebSocket server
@@ -124,12 +173,12 @@ class WebSocketService {
   disconnect() {
     this.shouldReconnect = false;
     this.stopHeartbeat();
-    
+
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
-    
+
     console.log('👋 WebSocket disconnected by user');
   }
 
@@ -267,7 +316,7 @@ class WebSocketService {
    */
   private startHeartbeat() {
     this.stopHeartbeat();
-    
+
     this.heartbeatInterval = setInterval(() => {
       if (this.isConnected()) {
         // Send ping (you can customize this based on your backend)
@@ -296,7 +345,7 @@ class WebSocketService {
   private scheduleReconnect() {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    
+
     console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     setTimeout(() => {

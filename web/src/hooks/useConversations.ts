@@ -2,13 +2,17 @@
 import { useSelector, useDispatch } from 'react-redux';
 import { useEffect } from 'react';
 import type { RootState } from '../redux/store';
+import { createDirectConversation } from '../api/chat.api';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * Hook to manage conversations data
  */
 export const useConversations = () => {
   const dispatch = useDispatch();
-  
+
+  const navigate = useNavigate();
+
   // Select conversations from Redux store
   const conversations = useSelector((state: RootState) => state.chat?.conversations || []);
   const isLoading = useSelector((state: RootState) => state.chat?.isLoading || false);
@@ -19,9 +23,16 @@ export const useConversations = () => {
     // dispatch(fetchConversations());
   }, [dispatch]);
 
+  const startDirectConversation = async (userId: string) => {
+
+    const conversation = await createDirectConversation(userId);
+    navigate(`/chat/${conversation.id}`);
+  };
+
   // Return conversations and helper functions
   return {
     conversations,
+    startDirectConversation,
     isLoading,
     error,
     // Add action dispatchers
@@ -35,8 +46,8 @@ export const useConversations = () => {
  */
 export const useMessages = (conversationId?: string) => {
   const dispatch = useDispatch();
-  
-  const messages = useSelector((state: RootState) => 
+
+  const messages = useSelector((state: RootState) =>
     conversationId ? state.chat?.messages[conversationId] || [] : []
   );
   const isLoading = useSelector((state: RootState) => state.chat?.messagesLoading || false);
@@ -60,17 +71,17 @@ export const useMessages = (conversationId?: string) => {
  */
 export const useExpenses = () => {
   const dispatch = useDispatch();
-  
+
   const expenses = useSelector((state: RootState) => state.expenses?.list || []);
   const isLoading = useSelector((state: RootState) => state.expenses?.isLoading || false);
-  
+
   // Calculate totals
   const totals = useSelector((state: RootState) => {
     const userId = state.auth?.user?.id;
     if (!userId) return { totalOwed: 0, totalOwe: 0, totalSettled: 0 };
 
     const expenses = state.expenses?.list || [];
-    
+
     let totalOwed = 0;
     let totalOwe = 0;
     let totalSettled = 0;
@@ -114,8 +125,8 @@ export const useExpenses = () => {
  */
 export const useGroups = () => {
   const dispatch = useDispatch();
-  
-  const groups = useSelector((state: RootState) => 
+
+  const groups = useSelector((state: RootState) =>
     state.chat?.conversations.filter((c: any) => c.isGroup) || []
   );
   const isLoading = useSelector((state: RootState) => state.chat?.isLoading || false);
