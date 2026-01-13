@@ -3,6 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { Input, Button, Typography, Loading } from '../../atoms';
 import Icon from '../../atoms/Icon';
 import { ChatListItem } from '../../molecules';
+import { useConversations } from '../../../hooks/useConversations';
+import { formatMessageTime } from '../../../utils/dateFormat';
 
 interface Conversation {
   id: string;
@@ -106,6 +108,7 @@ const ChatList: React.FC<ChatListProps> = ({
                 variant="ghost"
                 size="sm"
                 icon={<Icon name="message" size={20} />}
+                // onClick={onNewChat}
                 onClick={onNewChat}
                 title="New chat"
               />

@@ -1,24 +1,3 @@
-// import { createBrowserRouter } from "react-router-dom";
-// import Login from "../pages/Authentication";
-// // import Signup from "../pages/auth/Signup";
-// // import Home from "../pages/Home";
-// import Home from "../pages/Home"
-// import { RequireAuth } from "../app/RequireAuth";
-
-// export const router = createBrowserRouter([
-//   { path: "/login", element: <Login /> },
-//   { path: "/signup", element: <Login /> },
-//   {
-//     path: "/",
-//     element: (
-//       <RequireAuth>
-//         <Home />
-//       </RequireAuth>
-//     ),
-//   },
-// ]);
-
-
 // src/routes/router.tsx
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import Login from '../pages/Authentication/index';
@@ -32,7 +11,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/signup',
-    element: <Login />, // Assuming Login page handles both login and signup
+    element: <Login />,
   },
   {
     path: '/',

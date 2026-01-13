@@ -6,3 +6,5 @@ export { default as CreateGroupModal } from './CreateGroupModal';
 export { default as ExpensePanel } from './ExpensePanel';
 export { default as ProfileModal } from './ProfileModal';
 export { default as Sidebar } from './Sidebar';
+export { default as EmptyState} from './EmptyState';
+export { default as SearchUserModal } from './SearchUserModal';

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-// import { useDispatch } from "react-redux";
+import { useDispatch } from "react-redux";
 // import axiosHelper from "../../helper/axiosHelper";
 // import { setToken } from "../../redux/userSlice";
 import AuthContainer from "../../components/organisms/AuthContainer";
@@ -8,11 +8,15 @@ import "./LoginPage.css";
 import { useAuth } from "../../app/AuthProvider";
 import { validatePassword } from "../../utils/passwordPolicy";
 
+import { connectWebSocket } from '../../redux/actions/websocketActions';
+
 import { toast } from "react-toastify";
 
 const AuthenticationPage: React.FC = () => {
   const navigate = useNavigate();
   const { login, register } = useAuth();
+
+  const dispatch = useDispatch();
 
   const [isActive, setIsActive] = useState<boolean>(false);
   // const navigate = useNavigate();
@@ -37,13 +41,15 @@ const AuthenticationPage: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
+    console.log('login called 1');
+
     setLoginError(null);
 
     try {
       console.log("Attempting login...");
       const loginMail = loginEmail.toLocaleLowerCase();
+      console.log('login called 2', loginMail);
       await login(loginMail, loginPassword);
-
       toast.success("Logged in successfully");
       console.log("Login successful, navigating...");
       navigate("/", { replace: true });
@@ -66,7 +72,7 @@ const AuthenticationPage: React.FC = () => {
       toast.error(pwdErr);
       return;
     }
-    
+
     try {
       const loewCaseregisterUserName = registerUsername.toLocaleLowerCase();
       const lowerCaseEmail = registerEmail.toLocaleLowerCase();

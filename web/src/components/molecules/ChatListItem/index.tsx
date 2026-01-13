@@ -2,6 +2,7 @@
 import React from 'react';
 import { Avatar, Badge, Typography } from '../../atoms';
 import Icon from '../../atoms/Icon';
+import { formatMessageTime } from '../../../utils/dateFormat';
 
 interface ChatListItemProps {
   id: string;
@@ -88,7 +89,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
           
           {lastMessageTime && (
             <span className={`text-xs flex-shrink-0 ml-2 ${unreadCount > 0 ? 'text-primary-600 font-semibold' : 'text-muted-400'}`}>
-              {lastMessageTime}
+              {formatMessageTime(lastMessageTime)}
             </span>
           )}
         </div>

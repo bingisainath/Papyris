@@ -1,14 +1,16 @@
-// src/redux/slices/chatSlice.ts - EXAMPLE STRUCTURE
+// src/redux/slices/chatSlice.ts - UPDATED WITH WEBSOCKET
+
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface Message {
   id: string;
-  text: string;
-  timestamp: string;
+  conversationId: string;
   senderId: string;
   senderName?: string;
   senderAvatar?: string;
-  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  text: string;
+  timestamp: string;
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'file';
 }
@@ -24,6 +26,7 @@ interface Conversation {
   isTyping?: boolean;
   isPinned?: boolean;
   isGroup?: boolean;
+  members?: string[];
 }
 
 interface ChatState {
@@ -33,7 +36,6 @@ interface ChatState {
   isLoading: boolean;
   messagesLoading: boolean;
   error?: string;
-  typingUsers: Record<string, string[]>; // conversationId -> userIds[]
 }
 
 const initialState: ChatState = {
@@ -42,8 +44,7 @@ const initialState: ChatState = {
   activeConversationId: undefined,
   isLoading: false,
   messagesLoading: false,
-  error: undefined,
-  typingUsers: {}
+  error: undefined
 };
 
 const chatSlice = createSlice({
@@ -54,45 +55,139 @@ const chatSlice = createSlice({
     setConversations: (state, action: PayloadAction<Conversation[]>) => {
       state.conversations = action.payload;
     },
-    
+
     addConversation: (state, action: PayloadAction<Conversation>) => {
       state.conversations.unshift(action.payload);
     },
-    
+
     updateConversation: (state, action: PayloadAction<{ id: string; updates: Partial<Conversation> }>) => {
       const index = state.conversations.findIndex(c => c.id === action.payload.id);
       if (index !== -1) {
         state.conversations[index] = { ...state.conversations[index], ...action.payload.updates };
       }
     },
-    
+
+    updateConversationLastMessage: (
+      state,
+      action: PayloadAction<{ 
+        conversationId: string; 
+        lastMessage: string; 
+        timestamp: string;
+        createIfNotExists?: boolean;
+      }>
+    ) => {
+      const { conversationId, lastMessage, timestamp, createIfNotExists } = action.payload;
+      let conversation = state.conversations.find(c => c.id === conversationId);
+      
+      if (!conversation && createIfNotExists) {
+        // Create placeholder
+        conversation = {
+          id: conversationId,
+          name: 'New Conversation',
+          avatar: undefined,
+          lastMessage: lastMessage,
+          lastMessageTime: timestamp,
+          unreadCount: 1,
+          isOnline: false,
+          isGroup: false,
+          members: [],
+        };
+        state.conversations.unshift(conversation);
+      } else if (conversation) {
+        conversation.lastMessage = lastMessage;
+        conversation.lastMessageTime = timestamp;
+        
+        // Move to top
+        const index = state.conversations.indexOf(conversation);
+        if (index > 0) {
+          state.conversations.splice(index, 1);
+          state.conversations.unshift(conversation);
+        }
+      }
+    },
+
     removeConversation: (state, action: PayloadAction<string>) => {
       state.conversations = state.conversations.filter(c => c.id !== action.payload);
+    },
+
+    updateUserOnlineStatus: (
+      state,
+      action: PayloadAction<{ userId: string; isOnline: boolean }>
+    ) => {
+      const { userId, isOnline } = action.payload;
+
+      // Update in conversations
+      state.conversations.forEach(conv => {
+        if (!conv.isGroup && conv.members?.includes(userId)) {
+          conv.isOnline = isOnline;
+        }
+      });
     },
 
     // Messages
     setMessages: (state, action: PayloadAction<{ conversationId: string; messages: Message[] }>) => {
       state.messages[action.payload.conversationId] = action.payload.messages;
     },
-    
-    addMessage: (state, action: PayloadAction<{ conversationId: string; message: Message }>) => {
+
+    replaceOptimisticMessage: (
+      state,
+      action: PayloadAction<{
+        conversationId: string;
+        tempId: string;
+        message: Message
+      }>
+    ) => {
+      const { conversationId, tempId, message } = action.payload;
+
+      if (!state.messages[conversationId]) return;
+
+      const index = state.messages[conversationId].findIndex(m => m.id === tempId);
+
+      if (index !== -1) {
+        // Replace optimistic with real
+        state.messages[conversationId][index] = message;
+        console.log(`✅ Replaced temp message ${tempId} with real ${message.id}`);
+      } else {
+        // Not found, just add it
+        state.messages[conversationId].push(message);
+      }
+
+      // Sort by timestamp
+      state.messages[conversationId].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+    },
+
+    addMessage: (
+      state,
+      action: PayloadAction<{ conversationId: string; message: Message }>
+    ) => {
       const { conversationId, message } = action.payload;
+
       if (!state.messages[conversationId]) {
         state.messages[conversationId] = [];
       }
-      state.messages[conversationId].push(message);
-      
-      // Update conversation last message
-      const conv = state.conversations.find(c => c.id === conversationId);
-      if (conv) {
-        conv.lastMessage = message.text;
-        conv.lastMessageTime = message.timestamp;
+
+      // ✅ Check if message already exists
+      const exists = state.messages[conversationId].some(m => m.id === message.id);
+
+      if (!exists) {
+        state.messages[conversationId].push(message);
+
+        // Sort by timestamp
+        state.messages[conversationId].sort((a, b) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+      } else {
+        console.log(`⏭️ Message ${message.id} already exists, skipping`);
       }
     },
-    
+
+
     updateMessage: (state, action: PayloadAction<{ conversationId: string; messageId: string; updates: Partial<Message> }>) => {
       const { conversationId, messageId, updates } = action.payload;
       const messages = state.messages[conversationId];
+
       if (messages) {
         const index = messages.findIndex(m => m.id === messageId);
         if (index !== -1) {
@@ -101,33 +196,25 @@ const chatSlice = createSlice({
       }
     },
 
-    // Typing indicators
-    setTyping: (state, action: PayloadAction<{ conversationId: string; userId: string; isTyping: boolean }>) => {
-      const { conversationId, userId, isTyping } = action.payload;
-      
-      if (!state.typingUsers[conversationId]) {
-        state.typingUsers[conversationId] = [];
-      }
-      
-      if (isTyping) {
-        if (!state.typingUsers[conversationId].includes(userId)) {
-          state.typingUsers[conversationId].push(userId);
+
+    // Replace temp message ID with real ID from server
+    replaceMessageId: (state, action: PayloadAction<{ conversationId: string; tempId: string; realId: string }>) => {
+      const { conversationId, tempId, realId } = action.payload;
+      const messages = state.messages[conversationId];
+
+      if (messages) {
+        const index = messages.findIndex(m => m.id === tempId);
+        if (index !== -1) {
+          messages[index].id = realId;
+          messages[index].status = 'sent';
         }
-      } else {
-        state.typingUsers[conversationId] = state.typingUsers[conversationId].filter(id => id !== userId);
-      }
-      
-      // Update conversation typing status
-      const conv = state.conversations.find(c => c.id === conversationId);
-      if (conv) {
-        conv.isTyping = state.typingUsers[conversationId].length > 0;
       }
     },
 
     // Active conversation
     setActiveConversation: (state, action: PayloadAction<string | undefined>) => {
       state.activeConversationId = action.payload;
-      
+
       // Mark as read
       if (action.payload) {
         const conv = state.conversations.find(c => c.id === action.payload);
@@ -140,8 +227,24 @@ const chatSlice = createSlice({
     // Unread count
     incrementUnreadCount: (state, action: PayloadAction<string>) => {
       const conv = state.conversations.find(c => c.id === action.payload);
-      if (conv) {
+      if (conv && conv.id !== state.activeConversationId) {
         conv.unreadCount = (conv.unreadCount || 0) + 1;
+      }
+    },
+
+    // clearUnreadCount: (state, action: PayloadAction<string>) => {
+    //   const conv = state.conversations.find(c => c.id === action.payload);
+    //   if (conv) {
+    //     conv.unreadCount = 0;
+    //   }
+    // },
+
+    clearUnreadCount: (state, action: PayloadAction<string>) => {
+      const conversationId = action.payload;
+      const conversation = state.conversations.find(c => c.id === conversationId);
+
+      if (conversation) {
+        conversation.unreadCount = 0;
       }
     },
 
@@ -149,11 +252,11 @@ const chatSlice = createSlice({
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.isLoading = action.payload;
     },
-    
+
     setMessagesLoading: (state, action: PayloadAction<boolean>) => {
       state.messagesLoading = action.payload;
     },
-    
+
     setError: (state, action: PayloadAction<string | undefined>) => {
       state.error = action.payload;
     }
@@ -165,12 +268,16 @@ export const {
   addConversation,
   updateConversation,
   removeConversation,
+  updateUserOnlineStatus,
   setMessages,
+  replaceOptimisticMessage,
   addMessage,
   updateMessage,
-  setTyping,
+  updateConversationLastMessage,
+  replaceMessageId,
   setActiveConversation,
   incrementUnreadCount,
+  clearUnreadCount,
   setLoading,
   setMessagesLoading,
   setError
