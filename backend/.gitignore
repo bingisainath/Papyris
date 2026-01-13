@@ -1,5 +1,33 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# backend/.gitignore - ADD THESE LINES
 
-# dependencies
-venv
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
 .env
+.env.local
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
