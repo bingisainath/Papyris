@@ -1,7 +1,382 @@
-# backend/app/websocket/routes.py
+# # backend/app/websocket/routes.py
+
+# import json
+# import uuid
+# import logging
+# from datetime import datetime, timezone
+# from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+# from sqlalchemy.ext.asyncio import AsyncSession
+# from sqlalchemy import select
+
+# from app.db.session import async_session_maker
+# from app.websocket.manager import WSManager
+# from app.websocket.auth import get_token_from_ws, verify_ws_token
+# from app.websocket.pubsub import PubSub
+# from app.websocket.streams import RedisStreams
+# from app.models.message import Message
+# from app.models.message_receipt import MessageReceipt
+# from app.models.conversation_member import ConversationMember
+
+# router = APIRouter(prefix="/ws", tags=["WebSocket"])
+
+# logger = logging.getLogger(__name__)
+
+# # Initialize services
+# manager = WSManager()
+# pubsub = PubSub()
+# streams = RedisStreams()
+
+# ONLINE_SET_KEY = "papyris:online_users"
+
+
+# async def publish_room(room_id: str, payload: dict):
+#     """Publish event to a room via Redis Pub/Sub"""
+#     await pubsub.publish({"roomId": room_id, "payload": payload})
+
+
+# async def on_redis_event(evt: dict):
+#     """Handle events from Redis Pub/Sub"""
+#     room_id = evt.get("roomId")
+#     payload = evt.get("payload")
+
+#     if not payload:
+#         return
+
+#     # ✅ Handle global events (presence)
+#     if room_id == "__global__":
+#         # Broadcast to ALL connected users
+#         for user_id, ws_set in manager.user_sockets.items():
+#             for ws in ws_set:
+#                 try:
+#                     await ws.send_json(payload)
+#                 except Exception as e:
+#                     print(f"❌ Failed to send global event to {user_id}: {e}")
+#     elif room_id:
+#         # Regular room broadcast
+#         await manager.broadcast_room(room_id, payload)
+
+#     # if room_id and payload:
+#     #     await manager.broadcast_room(room_id, payload)
+
+
+# @router.on_event("startup")
+# async def _ws_start():
+#     """Initialize Redis Streams and start Pub/Sub listener"""
+#     await streams.init_stream()
+#     pubsub.start(on_redis_event)
+#     print("✅ WebSocket services started")
+
+
+# @router.on_event("shutdown")
+# async def _ws_stop():
+#     """Cleanup on shutdown"""
+#     await pubsub.stop()
+#     await streams.close()
+#     print("🛑 WebSocket services stopped")
+
+
+# @router.websocket("/chat")
+# async def ws_chat(ws: WebSocket):
+#     """
+#     Main WebSocket endpoint for chat functionality.
+    
+#     Events sent by client:
+#     - join: {"type": "join", "roomId": "conv_id"}
+#     - leave: {"type": "leave", "roomId": "conv_id"}
+#     - message: {"type": "message", "roomId": "conv_id", "text": "hello"}
+#     - typing: {"type": "typing", "roomId": "conv_id", "isTyping": true}
+#     - read: {"type": "read", "roomId": "conv_id", "lastMessageId": "msg_id"}
+    
+#     Events sent to client:
+#     - joined: {"type": "joined", "roomId": "conv_id"}
+#     - left: {"type": "left", "roomId": "conv_id"}
+#     - message: {"type": "message", "roomId": "conv_id", "messageId": "...", "senderId": "...", ...}
+#     - typing: {"type": "typing", "roomId": "conv_id", "userId": "...", "isTyping": true}
+#     - read: {"type": "read", "roomId": "conv_id", "userId": "...", "lastMessageId": "..."}
+#     - online: {"type": "online", "userId": "..."}
+#     - offline: {"type": "offline", "userId": "..."}
+#     """
+    
+#     # 1. Authenticate
+#     token = get_token_from_ws(ws)
+#     if not token:
+#         logger.warning("❌ [WS] Connection rejected: Missing token")
+#         await ws.close(code=1008, reason="Missing token")
+#         return
+
+#     try:
+#         user_id_str = verify_ws_token(token)
+#         user_id = uuid.UUID(user_id_str)
+#     except Exception as e:
+#         logger.error(f"❌ [WS] Auth failed: {e}")
+#         await ws.close(code=1008, reason="Invalid token")
+#         return
+
+#     # 2. Accept connection
+#     await manager.accept(ws)
+#     manager.track_user(user_id_str, ws)
+
+#     # 3. Mark user as online
+#     async with pubsub.redis.pipeline() as p:
+#         await p.sadd(ONLINE_SET_KEY, user_id_str)
+#         await p.execute()
+
+#     # ✅ Broadcast online to everyone
+#     online_payload = {"type": "online", "userId": user_id_str}
+    
+#     # Broadcast online status
+#     # await pubsub.publish({
+#     #     "roomId": "__presence__",
+#     #     "payload": {"type": "online", "userId": user_id_str}
+#     # })
+#     await pubsub.publish({
+#         "roomId": "__global__",  # Special global channel
+#         "payload": {"type": "online", "userId": user_id_str}
+#     })
+
+#     # Send to all connected users
+#     for uid, ws_set in manager.user_sockets.items():
+#         for user_ws in ws_set:
+#             try:
+#                 await user_ws.send_json(online_payload)
+#             except Exception as e:
+#                 print(f"Failed to send online status: {e}")
+
+
+#     logger.info(f"✅ [WS] User connected: {user_id_str}")
+
+#     try:
+#         while True:
+#             # Receive message from client
+#             raw = await ws.receive_text()
+#             data = json.loads(raw)
+            
+#             t = data.get("type")
+#             room_id = data.get("roomId")
+
+#             # JOIN ROOM
+#             if t == "join" and room_id:
+#                 # Verify user is member of this conversation
+#                 async with async_session_maker() as db:
+#                     is_member = await _check_membership(db, user_id, room_id)
+#                     if not is_member:
+#                         await ws.send_json({
+#                             "type": "error",
+#                             "message": "Not a member of this conversation"
+#                         })
+#                         continue
+                
+#                 manager.join_room(room_id, ws)
+#                 await ws.send_json({"type": "joined", "roomId": room_id})
+#                 print(f"📥 User {user_id_str} joined room {room_id}")
+#                 continue
+
+#             # LEAVE ROOM
+#             if t == "leave" and room_id:
+#                 manager.room_sockets.get(room_id, set()).discard(ws)
+#                 await ws.send_json({"type": "left", "roomId": room_id})
+#                 print(f"📤 User {user_id_str} left room {room_id}")
+#                 continue
+
+#             # SEND MESSAGE
+#             if t == "message" and room_id:
+#                 text = (data.get("text") or "").strip()
+#                 if not text:
+#                     await ws.send_json({"type": "error", "message": "Empty message"})
+#                     continue
+
+#                 # Verify membership
+#                 async with async_session_maker() as db:
+#                     is_member = await _check_membership(db, user_id, room_id)
+#                     if not is_member:
+#                         await ws.send_json({
+#                             "type": "error",
+#                             "message": "Not a member of this conversation"
+#                         })
+#                         continue
+
+#                 # Add to Redis Streams for background persistence
+#                 msg_id = str(uuid.uuid4())
+#                 await streams.add_message({
+#                     "messageId": msg_id,
+#                     "conversationId": room_id,
+#                     "senderId": user_id_str,
+#                     "text": text,
+#                     "timestamp": datetime.now(timezone.utc).isoformat()
+#                 })
+
+#                 # Broadcast immediately via Pub/Sub
+#                 payload = {
+#                     "type": "message",
+#                     "roomId": room_id,
+#                     "messageId": msg_id,
+#                     "senderId": user_id_str,
+#                     "text": text,
+#                     "timestamp": datetime.now(timezone.utc).isoformat(),
+#                     "status": "sent"
+#                 }
+#                 await publish_room(room_id, payload)
+                
+#                 print(f"💬 Message {msg_id} from {user_id_str} in room {room_id}")
+#                 continue
+
+#             # TYPING INDICATOR
+#             if t == "typing" and room_id:
+#                 is_typing = data.get("isTyping", False)
+                
+#                 # Verify membership
+#                 async with async_session_maker() as db:
+#                     is_member = await _check_membership(db, user_id, room_id)
+#                     if not is_member:
+#                         continue
+
+#                 payload = {
+#                     "type": "typing",
+#                     "roomId": room_id,
+#                     "userId": user_id_str,
+#                     "isTyping": is_typing
+#                 }
+#                 await publish_room(room_id, payload)
+#                 continue
+
+#             # READ RECEIPT
+#             if t == "read" and room_id:
+#                 last_msg_id = data.get("lastMessageId")
+                
+#                 async with async_session_maker() as db:
+#                     await _mark_read(db, user_id, room_id, last_msg_id)
+
+#                 payload = {
+#                     "type": "read",
+#                     "roomId": room_id,
+#                     "userId": user_id_str,
+#                     "lastMessageId": last_msg_id
+#                 }
+#                 await publish_room(room_id, payload)
+#                 continue
+
+#             # PING (HEARTBEAT)
+#             if t == "ping":
+#                 await ws.send_json({"type": "pong"})
+#                 continue
+
+#             # Unknown event
+#             await ws.send_json({"type": "error", "message": "Invalid event type"})
+
+#     except WebSocketDisconnect:
+#         print(f"🔌 User {user_id_str} disconnected normally")
+#     except Exception as e:
+#         print(f"❌ Error for user {user_id_str}: {e}")
+#     finally:
+#         # Cleanup
+#         manager.untrack(user_id_str, ws)
+#         await pubsub.redis.srem(ONLINE_SET_KEY, user_id_str)
+
+
+#         # ✅ Broadcast offline to everyone
+#         offline_payload = {"type": "offline", "userId": user_id_str}
+        
+#         # Broadcast offline status
+#         # await pubsub.publish({
+#         #     "roomId": "__presence__",
+#         #     "payload": {"type": "offline", "userId": user_id_str}
+#         # })
+#         await pubsub.publish({
+#             "roomId": "__global__",
+#             "payload": {"type": "offline", "userId": user_id_str}
+#         })
+        
+#         print(f"👋 User {user_id_str} cleaned up")
+
+
+# # ========== Helper Functions ==========
+
+# async def _check_membership(db: AsyncSession, user_id: uuid.UUID, conversation_id: str) -> bool:
+#     """Check if user is a member of the conversation"""
+#     result = await db.execute(
+#         select(ConversationMember).where(
+#             ConversationMember.conversation_id == conversation_id,
+#             ConversationMember.user_id == user_id
+#         )
+#     )
+#     return result.scalar_one_or_none() is not None
+
+
+# async def _persist_message(
+#     db: AsyncSession, 
+#     message_id: str,
+#     conversation_id: str, 
+#     sender_id: uuid.UUID, 
+#     text: str
+# ) -> None:
+#     """Persist message to database"""
+#     msg = Message(
+#         id=message_id,
+#         conversation_id=conversation_id,
+#         sender_id=sender_id,
+#         text=text,
+#         status="sent"
+#     )
+#     db.add(msg)
+#     await db.commit()
+#     print(f"💾 Message {message_id} persisted to database")
+
+
+# async def _mark_read(
+#     db: AsyncSession, 
+#     user_id: uuid.UUID, 
+#     conversation_id: str, 
+#     last_message_id: str | None
+# ) -> None:
+#     """Mark message as read"""
+#     if not last_message_id:
+#         return
+
+#     # ✅ Skip temporary messages
+#     if last_message_id.startswith('temp-'):
+#         print(f"⚠️ Skipping receipt for temporary message: {last_message_id}")
+#         return
+
+#     try:
+#         # Convert to UUID
+#         msg_uuid = uuid.UUID(last_message_id)
+#     except ValueError:
+#         print(f"⚠️ Invalid message ID format: {last_message_id}")
+#         return
+    
+#     # Check if receipt already exists
+#     result = await db.execute(
+#         select(MessageReceipt).where(
+#             MessageReceipt.message_id == last_message_id,
+#             MessageReceipt.user_id == user_id
+#         )
+#     )
+#     existing = result.scalar_one_or_none()
+    
+#     if existing:
+#         # Update to read status
+#         existing.status = "read"
+#         existing.read_at = datetime.now(timezone.utc)
+#     else:
+#         # Create new receipt
+#         receipt = MessageReceipt(
+#             message_id=last_message_id,
+#             user_id=user_id,
+#             status="read",
+#             read_at=datetime.now(timezone.utc)
+#         )
+#         db.add(receipt)
+    
+#     await db.commit()
+#     print(f"✅ Message {last_message_id} marked as read by {user_id}")
+
+
+
+# backend/app/websocket/routes.py - FIXED WITH YOUR STRUCTURE
 
 import json
 import uuid
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,14 +384,17 @@ from sqlalchemy import select
 
 from app.db.session import async_session_maker
 from app.websocket.manager import WSManager
-from app.websocket.auth import get_token_from_ws, verify_ws_token
+from app.websocket.auth import get_token_from_ws, verify_ws_token  # ✅ Use existing auth
 from app.websocket.pubsub import PubSub
 from app.websocket.streams import RedisStreams
 from app.models.message import Message
 from app.models.message_receipt import MessageReceipt
 from app.models.conversation_member import ConversationMember
+from app.models.user import User  # ✅ Add this for sender info
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
+
+logger = logging.getLogger(__name__)
 
 # Initialize services
 manager = WSManager()
@@ -35,7 +413,21 @@ async def on_redis_event(evt: dict):
     """Handle events from Redis Pub/Sub"""
     room_id = evt.get("roomId")
     payload = evt.get("payload")
-    if room_id and payload:
+
+    if not payload:
+        return
+
+    # ✅ Handle global events (presence)
+    if room_id == "__global__":
+        # Broadcast to ALL connected users
+        for user_id, ws_set in manager.user_sockets.items():
+            for ws in ws_set:
+                try:
+                    await ws.send_json(payload)
+                except Exception as e:
+                    print(f"❌ Failed to send global event to {user_id}: {e}")
+    elif room_id:
+        # Regular room broadcast
         await manager.broadcast_room(room_id, payload)
 
 
@@ -57,37 +449,20 @@ async def _ws_stop():
 
 @router.websocket("/chat")
 async def ws_chat(ws: WebSocket):
-    """
-    Main WebSocket endpoint for chat functionality.
-    
-    Events sent by client:
-    - join: {"type": "join", "roomId": "conv_id"}
-    - leave: {"type": "leave", "roomId": "conv_id"}
-    - message: {"type": "message", "roomId": "conv_id", "text": "hello"}
-    - typing: {"type": "typing", "roomId": "conv_id", "isTyping": true}
-    - read: {"type": "read", "roomId": "conv_id", "lastMessageId": "msg_id"}
-    
-    Events sent to client:
-    - joined: {"type": "joined", "roomId": "conv_id"}
-    - left: {"type": "left", "roomId": "conv_id"}
-    - message: {"type": "message", "roomId": "conv_id", "messageId": "...", "senderId": "...", ...}
-    - typing: {"type": "typing", "roomId": "conv_id", "userId": "...", "isTyping": true}
-    - read: {"type": "read", "roomId": "conv_id", "userId": "...", "lastMessageId": "..."}
-    - online: {"type": "online", "userId": "..."}
-    - offline: {"type": "offline", "userId": "..."}
-    """
+    """Main WebSocket endpoint for chat functionality"""
     
     # 1. Authenticate
     token = get_token_from_ws(ws)
     if not token:
+        print("❌ [WS] Connection rejected: Missing token")
         await ws.close(code=1008, reason="Missing token")
         return
 
     try:
-        user_id_str = verify_ws_token(token)
-        user_id = uuid.UUID(user_id_str)  # Convert to UUID
+        user_id_str = verify_ws_token(token)  # ✅ This works from your auth.py
+        user_id = uuid.UUID(user_id_str)
     except Exception as e:
-        print(f"❌ Auth failed: {e}")
+        print(f"❌ [WS] Auth failed: {e}")
         await ws.close(code=1008, reason="Invalid token")
         return
 
@@ -99,14 +474,20 @@ async def ws_chat(ws: WebSocket):
     async with pubsub.redis.pipeline() as p:
         await p.sadd(ONLINE_SET_KEY, user_id_str)
         await p.execute()
-    
-    # Broadcast online status
-    await pubsub.publish({
-        "roomId": "__presence__",
-        "payload": {"type": "online", "userId": user_id_str}
-    })
 
-    print(f"✅ User {user_id_str} connected")
+    # ✅ Broadcast online to ALL users
+    online_payload = {"type": "online", "userId": user_id_str}
+    
+    # Method 1: Direct send to all (more reliable)
+    for uid, ws_set in manager.user_sockets.items():
+        for user_ws in ws_set:
+            try:
+                await user_ws.send_json(online_payload)
+                print(f"📤 Sent online status to user {uid}")
+            except Exception as e:
+                print(f"❌ Failed to send online to {uid}: {e}")
+
+    print(f"✅ [WS] User {user_id_str[:8]} connected and broadcast to {len(manager.user_sockets)} users")
 
     try:
         while True:
@@ -114,15 +495,17 @@ async def ws_chat(ws: WebSocket):
             raw = await ws.receive_text()
             data = json.loads(raw)
             
-            t = data.get("type")
+            event_type = data.get("type")
             room_id = data.get("roomId")
 
-            # JOIN ROOM
-            if t == "join" and room_id:
-                # Verify user is member of this conversation
+            print(f"📥 [WS:{user_id_str[:8]}] Event: {event_type} | Room: {room_id[:8] if room_id else 'N/A'}")
+
+            # ===== JOIN ROOM =====
+            if event_type == "join" and room_id:
                 async with async_session_maker() as db:
                     is_member = await _check_membership(db, user_id, room_id)
                     if not is_member:
+                        print(f"⚠️  [WS:{user_id_str[:8]}] Not member of {room_id[:8]}")
                         await ws.send_json({
                             "type": "error",
                             "message": "Not a member of this conversation"
@@ -131,35 +514,50 @@ async def ws_chat(ws: WebSocket):
                 
                 manager.join_room(room_id, ws)
                 await ws.send_json({"type": "joined", "roomId": room_id})
-                print(f"📥 User {user_id_str} joined room {room_id}")
+                print(f"✅ [WS:{user_id_str[:8]}] Joined room {room_id[:8]}")
                 continue
 
-            # LEAVE ROOM
-            if t == "leave" and room_id:
+            # ===== LEAVE ROOM =====
+            if event_type == "leave" and room_id:
                 manager.room_sockets.get(room_id, set()).discard(ws)
                 await ws.send_json({"type": "left", "roomId": room_id})
-                print(f"📤 User {user_id_str} left room {room_id}")
+                print(f"📤 [WS:{user_id_str[:8]}] Left room {room_id[:8]}")
                 continue
 
-            # SEND MESSAGE
-            if t == "message" and room_id:
+            # ===== SEND MESSAGE =====
+            if event_type == "message" and room_id:
                 text = (data.get("text") or "").strip()
                 if not text:
                     await ws.send_json({"type": "error", "message": "Empty message"})
                     continue
 
-                # Verify membership
                 async with async_session_maker() as db:
+                    # Verify membership
                     is_member = await _check_membership(db, user_id, room_id)
                     if not is_member:
+                        print(f"⚠️  [WS:{user_id_str[:8]}] Can't send to {room_id[:8]} - not member")
                         await ws.send_json({
                             "type": "error",
                             "message": "Not a member of this conversation"
                         })
                         continue
 
-                # Add to Redis Streams for background persistence
+                    # ✅ Get all conversation members
+                    members_stmt = select(ConversationMember.user_id).where(
+                        ConversationMember.conversation_id == uuid.UUID(room_id)
+                    )
+                    members_result = await db.execute(members_stmt)
+                    member_ids = [str(m) for m in members_result.scalars().all()]
+
+                    # Get sender info
+                    sender = await db.get(User, user_id)
+                    sender_name = sender.username if sender else "Unknown"
+                    sender_avatar = sender.avatar if sender else None
+
+                # Generate message ID
                 msg_id = str(uuid.uuid4())
+                
+                # Add to Redis Streams for persistence
                 await streams.add_message({
                     "messageId": msg_id,
                     "conversationId": room_id,
@@ -168,26 +566,41 @@ async def ws_chat(ws: WebSocket):
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
-                # Broadcast immediately via Pub/Sub
+                # ✅ Build payload with sender info
                 payload = {
                     "type": "message",
                     "roomId": room_id,
                     "messageId": msg_id,
                     "senderId": user_id_str,
+                    "senderName": sender_name,
+                    "senderAvatar": sender_avatar,
                     "text": text,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "status": "sent"
                 }
-                await publish_room(room_id, payload)
-                
-                print(f"💬 Message {msg_id} from {user_id_str} in room {room_id}")
+
+                # ✅ CRITICAL: Send to ALL MEMBERS (not just room)
+                # This ensures users receive messages even when viewing different chats
+                sent_count = 0
+                for member_id in member_ids:
+                    if member_id in manager.user_sockets:
+                        for member_ws in manager.user_sockets[member_id]:
+                            try:
+                                await member_ws.send_json(payload)
+                                sent_count += 1
+                                print(f"💬 [WS] Sent message to member {member_id[:8]}")
+                            except Exception as e:
+                                print(f"❌ Failed to send to {member_id[:8]}: {e}")
+                    else:
+                        print(f"⚠️  [WS] Member {member_id[:8]} not connected")
+
+                print(f"✅ [WS] Message {msg_id[:8]} delivered to {sent_count}/{len(member_ids)} members")
                 continue
 
-            # TYPING INDICATOR
-            if t == "typing" and room_id:
+            # ===== TYPING INDICATOR =====
+            if event_type == "typing" and room_id:
                 is_typing = data.get("isTyping", False)
                 
-                # Verify membership
                 async with async_session_maker() as db:
                     is_member = await _check_membership(db, user_id, room_id)
                     if not is_member:
@@ -200,11 +613,17 @@ async def ws_chat(ws: WebSocket):
                     "isTyping": is_typing
                 }
                 await publish_room(room_id, payload)
+                print(f"⌨️  [WS:{user_id_str[:8]}] Typing: {is_typing} in {room_id[:8]}")
                 continue
 
-            # READ RECEIPT
-            if t == "read" and room_id:
+            # ===== READ RECEIPT =====
+            if event_type == "read" and room_id:
                 last_msg_id = data.get("lastMessageId")
+                
+                # Skip temp messages
+                if last_msg_id and last_msg_id.startswith('temp-'):
+                    print(f"⏭️  [WS:{user_id_str[:8]}] Skipping temp message read receipt")
+                    continue
                 
                 async with async_session_maker() as db:
                     await _mark_read(db, user_id, room_id, last_msg_id)
@@ -216,60 +635,59 @@ async def ws_chat(ws: WebSocket):
                     "lastMessageId": last_msg_id
                 }
                 await publish_room(room_id, payload)
+                print(f"📖 [WS:{user_id_str[:8]}] Marked {last_msg_id[:8]} as read")
+                continue
+
+            # ===== PING =====
+            if event_type == "ping":
+                await ws.send_json({"type": "pong"})
                 continue
 
             # Unknown event
-            await ws.send_json({"type": "error", "message": "Invalid event type"})
+            print(f"⚠️  [WS:{user_id_str[:8]}] Unknown event: {event_type}")
 
     except WebSocketDisconnect:
-        print(f"🔌 User {user_id_str} disconnected normally")
+        print(f"🔌 [WS:{user_id_str[:8]}] Disconnected normally")
     except Exception as e:
-        print(f"❌ Error for user {user_id_str}: {e}")
+        print(f"❌ [WS:{user_id_str[:8]}] Error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         # Cleanup
         manager.untrack(user_id_str, ws)
         await pubsub.redis.srem(ONLINE_SET_KEY, user_id_str)
+
+        # ✅ Broadcast offline to ALL users
+        offline_payload = {"type": "offline", "userId": user_id_str}
         
-        # Broadcast offline status
-        await pubsub.publish({
-            "roomId": "__presence__",
-            "payload": {"type": "offline", "userId": user_id_str}
-        })
+        offline_count = 0
+        for uid, ws_set in manager.user_sockets.items():
+            for user_ws in ws_set:
+                try:
+                    await user_ws.send_json(offline_payload)
+                    offline_count += 1
+                except Exception as e:
+                    print(f"❌ Failed to send offline to {uid[:8]}: {e}")
         
-        print(f"👋 User {user_id_str} cleaned up")
+        print(f"👋 [WS:{user_id_str[:8]}] Offline broadcast sent to {offline_count} users")
 
 
 # ========== Helper Functions ==========
 
 async def _check_membership(db: AsyncSession, user_id: uuid.UUID, conversation_id: str) -> bool:
     """Check if user is a member of the conversation"""
-    result = await db.execute(
-        select(ConversationMember).where(
-            ConversationMember.conversation_id == conversation_id,
-            ConversationMember.user_id == user_id
+    try:
+        conv_uuid = uuid.UUID(conversation_id)
+        result = await db.execute(
+            select(ConversationMember).where(
+                ConversationMember.conversation_id == conv_uuid,
+                ConversationMember.user_id == user_id
+            )
         )
-    )
-    return result.scalar_one_or_none() is not None
-
-
-async def _persist_message(
-    db: AsyncSession, 
-    message_id: str,
-    conversation_id: str, 
-    sender_id: uuid.UUID, 
-    text: str
-) -> None:
-    """Persist message to database"""
-    msg = Message(
-        id=message_id,
-        conversation_id=conversation_id,
-        sender_id=sender_id,
-        text=text,
-        status="sent"
-    )
-    db.add(msg)
-    await db.commit()
-    print(f"💾 Message {message_id} persisted to database")
+        return result.scalar_one_or_none() is not None
+    except Exception as e:
+        print(f"❌ Membership check error: {e}")
+        return False
 
 
 async def _mark_read(
@@ -281,29 +699,38 @@ async def _mark_read(
     """Mark message as read"""
     if not last_message_id:
         return
-    
-    # Check if receipt already exists
-    result = await db.execute(
-        select(MessageReceipt).where(
-            MessageReceipt.message_id == last_message_id,
-            MessageReceipt.user_id == user_id
+
+    # Skip temporary messages
+    if last_message_id.startswith('temp-'):
+        return
+
+    try:
+        msg_uuid = uuid.UUID(last_message_id)
+        
+        # Get or create receipt
+        result = await db.execute(
+            select(MessageReceipt).where(
+                MessageReceipt.message_id == msg_uuid,
+                MessageReceipt.user_id == user_id
+            )
         )
-    )
-    existing = result.scalar_one_or_none()
-    
-    if existing:
-        # Update to read status
-        existing.status = "read"
-        existing.read_at = datetime.now(timezone.utc)
-    else:
-        # Create new receipt
-        receipt = MessageReceipt(
-            message_id=last_message_id,
-            user_id=user_id,
-            status="read",
-            read_at=datetime.now(timezone.utc)
-        )
-        db.add(receipt)
-    
-    await db.commit()
-    print(f"✅ Message {last_message_id} marked as read by {user_id}")
+        receipt = result.scalar_one_or_none()
+        
+        if receipt:
+            receipt.status = "read"
+            receipt.read_at = datetime.now(timezone.utc)
+        else:
+            receipt = MessageReceipt(
+                message_id=msg_uuid,
+                user_id=user_id,
+                status="read",
+                read_at=datetime.now(timezone.utc)
+            )
+            db.add(receipt)
+        
+        await db.commit()
+        print(f"✅ Message {last_message_id[:8]} marked read by {user_id}")
+        
+    except Exception as e:
+        print(f"❌ Mark read error: {e}")
+        await db.rollback()

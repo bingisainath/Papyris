@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Avatar, Typography } from '../../atoms';
 import Icon from '../../atoms/Icon';
+import { formatMessageTime } from '../../../utils/dateFormat';
 
 type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
@@ -143,7 +144,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           {/* Timestamp and status */}
           <div className={`flex items-center gap-1 mt-1 ${isSent ? 'justify-end' : 'justify-start'}`}>
             <span className={`text-[10px] ${isSent ? 'text-white/70' : 'text-muted-400'}`}>
-              {timestamp}
+              {/* {timestamp} */}
+              {formatMessageTime(timestamp)}
             </span>
             {isSent && status && (
               <span className="flex-shrink-0">

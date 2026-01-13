@@ -1,4 +1,4 @@
-# backend/app/api/v1/chat.py - UPDATED WITH REST ENDPOINTS
+# backend/app/api/v1/chat.py 
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -293,11 +293,13 @@ async def create_conversation(
         db.add(new_conv)
         await db.flush()
 
+        from app.models.conversation_member import MemberRole
+
         # Add current user as member
         member = ConversationMember(
             conversation_id=new_conv.id,
             user_id=current_user.id,
-            role='admin'
+            role=MemberRole.ADMIN
         )
         db.add(member)
 
@@ -306,7 +308,7 @@ async def create_conversation(
             member = ConversationMember(
                 conversation_id=new_conv.id,
                 user_id=UUID(participant_id),
-                role='member'
+                role=MemberRole.MEMBER
             )
             db.add(member)
 

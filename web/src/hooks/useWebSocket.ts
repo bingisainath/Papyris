@@ -20,6 +20,8 @@ import {
 } from '../redux/slices/websocketSlice';
 import type { AppDispatch, RootState } from '../redux/store';
 
+import { wsService } from '../services/websocket.service';
+
 /**
  * Main WebSocket hook - connects automatically on mount
  * 
@@ -32,6 +34,9 @@ export const useWebSocket = (token?: string) => {
   const isConnecting = useSelector(selectIsConnecting);
   const error = useSelector(selectWebSocketError);
 
+  const connectionInitiated = useRef(false);  // ✅ ADD: Track if connection started
+  const currentToken = useRef<string>();
+
   useEffect(() => {
     // Connect when token is provided
     if (token && !isConnected && !isConnecting) {
@@ -39,11 +44,31 @@ export const useWebSocket = (token?: string) => {
       dispatch(connectWebSocket(token));
     }
 
+    // ✅ Skip if already connecting
+    if (isConnecting) {
+      console.log('⏳ Connection already in progress');
+      return;
+    }
+
+    // ✅ Skip if we already initiated connection for this token
+    if (connectionInitiated.current && currentToken.current === token) {
+      console.log('⏭️ Connection already initiated for this token');
+      return;
+    }
+
+    // ✅ Connect
+    console.log('🔌 Connecting WebSocket...');
+    connectionInitiated.current = true;
+    currentToken.current = token;
+    dispatch(connectWebSocket(token));
+
     // Disconnect on unmount
     return () => {
-      if (isConnected) {
-        console.log('🔌 Auto-disconnecting WebSocket on unmount...');
+      // Only disconnect if token is changing or component unmounting
+      if (currentToken.current !== token) {
+        console.log('🔌 Token changed, disconnecting...');
         dispatch(disconnectWebSocket());
+        connectionInitiated.current = false;
       }
     };
   }, [token, isConnected, isConnecting, dispatch]);
@@ -65,36 +90,137 @@ export const useWebSocket = (token?: string) => {
 /**
  * Hook for managing conversation rooms
  */
+
+
+// export const useConversationRoom = (conversationId: string | undefined) => {
+//   const lastConversationId = useRef<string | undefined>();
+//   const isConnected = wsService.isConnected();  // ✅ ADD: Check connection status
+
+//   useEffect(() => {
+//     // ✅ Skip if WebSocket not connected
+//     if (!isConnected) {
+//       console.log('⏳ Waiting for WebSocket connection before joining room');
+//       return;
+//     }
+
+//     // Skip if no conversation or already joined
+//     if (!conversationId || conversationId === lastConversationId.current) {
+//       return;
+//     }
+
+//     // Leave previous room if different
+//     if (lastConversationId.current && lastConversationId.current !== conversationId) {
+//       console.log(`📤 Leaving previous conversation: ${lastConversationId.current}`);
+//       try {
+//         wsService.leaveConversation(lastConversationId.current);
+//       } catch (error) {
+//         console.error('Error leaving room:', error);
+//       }
+//     }
+
+//     // Join new room
+//     console.log(`📥 Joining conversation: ${conversationId}`);
+//     try {
+//       wsService.joinConversation(conversationId);
+//       lastConversationId.current = conversationId;
+//     } catch (error) {
+//       console.error('Error joining room:', error);
+//     }
+
+//     // Cleanup on unmount
+//     return () => {
+//       if (conversationId && isConnected) {
+//         console.log(`📤 Leaving conversation on unmount: ${conversationId}`);
+//         try {
+//           wsService.leaveConversation(conversationId);
+//         } catch (error) {
+//           console.error('Error leaving room on unmount:', error);
+//         }
+//         lastConversationId.current = undefined;
+//       }
+//     };
+//   }, [conversationId, isConnected]);  // ✅ ADD: Depend on isConnected
+// };
+
 export const useConversationRoom = (conversationId: string | undefined) => {
-  const dispatch = useDispatch<AppDispatch>();
-  const isConnected = useSelector(selectIsConnected);
-  const previousConversationId = useRef<string>();
+  const lastConversationId = useRef<string | undefined>();
+  const isConnected = useSelector(selectIsConnected);  // ✅ Use Redux state
 
   useEffect(() => {
-    if (!conversationId || !isConnected) {
+    // Wait for connection
+    if (!isConnected) {
+      console.log('⏳ WebSocket not connected, waiting...');
       return;
     }
 
-    // Leave previous conversation
-    if (previousConversationId.current && previousConversationId.current !== conversationId) {
-      console.log(`📤 Leaving previous conversation: ${previousConversationId.current}`);
-      dispatch(leaveConversation(previousConversationId.current));
+    // Skip if no conversation or already joined
+    if (!conversationId || conversationId === lastConversationId.current) {
+      return;
     }
 
-    // Join new conversation
-    console.log(`📥 Joining conversation: ${conversationId}`);
-    dispatch(joinConversation(conversationId));
-    previousConversationId.current = conversationId;
+    // Leave previous room
+    if (lastConversationId.current && lastConversationId.current !== conversationId) {
+      console.log(`📤 Leaving previous: ${lastConversationId.current}`);
+      wsService.leaveConversation(lastConversationId.current);
+    }
 
-    // Cleanup: leave conversation on unmount
+    // Join new room
+    console.log(`📥 Joining: ${conversationId}`);
+    wsService.joinConversation(conversationId);
+    lastConversationId.current = conversationId;
+
+    // Cleanup
     return () => {
-      if (conversationId && isConnected) {
-        console.log(`📤 Leaving conversation on unmount: ${conversationId}`);
-        dispatch(leaveConversation(conversationId));
+      if (conversationId) {
+        console.log(`📤 Leaving on unmount: ${conversationId}`);
+        wsService.leaveConversation(conversationId);
+        lastConversationId.current = undefined;
       }
     };
-  }, [conversationId, isConnected, dispatch]);
+  }, [conversationId, isConnected]);  // ✅ Re-run when connection changes
 };
+
+
+// export const useConversationRoom = (conversationId: string | undefined) => {
+//   const lastConversationId = useRef<string | undefined>();
+//   const hasJoined = useRef(false);
+
+//   useEffect(() => {
+//     // Skip if no conversation
+//     if (!conversationId) {
+//       return;
+//     }
+
+//     // Skip if already in this conversation
+//     if (conversationId === lastConversationId.current && hasJoined.current) {
+//       console.log(`✅ Already in conversation: ${conversationId}`);
+//       return;
+//     }
+
+//     // Leave previous room if different
+//     if (lastConversationId.current && lastConversationId.current !== conversationId) {
+//       console.log(`📤 Leaving previous conversation: ${lastConversationId.current}`);
+//       wsService.leaveConversation(lastConversationId.current);
+//       hasJoined.current = false;
+//     }
+
+//     // Join new room
+//     console.log(`📥 Joining conversation: ${conversationId}`);
+//     wsService.joinConversation(conversationId);
+//     lastConversationId.current = conversationId;
+//     hasJoined.current = true;
+
+//     // Cleanup on unmount
+//     return () => {
+//       if (conversationId && hasJoined.current) {
+//         console.log(`📤 Leaving conversation on unmount: ${conversationId}`);
+//         wsService.leaveConversation(conversationId);
+//         lastConversationId.current = undefined;
+//         hasJoined.current = false;
+//       }
+//     };
+//   }, [conversationId]);
+// };
 
 /**
  * Hook for sending messages
@@ -102,7 +228,7 @@ export const useConversationRoom = (conversationId: string | undefined) => {
 export const useSendMessage = () => {
   const dispatch = useDispatch<AppDispatch>();
   const isConnected = useSelector(selectIsConnected);
-  
+
   // Get current user ID from localStorage or wherever you store it
   const currentUserId = localStorage.getItem('userId') || 'unknown';
 

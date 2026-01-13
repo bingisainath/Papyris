@@ -48,13 +48,8 @@ class WebSocketService {
     this.wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:8000/api/v1/ws/chat';
   }
 
-  /**
-   * Connect to WebSocket server
-   */
   connect(token: string): Promise<void> {
     return new Promise((resolve, reject) => {
-
-      // ✅ FIX 1: handle CONNECTING state
       if (
         this.ws &&
         (this.ws.readyState === WebSocket.OPEN ||
@@ -67,7 +62,7 @@ class WebSocketService {
 
       if (this.isConnecting) {
         console.log('⏳ Connection already in progress');
-        return; // ❌ DO NOT reject
+        return;
       }
 
       this.isConnecting = true;
@@ -82,90 +77,40 @@ class WebSocketService {
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
+        this.emit('connected', {});  // ✅ ADD THIS
         resolve();
       };
 
+      // ✅ ADD THIS - CRITICAL MISSING HANDLER
+      this.ws.onmessage = (event) => {
+        try {
+          const data: WebSocketEvent = JSON.parse(event.data);
+          console.log('📨 WebSocket received:', data);  // Debug log
+          this.handleMessage(data);
+        } catch (error) {
+          console.error('❌ Failed to parse WebSocket message:', error);
+        }
+      };
+
       this.ws.onerror = (err) => {
+        console.error('❌ WebSocket error:', err);
         this.isConnecting = false;
+        this.emit('error', { type: 'error', message: 'Connection error' });
         reject(err);
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
+        console.log('🔌 WebSocket disconnected:', event.code, event.reason);
         this.isConnecting = false;
         this.stopHeartbeat();
+        this.emit('disconnected', {});
+
         if (this.shouldReconnect) {
           this.scheduleReconnect();
         }
       };
     });
   }
-
-  // connect(token: string): Promise<void> {
-  //   return new Promise((resolve, reject) => {
-  //     if (this.ws?.readyState === WebSocket.OPEN) {
-  //       console.log('✅ WebSocket already connected');
-  //       resolve();
-  //       return;
-  //     }
-
-  //     if (this.isConnecting) {
-  //       console.log('⏳ Connection already in progress');
-  //       reject(new Error('Connection already in progress'));
-  //       return;
-  //     }
-
-  //     this.token = token;
-  //     this.isConnecting = true;
-  //     this.shouldReconnect = true;
-
-  //     try {
-  //       // Add token as query parameter
-  //       const url = `${this.wsUrl}?token=${encodeURIComponent(token)}`;
-  //       this.ws = new WebSocket(url);
-
-  //       this.ws.onopen = () => {
-  //         console.log('✅ WebSocket connected');
-  //         this.isConnecting = false;
-  //         this.reconnectAttempts = 0;
-  //         this.startHeartbeat();
-  //         this.emit('connected', {});
-  //         resolve();
-  //       };
-
-  //       this.ws.onmessage = (event) => {
-  //         try {
-  //           const data: WebSocketEvent = JSON.parse(event.data);
-  //           this.handleMessage(data);
-  //         } catch (error) {
-  //           console.error('❌ Failed to parse WebSocket message:', error);
-  //         }
-  //       };
-
-  //       this.ws.onerror = (error) => {
-  //         console.error('❌ WebSocket error:', error);
-  //         this.isConnecting = false;
-  //         this.emit('error', { type: 'error', message: 'Connection error' });
-  //         reject(error);
-  //       };
-
-  //       this.ws.onclose = (event) => {
-  //         console.log('🔌 WebSocket disconnected:', event.code, event.reason);
-  //         this.isConnecting = false;
-  //         this.stopHeartbeat();
-  //         this.emit('disconnected', {});
-
-  //         // Auto-reconnect if not intentional disconnect
-  //         if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-  //           this.scheduleReconnect();
-  //         }
-  //       };
-  //     } catch (error) {
-  //       console.error('❌ Failed to create WebSocket connection:', error);
-  //       this.isConnecting = false;
-  //       reject(error);
-  //     }
-  //   });
-  // }
 
   /**
    * Disconnect from WebSocket server
@@ -192,13 +137,29 @@ class WebSocketService {
   /**
    * Send event to server
    */
+  // private send(data: any) {
+  //   if (!this.isConnected()) {
+  //     console.error('❌ WebSocket not connected');
+  //     throw new Error('WebSocket not connected');
+  //   }
+
+  //   this.ws!.send(JSON.stringify(data));
+  // }
+
   private send(data: any) {
     if (!this.isConnected()) {
-      console.error('❌ WebSocket not connected');
-      throw new Error('WebSocket not connected');
+      console.warn('⚠️ WebSocket not connected, queuing message');
+      // ✅ Don't throw - just return or queue for later
+      return false;
     }
 
-    this.ws!.send(JSON.stringify(data));
+    try {
+      this.ws!.send(JSON.stringify(data));
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to send WebSocket message:', error);
+      return false;
+    }
   }
 
   /**
@@ -206,10 +167,14 @@ class WebSocketService {
    */
   joinConversation(conversationId: string) {
     console.log(`📥 Joining conversation: ${conversationId}`);
-    this.send({
+    const sent = this.send({
       type: 'join',
       roomId: conversationId
     });
+
+    if (!sent) {
+      console.warn(`⚠️ Failed to join ${conversationId} - not connected`);
+    }
   }
 
   /**
@@ -217,10 +182,14 @@ class WebSocketService {
    */
   leaveConversation(conversationId: string) {
     console.log(`📤 Leaving conversation: ${conversationId}`);
-    this.send({
+    const sent = this.send({
       type: 'leave',
       roomId: conversationId
     });
+
+    if (!sent) {
+      console.warn(`⚠️ Failed to leave ${conversationId} - not connected`);
+    }
   }
 
   /**
@@ -228,11 +197,17 @@ class WebSocketService {
    */
   sendMessage(conversationId: string, text: string) {
     console.log(`💬 Sending message to ${conversationId}`);
-    this.send({
+    const sent = this.send({
       type: 'message',
       roomId: conversationId,
       text
     });
+
+    if (!sent) {
+      console.error(`❌ Failed to send message - not connected`);
+    }
+
+    return sent;
   }
 
   /**

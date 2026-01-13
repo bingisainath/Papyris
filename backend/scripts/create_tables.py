@@ -2,8 +2,11 @@
 Create Database Tables - Python Script
 Run this instead of psql when you don't have PostgreSQL client installed
 """
+
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import asyncio
-import sys
 from pathlib import Path
 
 # Add parent directory to path

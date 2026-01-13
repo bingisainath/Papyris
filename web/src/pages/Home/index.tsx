@@ -1,16 +1,18 @@
-// src/pages/Home/index.tsx - USING AuthProvider (NOT Redux auth)
+// src/pages/Home/index.tsx - COMPLETE WITH ALL INTEGRATIONS
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { useAuth } from '../../app/AuthProvider';  // ✅ USE THIS for auth
+import { useAuth } from '../../app/AuthProvider';
 import {
   Sidebar,
   ChatList,
   ChatWindow,
   ProfileModal,
+  CreateExpenseModal,
+  SearchUserModal,
   CreateGroupModal,
-  CreateExpenseModal
+  EmptyState,
 } from '../../components/organisms';
 import {
   useSendMessage,
@@ -19,10 +21,11 @@ import {
 import {
   fetchConversations,
   fetchMessages,
+  createDirectConversation,
   createGroupConversation,
-  fetchUsers
 } from '../../redux/actions/chatActions';
 import type { AppDispatch, RootState } from '../../redux/store';
+import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
 
 const Home: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -30,10 +33,10 @@ const Home: React.FC = () => {
   const location = useLocation();
   const params = useParams();
 
-  // ✅ USE AuthProvider for user authentication
+  // Auth
   const { user: currentUser, isAuthenticated, logout: authLogout } = useAuth();
 
-  // ✅ Still use Redux for chat state
+  // Redux state
   const conversations = useSelector((state: RootState) => state.chat?.conversations || []);
   const messages = useSelector((state: RootState) =>
     params.conversationId ? state.chat?.messages?.[params.conversationId] || [] : []
@@ -41,23 +44,32 @@ const Home: React.FC = () => {
   const isLoading = useSelector((state: RootState) => state.chat?.isLoading || false);
   const messagesLoading = useSelector((state: RootState) => state.chat?.messagesLoading || false);
 
-  // WebSocket hooks
+  const onlineUsers = useSelector(selectOnlineUsers);
+
+  // WebSocket
   const { sendMessage } = useSendMessage();
   const activeConversationId = params.conversationId;
   useConversationRoom(activeConversationId);
 
-  // Modals state
+  // Get other user ID from conversation
+  const getOtherUserId = (conversation: any) => {
+    if (conversation.isGroup) return null;
+    return conversation.members?.find((id: string) => id !== currentUserId);
+  };
+
+  // Modal states
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showSearchUserModal, setShowSearchUserModal] = useState(false);     // ✅ NEW
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [showCreateExpenseModal, setShowCreateExpenseModal] = useState(false);
-  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
+  const [creatingConversation, setCreatingConversation] = useState(false);  // ✅ NEW
 
-  // Determine active route
+  // Active route
   const activeRoute = ['chat', 'groups', 'expenses', 'settings'].includes(location.pathname.split('/')[1])
     ? location.pathname.split('/')[1]
     : 'chat';
 
-  // ✅ Redirect to login if not authenticated
+  // Redirect if not authenticated
   useEffect(() => {
     if (!isAuthenticated) {
       console.log('⚠️ Not authenticated, redirecting to login');
@@ -65,7 +77,7 @@ const Home: React.FC = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  // Load conversations on mount
+  // Load conversations
   useEffect(() => {
     if (isAuthenticated && currentUser) {
       console.log('📥 Loading conversations...');
@@ -73,7 +85,7 @@ const Home: React.FC = () => {
     }
   }, [dispatch, isAuthenticated, currentUser]);
 
-  // Load messages when conversation changes
+  // Load messages
   useEffect(() => {
     if (activeConversationId && isAuthenticated) {
       console.log('📥 Loading messages for:', activeConversationId);
@@ -81,22 +93,91 @@ const Home: React.FC = () => {
     }
   }, [activeConversationId, dispatch, isAuthenticated]);
 
-  // Load users for group creation
-  useEffect(() => {
-    const loadUsers = async () => {
-      if (!currentUser) return;
-      const users = await fetchUsers();
-      setAvailableUsers(users.filter((u: any) => u.id !== currentUser.id));
-    };
-    if (isAuthenticated && currentUser) {
-      loadUsers();
-    }
-  }, [currentUser, isAuthenticated]);
-
-  // Get active conversation details
+  // Get active conversation
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
-  // Handlers
+
+  const otherUserId = activeConversation ? getOtherUserId(activeConversation) : null;
+  const isOnline = otherUserId ? onlineUsers.includes(otherUserId) : false;
+
+  // ✅ NEW: Handler for SearchUserModal
+  const handleSelectUser = async (user: any) => {
+    setCreatingConversation(true);
+
+    try {
+
+      if (!user || !user.id) {
+        console.error('Invalid user:', user);
+        alert('Invalid user selected');
+        return;
+      }
+
+      console.log('Creating DM with user:', user.id);
+
+      // Check if DM already exists
+      const existingDM = conversations.find(c =>
+        !c.isGroup && c.members?.includes(user.id)
+      );
+
+      if (existingDM) {
+        navigate(`/chat/${existingDM.id}`);
+        return;
+      }
+
+      // Create new DM
+      const result = await dispatch(createDirectConversation(user.id));
+
+      if (result.success && result.conversationId) {
+        // Refresh conversations
+        await dispatch(fetchConversations());
+        navigate(`/chat/${result.conversationId}`);
+      } else {
+        alert('Failed to create conversation');
+      }
+    } catch (error) {
+      console.error('Error creating DM:', error);
+      alert('Failed to create conversation');
+    } finally {
+      setCreatingConversation(false);
+    }
+  };
+
+  // ✅ UPDATED: Handler for CreateGroupModal
+  const handleCreateGroup = async (data: {
+    name: string;
+    description: string;
+    memberIds: string[];
+    avatar?: File;
+  }) => {
+    setCreatingConversation(true);
+
+    try {
+      // TODO: Upload avatar if provided
+      let avatarUrl = '';
+      if (data.avatar) {
+        console.log('Avatar upload coming soon');
+        // avatarUrl = await uploadAvatar(data.avatar);
+      }
+
+      // Create group
+      const result = await dispatch(createGroupConversation(data.name, data.memberIds));
+
+      if (result.success && result.conversationId) {
+        setShowCreateGroupModal(false);
+        // Refresh conversations
+        await dispatch(fetchConversations());
+        navigate(`/chat/${result.conversationId}`);
+      } else {
+        alert(`Failed to create group: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      console.error('Error creating group:', error);
+      alert(`Failed to create group: ${error.message}`);
+    } finally {
+      setCreatingConversation(false);
+    }
+  };
+
   const handleNavigate = (path: string) => {
     navigate(path);
   };
@@ -116,19 +197,6 @@ const Home: React.FC = () => {
     sendMessage(activeConversationId, text);
   };
 
-  const handleCreateGroup = async (data: any) => {
-    const result = await dispatch(createGroupConversation(data.name, data.memberIds));
-
-    if (result.success) {
-      setShowCreateGroupModal(false);
-      if (result.conversationId) {
-        navigate(`/chat/${result.conversationId}`);
-      }
-    } else {
-      alert(`Failed to create group: ${result.error || 'Unknown error'}`);
-    }
-  };
-
   const handleCreateExpense = (data: any) => {
     console.log('Create expense:', data);
     alert('Expense feature coming soon!');
@@ -142,11 +210,11 @@ const Home: React.FC = () => {
   };
 
   const handleLogout = () => {
-    authLogout();  // ✅ Use AuthProvider logout
+    authLogout();
     navigate('/login');
   };
 
-  // ✅ Show loading while AuthProvider checks authentication
+  // Loading state
   if (!currentUser && isAuthenticated) {
     return (
       <div className="flex items-center justify-center h-screen bg-gradient-to-br from-muted-50 to-primary-50/20">
@@ -158,14 +226,13 @@ const Home: React.FC = () => {
     );
   }
 
-  // ✅ If no user, will redirect via useEffect above
   if (!currentUser) {
     return null;
   }
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-muted-50 to-primary-50/20 overflow-hidden">
-      {/* Sidebar - Desktop only */}
+      {/* Sidebar */}
       <div className="w-64 flex-shrink-0 hidden md:block">
         <Sidebar
           user={{
@@ -183,7 +250,7 @@ const Home: React.FC = () => {
         />
       </div>
 
-      {/* Main content area */}
+      {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
         {/* CHAT PAGE */}
         {activeRoute === 'chat' && (
@@ -194,13 +261,13 @@ const Home: React.FC = () => {
                 conversations={conversations}
                 activeConversationId={activeConversationId}
                 onSelectConversation={handleSelectConversation}
-                onNewChat={() => alert('New chat - Select a user from search')}
+                onNewChat={() => setShowSearchUserModal(true)}      // ✅ CHANGED
                 onNewGroup={() => setShowCreateGroupModal(true)}
                 isLoading={isLoading}
               />
             </div>
 
-            {/* Chat Window or Welcome Screen */}
+            {/* Chat Window or Empty State */}
             <div className="flex-1 hidden md:block">
               {activeConversationId && activeConversation ? (
                 <ChatWindow
@@ -208,7 +275,7 @@ const Home: React.FC = () => {
                   conversationName={activeConversation.name}
                   conversationAvatar={activeConversation.avatar}
                   isGroup={activeConversation.isGroup}
-                  isOnline={activeConversation.isOnline}
+                  isOnline={isOnline}
                   messages={messages}
                   currentUserId={currentUser.id}
                   onSendMessage={handleSendMessage}
@@ -217,7 +284,11 @@ const Home: React.FC = () => {
                   isLoading={messagesLoading}
                 />
               ) : (
-                <WelcomeScreen />
+                // ✅ NEW: Use EmptyState component
+                <EmptyState
+                  onNewChat={() => setShowSearchUserModal(true)}
+                  onNewGroup={() => setShowCreateGroupModal(true)}
+                />
               )}
             </div>
           </>
@@ -258,10 +329,27 @@ const Home: React.FC = () => {
         )}
       </div>
 
-      {/* Mobile bottom navigation */}
+      {/* Mobile bottom nav */}
       <MobileBottomNav activeRoute={activeRoute} onNavigate={handleNavigate} />
 
-      {/* Modals */}
+      {/* ✅ NEW: SearchUserModal */}
+      <SearchUserModal
+        isOpen={showSearchUserModal}
+        onClose={() => setShowSearchUserModal(false)}
+        onSelectUser={handleSelectUser}
+        currentUserId={currentUser.id}
+      />
+
+      {/* ✅ UPDATED: CreateGroupModal with debouncing */}
+      <CreateGroupModal
+        isOpen={showCreateGroupModal}
+        onClose={() => setShowCreateGroupModal(false)}
+        onCreateGroup={handleCreateGroup}
+        currentUserId={currentUser.id}
+        isLoading={creatingConversation}
+      />
+
+      {/* Profile Modal */}
       {showProfileModal && (
         <ProfileModal
           isOpen={showProfileModal}
@@ -285,16 +373,7 @@ const Home: React.FC = () => {
         />
       )}
 
-      {showCreateGroupModal && (
-        <CreateGroupModal
-          isOpen={showCreateGroupModal}
-          onClose={() => setShowCreateGroupModal(false)}
-          onCreateGroup={handleCreateGroup}
-          availableUsers={availableUsers}
-          currentUserId={currentUser.id}
-        />
-      )}
-
+      {/* Expense Modal */}
       {showCreateExpenseModal && (
         <CreateExpenseModal
           isOpen={showCreateExpenseModal}
@@ -304,9 +383,23 @@ const Home: React.FC = () => {
           currentUserId={currentUser.id}
         />
       )}
+
+      {/* ✅ NEW: Loading overlay */}
+      {creatingConversation && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 flex items-center gap-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
+            <p className="text-muted-900 font-medium">Creating conversation...</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+// ... Keep all other components (GroupsPage, SettingsPage, MobileBottomNav, EmptyState) same
+
+
 
 // Welcome Screen Component
 const WelcomeScreen: React.FC = () => (
@@ -414,6 +507,8 @@ const GroupsPage: React.FC<{
   </div>
 );
 
+
+
 // Settings Page Component
 const SettingsPage: React.FC<{ user: any }> = ({ user }) => (
   <div className="p-8 h-full overflow-auto">
@@ -456,11 +551,10 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
   <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-muted-200 px-2 py-2 flex justify-around z-50 shadow-elevated">
     <button
       onClick={() => onNavigate('/chat')}
-      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${
-        activeRoute === 'chat'
-          ? 'text-primary-600 bg-primary-50 scale-105'
-          : 'text-muted-600 hover:bg-muted-50'
-      }`}
+      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'chat'
+        ? 'text-primary-600 bg-primary-50 scale-105'
+        : 'text-muted-600 hover:bg-muted-50'
+        }`}
     >
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -470,11 +564,10 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
 
     <button
       onClick={() => onNavigate('/groups')}
-      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${
-        activeRoute === 'groups'
-          ? 'text-primary-600 bg-primary-50 scale-105'
-          : 'text-muted-600 hover:bg-muted-50'
-      }`}
+      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'groups'
+        ? 'text-primary-600 bg-primary-50 scale-105'
+        : 'text-muted-600 hover:bg-muted-50'
+        }`}
     >
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -484,11 +577,10 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
 
     <button
       onClick={() => onNavigate('/expenses')}
-      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${
-        activeRoute === 'expenses'
-          ? 'text-primary-600 bg-primary-50 scale-105'
-          : 'text-muted-600 hover:bg-muted-50'
-      }`}
+      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'expenses'
+        ? 'text-primary-600 bg-primary-50 scale-105'
+        : 'text-muted-600 hover:bg-muted-50'
+        }`}
     >
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
@@ -498,11 +590,10 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
 
     <button
       onClick={() => onNavigate('/settings')}
-      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${
-        activeRoute === 'settings'
-          ? 'text-primary-600 bg-primary-50 scale-105'
-          : 'text-muted-600 hover:bg-muted-50'
-      }`}
+      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'settings'
+        ? 'text-primary-600 bg-primary-50 scale-105'
+        : 'text-muted-600 hover:bg-muted-50'
+        }`}
     >
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />

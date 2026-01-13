@@ -4,7 +4,7 @@ import { Input, Button, Typography, Loading } from '../../atoms';
 import Icon from '../../atoms/Icon';
 import { ChatListItem } from '../../molecules';
 import { useConversations } from '../../../hooks/useConversations';
-
+import { formatMessageTime } from '../../../utils/dateFormat';
 
 interface Conversation {
   id: string;
@@ -40,9 +40,6 @@ const ChatList: React.FC<ChatListProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'direct' | 'groups'>('all');
-
-  const { startDirectConversation } = useConversations();
-
 
   // Filter and search conversations
   const filteredConversations = useMemo(() => {
@@ -112,7 +109,7 @@ const ChatList: React.FC<ChatListProps> = ({
                 size="sm"
                 icon={<Icon name="message" size={20} />}
                 // onClick={onNewChat}
-                onClick={() => startDirectConversation('c04bb06d-0412-4039-b45d-b95a6310dc7c')}
+                onClick={onNewChat}
                 title="New chat"
               />
             )}

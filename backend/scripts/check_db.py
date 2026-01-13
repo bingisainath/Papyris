@@ -1,21 +1,5 @@
-# # check_db.py
-# import asyncio
-# from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-# from sqlalchemy import text
-
-# # DATABASE_URL = "postgresql+asyncpg://postgres:YOUR_PASSWORD@localhost:5432/postgres"
-
-# DATABASE_URL="postgresql+asyncpg://papyris:papyris_dev@localhost:5432/papyris"
-
-# async def main():
-#     engine = create_async_engine(DATABASE_URL)
-#     async with engine.connect() as conn:
-#         result = await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname='public';"))
-#         tables = result.fetchall()
-#         print("Tables in DB:", tables)
-
-# asyncio.run(main())
-
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import asyncio
 from sqlalchemy import text

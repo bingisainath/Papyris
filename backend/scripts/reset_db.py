@@ -1,17 +1,7 @@
-# # reset_db.py
-# import asyncio
-# from app.db.base import Base          # Correct import
-# from app.db.session import engine     # Your AsyncEngine
+import sys
+import os
 
-# async def reset():
-#     async with engine.begin() as conn:
-#         await conn.run_sync(Base.metadata.drop_all)   # drop all tables
-#         await conn.run_sync(Base.metadata.create_all) # recreate all tables
-#     print("Database reset complete.")
-
-# if __name__ == "__main__":
-#     asyncio.run(reset())
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import asyncio
 from sqlalchemy import text

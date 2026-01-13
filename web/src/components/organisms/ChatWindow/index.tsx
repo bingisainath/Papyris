@@ -1,17 +1,20 @@
 // src/components/organisms/ChatWindow.tsx - WITH WEBSOCKET INTEGRATION
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useDispatch } from 'react-redux';
 import { MessageBubble, MessageInput } from '../../molecules';
 import { Avatar, Loading } from '../../atoms';
-import { 
-  useConversationRoom, 
-  useSendMessage, 
+import {
+  useConversationRoom,
+  useSendMessage,
   useTypingIndicator,
   useReadReceipt,
-  useOnlinePresence, 
+  useOnlinePresence,
 } from '../../../hooks/useWebSocket';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../../redux/store';
+import { selectIsConnected } from '../../../redux/slices/websocketSlice';
+import { clearUnreadCount } from '../../../redux/slices/chatSlice';
 
 interface ChatWindowProps {
   conversationId: string;
@@ -34,17 +37,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState('');
+  const isConnected = useSelector(selectIsConnected);
+  const lastMarkedMessageId = useRef<string>();
+  const dispatch = useDispatch();
+
+  // ✅ Track active conversation globally
+  useEffect(() => {
+    (window as any).__activeConversationId = conversationId;
+
+    return () => {
+      (window as any).__activeConversationId = null;
+    };
+  }, [conversationId]);
 
   // ✅ WebSocket: Auto join/leave conversation room
   useConversationRoom(conversationId);
 
   // ✅ WebSocket: Get messages from Redux (populated by WebSocket)
-  const messages = useSelector((state: RootState) => 
+  const messages = useSelector((state: RootState) =>
     state.chat?.messages[conversationId] || []
   );
 
   // ✅ WebSocket: Send message functionality
-  const { sendMessage, isConnected } = useSendMessage();
+  const { sendMessage } = useSendMessage();
 
   // ✅ WebSocket: Typing indicators
   const { isTyping, typingUsers, startTyping, stopTyping } = useTypingIndicator(conversationId);
@@ -52,23 +67,56 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   // ✅ WebSocket: Read receipts
   const { markAsRead } = useReadReceipt(conversationId);
 
+
   // ✅ WebSocket: Online presence (for group members)
   const memberIds = ['user1', 'user2']; // Get from conversation data
-  const { isOnline: checkOnline } = useOnlinePresence(memberIds);
+  // const { isOnline: checkOnline } = useOnlinePresence(memberIds);
+
+  console.log('==========isOnline ============');
+  console.log(isOnline);
+  console.log('====================================');
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    dispatch(clearUnreadCount(conversationId));
+  }, [conversationId, dispatch]);
+
   // Mark messages as read when viewing
   useEffect(() => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage.senderId !== currentUserId) {
-        markAsRead(lastMessage.id);
-      }
+
+    // if (messages.length > 0) {
+    //   const lastMessage = messages[messages.length - 1];
+    //   if (lastMessage.senderId !== currentUserId) {
+    //     markAsRead(lastMessage.id);
+    //   }
+    // }
+
+    if (messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+
+    // Skip if: (1) own message, (2) already marked, (3) temp message
+    if (
+      lastMessage.senderId === currentUserId ||
+      lastMessage.id === lastMarkedMessageId.current ||
+      lastMessage.id.startsWith('temp-')
+    ) {
+      return;
     }
+
+    // Debounce: Wait 500ms before marking as read
+    const timer = setTimeout(() => {
+      console.log(`📖 Marking message as read: ${lastMessage.id}`);
+      markAsRead(lastMessage.id);
+      lastMarkedMessageId.current = lastMessage.id;
+    }, 500);
+
+    return () => clearTimeout(timer);
+
   }, [messages, currentUserId, markAsRead]);
 
   // Handle send message
@@ -93,6 +141,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       stopTyping();
     }
   };
+
+  if (!isConnected) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <Loading size="lg" />
+          <p className="mt-4 text-muted-600">Connecting...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -123,7 +182,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           <h2 className="text-lg font-semibold text-muted-900 truncate">
             {conversationName}
           </h2>
-          
+
           {/* Status */}
           {isTyping ? (
             <p className="text-sm text-primary-600 font-medium">
@@ -139,10 +198,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         {/* Actions */}
         <div className="flex items-center gap-2">
           {/* Connection status indicator */}
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success-500' : 'bg-muted-300'}`} 
-               title={isConnected ? 'Connected' : 'Disconnected'} 
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success-500' : 'bg-muted-300'}`}
+            title={isConnected ? 'Connected' : 'Disconnected'}
           />
-          
+
           <button className="p-2 hover:bg-muted-100 rounded-lg transition-colors">
             <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />

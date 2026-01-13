@@ -15,7 +15,15 @@ import {
   addMessage,
   updateMessage,
   setActiveConversation,
+  replaceOptimisticMessage,
+  updateUserOnlineStatus,
+  updateConversationLastMessage,
+  incrementUnreadCount
 } from '../slices/chatSlice';
+
+import { fetchConversations } from './chatActions';
+
+import { clearUnreadCount } from '../slices/chatSlice';
 
 /**
  * Connect to WebSocket server
@@ -23,10 +31,10 @@ import {
 export const connectWebSocket = (token: string) => async (dispatch: AppDispatch) => {
   try {
     dispatch(setConnecting(true));
-    
+
     // Connect to WebSocket
     await wsService.connect(token);
-    
+
     dispatch(setConnected(true));
     console.log('✅ WebSocket connected and Redux updated');
 
@@ -37,7 +45,10 @@ export const connectWebSocket = (token: string) => async (dispatch: AppDispatch)
     console.error('❌ WebSocket connection failed:', error);
     dispatch(setError(error instanceof Error ? error.message : 'Connection failed'));
     dispatch(setConnected(false));
+  } finally {
+    dispatch(setConnecting(false));
   }
+
 };
 
 /**
@@ -81,8 +92,8 @@ export const leaveConversation = (conversationId: string) => (dispatch: AppDispa
  * @param currentUserId - Current user's ID (get from localStorage or props)
  */
 export const sendMessage = (
-  conversationId: string, 
-  text: string, 
+  conversationId: string,
+  text: string,
   currentUserId: string
 ) => (dispatch: AppDispatch) => {
   if (!wsService.isConnected()) {
@@ -94,9 +105,10 @@ export const sendMessage = (
   const username = localStorage.getItem('username') || 'User';
   const avatar = localStorage.getItem('userAvatar') || undefined;
 
-  // Add optimistic message to UI
+  const tempId = `temp-${Date.now()}`;
+
   const optimisticMessage = {
-    id: `temp-${Date.now()}`,
+    id: tempId,
     conversationId,
     senderId: currentUserId,
     senderName: username,
@@ -110,6 +122,9 @@ export const sendMessage = (
     conversationId,
     message: optimisticMessage
   }));
+
+  // Store temp ID for later replacement
+  (window as any).__lastTempMessageId = tempId;
 
   // Send via WebSocket
   wsService.sendMessage(conversationId, text);
@@ -141,11 +156,17 @@ export const markAsRead = (conversationId: string, lastMessageId: string) => () 
  * Setup WebSocket event listeners
  */
 function setupWebSocketListeners(dispatch: AppDispatch) {
+
+  console.log('🎧 Setting up WebSocket listeners');
+
   // Message received
-  wsService.on('message', (data) => {
-    console.log('📨 New message:', data);
-    
+  wsService.on('message', async (data) => {
+    console.log('📨 Message event received:', data);
+
     if (data.roomId && data.messageId) {
+
+      dispatch(clearUnreadCount(data.roomId));
+
       const message = {
         id: data.messageId,
         conversationId: data.roomId,
@@ -159,11 +180,51 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         mediaType: data.mediaType as 'image' | 'video' | 'file' | undefined
       };
 
-      // Add or update message
-      dispatch(addMessage({
+      // Get current user ID
+      const currentUserId = localStorage.getItem('userId');
+      const isOwnMessage = data.senderId === currentUserId;
+
+      const tempId = (window as any).__lastTempMessageId;
+      if (tempId) {
+        dispatch(replaceOptimisticMessage({
+          conversationId: data.roomId,
+          tempId: tempId,
+          message: message
+        }));
+        delete (window as any).__lastTempMessageId;
+      } else {
+        // No optimistic message, just add
+        dispatch(addMessage({
+          conversationId: data.roomId,
+          message
+        }));
+      }
+
+      // Update last message
+      dispatch(updateConversationLastMessage({
         conversationId: data.roomId,
-        message
+        lastMessage: data.text || '',
+        timestamp: data.timestamp || new Date().toISOString()
       }));
+
+      // ✅ Increment unread count if not own message and not viewing this conversation
+      if (!isOwnMessage) {
+        // Check if this is the active conversation
+        const activeConversationId = (window as any).__activeConversationId;
+        
+        if (data.roomId !== activeConversationId) {
+          // User is NOT viewing this conversation - increment unread
+          dispatch(incrementUnreadCount(data.roomId));
+          console.log(`📬 Unread count incremented for conversation ${data.roomId}`);
+        } else {
+          // User IS viewing this conversation - clear unread
+          dispatch(clearUnreadCount(data.roomId));
+        }
+      }
+
+      setTimeout(() => {
+        dispatch(fetchConversations());
+      }, 100);
     }
   });
 
@@ -181,7 +242,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // Read receipt
   wsService.on('read', (data) => {
     console.log('✅ Message read:', data);
-    
+
     if (data.roomId && data.lastMessageId) {
       dispatch(updateMessage({
         conversationId: data.roomId,
@@ -196,6 +257,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     if (data.userId) {
       console.log('🟢 User online:', data.userId);
       dispatch(addOnlineUser(data.userId));
+      dispatch(updateUserOnlineStatus({ userId: data.userId, isOnline: true }));
     }
   });
 
@@ -204,6 +266,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     if (data.userId) {
       console.log('🔴 User offline:', data.userId);
       dispatch(removeOnlineUser(data.userId));
+      dispatch(updateUserOnlineStatus({ userId: data.userId, isOnline: false }));
     }
   });
 

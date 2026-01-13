@@ -36,6 +36,10 @@ export const fetchConversations = () => async (dispatch: AppDispatch) => {
         members: conv.members?.map((m: any) => m.user_id) || [],
       }));
 
+      console.log('============ Chat Actions ==========');
+      console.log(conversations);
+      console.log('====================================');
+
       dispatch(setConversations(conversations));
     }
   } catch (error: any) {
