@@ -1,1 +1,90 @@
 redis-stable
+
+# papyris/.gitignore - COMPLETE FILE
+
+# ==================== PYTHON ====================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# PyCharm
+.idea/
+
+# ==================== NODE / REACT ====================
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Production
+/build
+/dist
+
+# Misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==================== ENVIRONMENT ====================
+.env
+.env.local
+.env.production
+
+# ==================== DATABASE ====================
+*.db
+*.sqlite3
+*.sqlite
+
+# ==================== LOGS ====================
+*.log
+logs/
+
+# ==================== REDIS ====================
+dump.rdb
+
+# ==================== IDE ====================
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==================== OS ====================
+.DS_Store
+Thumbs.db
