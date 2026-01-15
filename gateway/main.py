@@ -44,7 +44,7 @@ async def handler(websocket, path):
     # ---- 2. RECEIVE MESSAGES ----
     try:
         async for msg in websocket:
-            print(f"📩 WebSocket received:", msg)
+            # print(f"📩 WebSocket received:", msg)
             data = json.loads(msg)
 
             if data["type"] == "SEND_MESSAGE":

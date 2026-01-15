@@ -1,6 +1,6 @@
 // src/pages/Home/index.tsx - COMPLETE WITH ALL INTEGRATIONS
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAuth } from '../../app/AuthProvider';
@@ -26,6 +26,9 @@ import {
 } from '../../redux/actions/chatActions';
 import type { AppDispatch, RootState } from '../../redux/store';
 import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
+import { clearUnreadCount, selectActiveConversation } from '../../redux/slices/chatSlice';
+
+// import { selectActiveConversation } from '../../redux/slices/chatSlice';
 
 const Home: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -93,9 +96,19 @@ const Home: React.FC = () => {
     }
   }, [activeConversationId, dispatch, isAuthenticated]);
 
-  // Get active conversation
+  // Get active conversations
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
+  // const activeConversation = useSelector(selectActiveConversation);
+  const currentUserId = localStorage.getItem('userId') || '';
+
+  const sortedConversations = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
+      const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
+      return timeB - timeA; // Most recent first
+    });
+  }, [conversations]);
 
   const otherUserId = activeConversation ? getOtherUserId(activeConversation) : null;
   const isOnline = otherUserId ? onlineUsers.includes(otherUserId) : false;
@@ -183,6 +196,18 @@ const Home: React.FC = () => {
   };
 
   const handleSelectConversation = (id: string) => {
+
+    console.log('👆 User clicked conversation:', id.substring(0, 8));
+
+    // Get conversation
+    const conversation = conversations.find(c => c.id === id);
+
+    // Clear unread count if any
+    if (conversation && conversation.unreadCount > 0) {
+      console.log(`🧹 Clearing ${conversation.unreadCount} unread messages`);
+      dispatch(clearUnreadCount(id));
+    }
+
     navigate(`/chat/${id}`);
   };
 
@@ -258,10 +283,10 @@ const Home: React.FC = () => {
             {/* Chat List */}
             <div className="w-full md:w-96 flex-shrink-0 border-r border-muted-200 bg-white/80">
               <ChatList
-                conversations={conversations}
+                conversations={sortedConversations}
                 activeConversationId={activeConversationId}
                 onSelectConversation={handleSelectConversation}
-                onNewChat={() => setShowSearchUserModal(true)}      // ✅ CHANGED
+                onNewChat={() => setShowSearchUserModal(true)}
                 onNewGroup={() => setShowCreateGroupModal(true)}
                 isLoading={isLoading}
               />

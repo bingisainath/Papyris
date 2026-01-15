@@ -30,6 +30,138 @@ class CreateConversationRequest(BaseModel):
 
 
 # GET /api/v1/conversations - List all conversations
+# @router.get("/conversations")
+# async def get_conversations(
+#     current_user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """Get all conversations for the current user"""
+#     try:
+#         # Get all conversation IDs for current user
+#         # stmt = (
+#         #     select(ConversationMember.conversation_id)
+#         #     .where(ConversationMember.user_id == current_user.id)
+#         # )
+
+#         stmt = (
+#             select(Conversation)
+#             .join(ConversationMember)
+#             .where(ConversationMember.user_id == current_user.id)
+#             .options(selectinload(Conversation.members))
+#             .order_by(Conversation.updated_at.desc())
+#         )
+
+#         result = await db.execute(stmt)
+#         conversation_ids = [row[0] for row in result.fetchall()]
+
+#         if not conversation_ids:
+#             return {"success": True, "data": [], "message": "No conversations found"}
+
+#         # Get conversations with members
+#         stmt = (
+#             select(Conversation)
+#             .where(Conversation.id.in_(conversation_ids))
+#             .options(selectinload(Conversation.members))
+#             .order_by(Conversation.updated_at.desc())
+#         )
+#         result = await db.execute(stmt)
+#         conversations = result.scalars().all()
+
+#         # Build response
+#         response_data = []
+#         for conv in conversations:
+#             # Get last message
+#             msg_stmt = (
+#                 select(Message)
+#                 .where(Message.conversation_id == conv.id)
+#                 .order_by(Message.created_at.desc())
+#                 .limit(1)
+#             )
+#             msg_result = await db.execute(msg_stmt)
+#             last_message = msg_result.scalar_one_or_none()
+
+#             # Get unread count (messages after user's last read)
+#             unread_count = 0
+#             if last_message:
+#                 # For now, just count all messages from others
+#                 unread_stmt = (
+#                     select(func.count(Message.id))
+#                     .where(
+#                         and_(
+#                             Message.conversation_id == conv.id,
+#                             Message.sender_id != current_user.id
+#                         )
+#                     )
+#                 )
+#                 unread_result = await db.execute(unread_stmt)
+#                 # unread_count = unread_result.scalar() or 0
+#                 unread_count = 0  # TODO: Implement proper read receipts
+
+#             # Get other user for DM
+#             other_user = None
+#             if conv.kind == 'dm':
+#                 for member in conv.members:
+#                     if member.user_id != current_user.id:
+#                         user_stmt = select(User).where(User.id == member.user_id)
+#                         user_result = await db.execute(user_stmt)
+#                         other_user_obj = user_result.scalar_one_or_none()
+#                         if other_user_obj:
+#                             other_user = {
+#                                 "id": str(other_user_obj.id),
+#                                 "username": other_user_obj.username,
+#                                 "email": other_user_obj.email,
+#                                 "avatar": other_user_obj.avatar,
+#                                 "is_online": False  # TODO: Check Redis
+#                             }
+#                         break
+
+#             # Get all members for groups
+#             members = []
+#             if conv.kind == 'group':
+#                 for member in conv.members:
+#                     user_stmt = select(User).where(User.id == member.user_id)
+#                     user_result = await db.execute(user_stmt)
+#                     user_obj = user_result.scalar_one_or_none()
+#                     if user_obj:
+#                         members.append({
+#                             "id": str(user_obj.id),
+#                             "username": user_obj.username,
+#                             "email": user_obj.email,
+#                             "avatar": user_obj.avatar,
+#                             "is_online": False
+#                         })
+
+#             conv_data = {
+#                 "id": str(conv.id),
+#                 "kind": conv.kind,
+#                 "title": conv.title,
+#                 "avatar_url": conv.avatar_url,
+#                 "created_at": conv.created_at.isoformat(),
+#                 "updated_at": conv.updated_at.isoformat(),
+#                 "last_message": {
+#                     "id": str(last_message.id),
+#                     "text": last_message.text,
+#                     "created_at": last_message.created_at.isoformat(),
+#                     "sender_id": str(last_message.sender_id)
+#                 } if last_message else None,
+#                 "unread_count": unread_count,
+#                 "other_user": other_user,
+#                 "members": members
+#             }
+#             response_data.append(conv_data)
+
+#         return {
+#             "success": True,
+#             "data": response_data,
+#             "message": "Conversations fetched successfully"
+#         }
+
+#     except Exception as e:
+#         print(f"❌ Error fetching conversations: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/conversations")
 async def get_conversations(
     current_user: User = Depends(get_current_user),
@@ -37,30 +169,28 @@ async def get_conversations(
 ):
     """Get all conversations for the current user"""
     try:
-        # Get all conversation IDs for current user
-        stmt = (
-            select(ConversationMember.conversation_id)
-            .where(ConversationMember.user_id == current_user.id)
-        )
-        result = await db.execute(stmt)
-        conversation_ids = [row[0] for row in result.fetchall()]
-
-        if not conversation_ids:
-            return {"success": True, "data": [], "message": "No conversations found"}
-
-        # Get conversations with members
+        # Get conversations where user is a member
         stmt = (
             select(Conversation)
-            .where(Conversation.id.in_(conversation_ids))
+            .join(ConversationMember)
+            .where(ConversationMember.user_id == current_user.id)
             .options(selectinload(Conversation.members))
             .order_by(Conversation.updated_at.desc())
         )
+        
         result = await db.execute(stmt)
         conversations = result.scalars().all()
 
         # Build response
         response_data = []
         for conv in conversations:
+            # ✅ Get all member IDs (just IDs, not full objects)
+            members_stmt = select(ConversationMember.user_id).where(
+                ConversationMember.conversation_id == conv.id
+            )
+            members_result = await db.execute(members_stmt)
+            member_ids = [str(uid) for uid in members_result.scalars().all()]
+
             # Get last message
             msg_stmt = (
                 select(Message)
@@ -71,73 +201,29 @@ async def get_conversations(
             msg_result = await db.execute(msg_stmt)
             last_message = msg_result.scalar_one_or_none()
 
-            # Get unread count (messages after user's last read)
-            unread_count = 0
-            if last_message:
-                # For now, just count all messages from others
-                unread_stmt = (
-                    select(func.count(Message.id))
-                    .where(
-                        and_(
-                            Message.conversation_id == conv.id,
-                            Message.sender_id != current_user.id
-                        )
-                    )
-                )
-                unread_result = await db.execute(unread_stmt)
-                # unread_count = unread_result.scalar() or 0
-                unread_count = 0  # TODO: Implement proper read receipts
-
-            # Get other user for DM
+            # ✅ Get other user for DM (to get name and avatar)
             other_user = None
             if conv.kind == 'dm':
-                for member in conv.members:
-                    if member.user_id != current_user.id:
-                        user_stmt = select(User).where(User.id == member.user_id)
-                        user_result = await db.execute(user_stmt)
-                        other_user_obj = user_result.scalar_one_or_none()
-                        if other_user_obj:
-                            other_user = {
-                                "id": str(other_user_obj.id),
-                                "username": other_user_obj.username,
-                                "email": other_user_obj.email,
-                                "avatar": other_user_obj.avatar,
-                                "is_online": False  # TODO: Check Redis
-                            }
-                        break
-
-            # Get all members for groups
-            members = []
-            if conv.kind == 'group':
-                for member in conv.members:
-                    user_stmt = select(User).where(User.id == member.user_id)
+                # Find the other user (not current user)
+                other_user_id = next((uid for uid in member_ids if uid != str(current_user.id)), None)
+                if other_user_id:
+                    user_stmt = select(User).where(User.id == UUID(other_user_id))
                     user_result = await db.execute(user_stmt)
-                    user_obj = user_result.scalar_one_or_none()
-                    if user_obj:
-                        members.append({
-                            "id": str(user_obj.id),
-                            "username": user_obj.username,
-                            "email": user_obj.email,
-                            "avatar": user_obj.avatar,
-                            "is_online": False
-                        })
+                    other_user = user_result.scalar_one_or_none()
 
+            # ✅ Format response to match frontend expectations
             conv_data = {
                 "id": str(conv.id),
-                "kind": conv.kind,
-                "title": conv.title,
-                "avatar_url": conv.avatar_url,
-                "created_at": conv.created_at.isoformat(),
-                "updated_at": conv.updated_at.isoformat(),
-                "last_message": {
-                    "id": str(last_message.id),
-                    "text": last_message.text,
-                    "created_at": last_message.created_at.isoformat(),
-                    "sender_id": str(last_message.sender_id)
-                } if last_message else None,
-                "unread_count": unread_count,
-                "other_user": other_user,
-                "members": members
+                "name": other_user.username if other_user else (conv.title or "Unknown"),
+                "avatar": other_user.avatar if other_user else conv.avatar_url,
+                "lastMessage": last_message.text if last_message else "",
+                "lastMessageTime": last_message.created_at.isoformat() if last_message else None,
+                "unreadCount": 0,  # Will be calculated by frontend
+                "isOnline": False,  # Will be updated by frontend based on online users
+                "isGroup": conv.kind == "group",
+                "members": member_ids,  # ✅ Just IDs, not full objects
+                "isPinned": False,
+                "isTyping": False,
             }
             response_data.append(conv_data)
 

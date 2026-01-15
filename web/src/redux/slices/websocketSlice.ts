@@ -27,7 +27,7 @@ const websocketSlice = createSlice({
     setConnecting: (state, action: PayloadAction<boolean>) => {
       state.isConnecting = action.payload;
     },
-    
+
     setConnected: (state, action: PayloadAction<boolean>) => {
       state.isConnected = action.payload;
       if (action.payload) {
@@ -35,7 +35,7 @@ const websocketSlice = createSlice({
         state.isConnecting = false;
       }
     },
-    
+
     setError: (state, action: PayloadAction<string | null>) => {
       state.error = action.payload;
       state.isConnecting = false;
@@ -47,11 +47,11 @@ const websocketSlice = createSlice({
         state.onlineUsers.push(action.payload);
       }
     },
-    
+
     removeOnlineUser: (state, action: PayloadAction<string>) => {
       state.onlineUsers = state.onlineUsers.filter(id => id !== action.payload);
     },
-    
+
     setOnlineUsers: (state, action: PayloadAction<string[]>) => {
       state.onlineUsers = action.payload;
     },
@@ -59,11 +59,11 @@ const websocketSlice = createSlice({
     // Typing indicators
     setTyping: (state, action: PayloadAction<{ conversationId: string; userId: string; isTyping: boolean }>) => {
       const { conversationId, userId, isTyping } = action.payload;
-      
+
       if (!state.typingUsers[conversationId]) {
         state.typingUsers[conversationId] = [];
       }
-      
+
       if (isTyping) {
         if (!state.typingUsers[conversationId].includes(userId)) {
           state.typingUsers[conversationId].push(userId);
@@ -106,7 +106,7 @@ export const selectIsConnected = (state: RootState) => state.websocket?.isConnec
 export const selectIsConnecting = (state: RootState) => state.websocket?.isConnecting || false;
 export const selectWebSocketError = (state: RootState) => state.websocket?.error;
 export const selectOnlineUsers = (state: RootState) => state.websocket?.onlineUsers || [];
-export const selectTypingUsers = (conversationId: string) => (state: RootState) => 
+export const selectTypingUsers = (conversationId: string) => (state: RootState) =>
   state.websocket?.typingUsers[conversationId] || [];
 
 export default websocketSlice.reducer;

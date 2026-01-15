@@ -1,6 +1,6 @@
 // src/redux/actions/websocketActions.ts - NO AUTH DEPENDENCY
 
-import { AppDispatch } from '../store';
+import type { AppDispatch, RootState } from '../store';
 import { wsService } from '../../services/websocket.service';
 import {
   setConnecting,
@@ -18,12 +18,16 @@ import {
   replaceOptimisticMessage,
   updateUserOnlineStatus,
   updateConversationLastMessage,
-  incrementUnreadCount
+  incrementUnreadCount,
+  createPlaceholderConversation
 } from '../slices/chatSlice';
 
 import { fetchConversations } from './chatActions';
 
-import { clearUnreadCount } from '../slices/chatSlice';
+// import { clearUnreadCount } from '../slices/chatSlice';
+
+let getStateRef: (() => RootState) | null = null;
+let listenersInitialized = false;
 
 /**
  * Connect to WebSocket server
@@ -41,6 +45,8 @@ export const connectWebSocket = (token: string) => async (dispatch: AppDispatch)
     // Setup event listeners
     setupWebSocketListeners(dispatch);
 
+    
+
   } catch (error) {
     console.error('❌ WebSocket connection failed:', error);
     dispatch(setError(error instanceof Error ? error.message : 'Connection failed'));
@@ -57,6 +63,7 @@ export const connectWebSocket = (token: string) => async (dispatch: AppDispatch)
 export const disconnectWebSocket = () => (dispatch: AppDispatch) => {
   wsService.disconnect();
   dispatch(resetWebSocket());
+  listenersInitialized = false;
   console.log('👋 WebSocket disconnected');
 };
 
@@ -159,13 +166,23 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   console.log('🎧 Setting up WebSocket listeners');
 
+  // getStateRef = getState;
+
+  if (listenersInitialized) {
+    console.log('⏭️ Listeners already initialized, skipping');
+    return;
+  }
+
+  console.log('🎧 Setting up WebSocket listeners');
+  listenersInitialized = true;  // ✅ Mark as initialized
+
   // Message received
   wsService.on('message', async (data) => {
     console.log('📨 Message event received:', data);
 
     if (data.roomId && data.messageId) {
 
-      dispatch(clearUnreadCount(data.roomId));
+      // dispatch(clearUnreadCount(data.roomId));
 
       const message = {
         id: data.messageId,
@@ -183,6 +200,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       // Get current user ID
       const currentUserId = localStorage.getItem('userId');
       const isOwnMessage = data.senderId === currentUserId;
+      const activeConversationId = (window as any).__activeConversationId;
 
       const tempId = (window as any).__lastTempMessageId;
       if (tempId) {
@@ -207,21 +225,21 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         timestamp: data.timestamp || new Date().toISOString()
       }));
 
+      console.log('Listener counts:', wsService.getListenerCount());
+
       // ✅ Increment unread count if not own message and not viewing this conversation
-      if (!isOwnMessage) {
-        // Check if this is the active conversation
-        const activeConversationId = (window as any).__activeConversationId;
-        
-        if (data.roomId !== activeConversationId) {
-          // User is NOT viewing this conversation - increment unread
-          dispatch(incrementUnreadCount(data.roomId));
-          console.log(`📬 Unread count incremented for conversation ${data.roomId}`);
-        } else {
-          // User IS viewing this conversation - clear unread
-          dispatch(clearUnreadCount(data.roomId));
-        }
+      if (!isOwnMessage && data.roomId !== activeConversationId) {
+        dispatch(incrementUnreadCount(data.roomId));
+        console.log(`📬 Unread count incremented for conversation ${data.roomId}`);
+      } else if (!isOwnMessage && data.roomId === activeConversationId) {
+        console.log('  👁️ Message in active conversation - not incrementing unread');
+      } else {
+        console.log('  🙋 Own message - not incrementing unread');
       }
 
+      // ✅ Fetch conversations to get new conversations
+      // (unread counts will be preserved by fetchConversations)
+      console.log('  🔄 Fetching conversations (unread will be preserved)');
       setTimeout(() => {
         dispatch(fetchConversations());
       }, 100);
@@ -241,7 +259,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   // Read receipt
   wsService.on('read', (data) => {
-    console.log('✅ Message read:', data);
+    // console.log('✅ Message read:', data);
 
     if (data.roomId && data.lastMessageId) {
       dispatch(updateMessage({
@@ -254,6 +272,10 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   // User came online
   wsService.on('online', (data) => {
+
+    console.log('%c🟢 ONLINE EVENT', 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px;');
+    console.log('  User ID:', data.userId);
+
     if (data.userId) {
       console.log('🟢 User online:', data.userId);
       dispatch(addOnlineUser(data.userId));
@@ -263,6 +285,10 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   // User went offline
   wsService.on('offline', (data) => {
+
+    console.log('%c🔴 OFFLINE EVENT', 'background: #9E9E9E; color: white; padding: 2px 5px; border-radius: 3px;');
+    console.log('  User ID:', data.userId);
+
     if (data.userId) {
       console.log('🔴 User offline:', data.userId);
       dispatch(removeOnlineUser(data.userId));
@@ -295,5 +321,6 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   wsService.on('disconnected', () => {
     console.log('🔌 WebSocket disconnected event');
     dispatch(setConnected(false));
+    listenersInitialized = false;
   });
 }

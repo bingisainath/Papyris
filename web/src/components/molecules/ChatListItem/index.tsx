@@ -35,6 +35,9 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
   onClick,
   className = ''
 }) => {
+
+  console.log('unreadCount : ', unreadCount);
+  
   return (
     <div
       onClick={onClick}
@@ -117,8 +120,15 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
           </div>
 
           {/* Unread badge */}
-          {unreadCount > 0 && !isTyping && (
+          {/* {unreadCount > 0 && !isTyping && (
             <Badge count={unreadCount} variant="primary" size="sm" />
+          )} */}
+
+          {/* ✅ Unread count badge */}
+          {unreadCount > 0 && (
+            <span className="flex-shrink-0 inline-flex items-center justify-center min-w-[22px] h-[22px] px-2 text-xs font-bold text-white bg-primary-600 rounded-full">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
           )}
         </div>
       </div>

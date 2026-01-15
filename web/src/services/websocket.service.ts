@@ -33,15 +33,19 @@ type EventCallback = (event: WebSocketEvent) => void;
 
 class WebSocketService {
   private ws: WebSocket | null = null;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
+  // private reconnectAttempts = 0;
+  // private maxReconnectAttempts = 5;
+  // private reconnectDelay = 1000;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnecting = false;
   private shouldReconnect = true;
   private token: string | null = null;
   private wsUrl: string;
+  // private listeners: Record<string, Array<(data: any) => void>> = {};
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 2000;
 
   constructor() {
     // WebSocket URL - adjust for your backend
@@ -112,6 +116,12 @@ class WebSocketService {
     });
   }
 
+  // ✅ Add method to clear all listeners
+  // clearListeners() {
+  //   console.log('🧹 Clearing all WebSocket listeners');
+  //   this.listeners = {};
+  // }
+
   /**
    * Disconnect from WebSocket server
    */
@@ -134,24 +144,16 @@ class WebSocketService {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  /**
-   * Send event to server
-   */
-  // private send(data: any) {
-  //   if (!this.isConnected()) {
-  //     console.error('❌ WebSocket not connected');
-  //     throw new Error('WebSocket not connected');
-  //   }
-
-  //   this.ws!.send(JSON.stringify(data));
-  // }
-
   private send(data: any) {
     if (!this.isConnected()) {
       console.warn('⚠️ WebSocket not connected, queuing message');
       // ✅ Don't throw - just return or queue for later
       return false;
     }
+
+    // ✅ Log all outgoing WebSocket messages
+    console.log(`%c⬆️ WS SEND: ${data.type}`, 'background: #FF9800; color: white; padding: 2px 5px; border-radius: 3px;');
+    console.log('  Data:', data);
 
     try {
       this.ws!.send(JSON.stringify(data));
@@ -275,7 +277,7 @@ class WebSocketService {
    * Handle incoming message from server
    */
   private handleMessage(data: WebSocketEvent) {
-    console.log('📨 Received:', data.type, data);
+    // console.log('📨 Received:', data.type, data);
 
     // Emit specific event type
     this.emit(data.type, data);
@@ -332,6 +334,7 @@ class WebSocketService {
       }
     }, delay);
   }
+
 }
 
 // Export singleton instance
