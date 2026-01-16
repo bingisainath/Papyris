@@ -353,3 +353,20 @@ body {
     display: none;
   }
 }
+
+
+/* Safe area for mobile devices */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .mobile-safe-bottom {
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+  
+  .mobile-nav-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Fallback for devices without notch */
+.mobile-safe-bottom {
+  padding-bottom: 4rem; /* 16 in Tailwind = 4rem */
+}

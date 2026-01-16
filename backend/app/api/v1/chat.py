@@ -17,7 +17,7 @@ from app.models.conversation_member import ConversationMember
 from app.models.message import Message
 from app.api.dependencies import get_current_user
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -27,140 +27,6 @@ class CreateConversationRequest(BaseModel):
     kind: str  # 'dm' or 'group'
     title: Optional[str] = None
     participant_ids: List[str]
-
-
-# GET /api/v1/conversations - List all conversations
-# @router.get("/conversations")
-# async def get_conversations(
-#     current_user: User = Depends(get_current_user),
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     """Get all conversations for the current user"""
-#     try:
-#         # Get all conversation IDs for current user
-#         # stmt = (
-#         #     select(ConversationMember.conversation_id)
-#         #     .where(ConversationMember.user_id == current_user.id)
-#         # )
-
-#         stmt = (
-#             select(Conversation)
-#             .join(ConversationMember)
-#             .where(ConversationMember.user_id == current_user.id)
-#             .options(selectinload(Conversation.members))
-#             .order_by(Conversation.updated_at.desc())
-#         )
-
-#         result = await db.execute(stmt)
-#         conversation_ids = [row[0] for row in result.fetchall()]
-
-#         if not conversation_ids:
-#             return {"success": True, "data": [], "message": "No conversations found"}
-
-#         # Get conversations with members
-#         stmt = (
-#             select(Conversation)
-#             .where(Conversation.id.in_(conversation_ids))
-#             .options(selectinload(Conversation.members))
-#             .order_by(Conversation.updated_at.desc())
-#         )
-#         result = await db.execute(stmt)
-#         conversations = result.scalars().all()
-
-#         # Build response
-#         response_data = []
-#         for conv in conversations:
-#             # Get last message
-#             msg_stmt = (
-#                 select(Message)
-#                 .where(Message.conversation_id == conv.id)
-#                 .order_by(Message.created_at.desc())
-#                 .limit(1)
-#             )
-#             msg_result = await db.execute(msg_stmt)
-#             last_message = msg_result.scalar_one_or_none()
-
-#             # Get unread count (messages after user's last read)
-#             unread_count = 0
-#             if last_message:
-#                 # For now, just count all messages from others
-#                 unread_stmt = (
-#                     select(func.count(Message.id))
-#                     .where(
-#                         and_(
-#                             Message.conversation_id == conv.id,
-#                             Message.sender_id != current_user.id
-#                         )
-#                     )
-#                 )
-#                 unread_result = await db.execute(unread_stmt)
-#                 # unread_count = unread_result.scalar() or 0
-#                 unread_count = 0  # TODO: Implement proper read receipts
-
-#             # Get other user for DM
-#             other_user = None
-#             if conv.kind == 'dm':
-#                 for member in conv.members:
-#                     if member.user_id != current_user.id:
-#                         user_stmt = select(User).where(User.id == member.user_id)
-#                         user_result = await db.execute(user_stmt)
-#                         other_user_obj = user_result.scalar_one_or_none()
-#                         if other_user_obj:
-#                             other_user = {
-#                                 "id": str(other_user_obj.id),
-#                                 "username": other_user_obj.username,
-#                                 "email": other_user_obj.email,
-#                                 "avatar": other_user_obj.avatar,
-#                                 "is_online": False  # TODO: Check Redis
-#                             }
-#                         break
-
-#             # Get all members for groups
-#             members = []
-#             if conv.kind == 'group':
-#                 for member in conv.members:
-#                     user_stmt = select(User).where(User.id == member.user_id)
-#                     user_result = await db.execute(user_stmt)
-#                     user_obj = user_result.scalar_one_or_none()
-#                     if user_obj:
-#                         members.append({
-#                             "id": str(user_obj.id),
-#                             "username": user_obj.username,
-#                             "email": user_obj.email,
-#                             "avatar": user_obj.avatar,
-#                             "is_online": False
-#                         })
-
-#             conv_data = {
-#                 "id": str(conv.id),
-#                 "kind": conv.kind,
-#                 "title": conv.title,
-#                 "avatar_url": conv.avatar_url,
-#                 "created_at": conv.created_at.isoformat(),
-#                 "updated_at": conv.updated_at.isoformat(),
-#                 "last_message": {
-#                     "id": str(last_message.id),
-#                     "text": last_message.text,
-#                     "created_at": last_message.created_at.isoformat(),
-#                     "sender_id": str(last_message.sender_id)
-#                 } if last_message else None,
-#                 "unread_count": unread_count,
-#                 "other_user": other_user,
-#                 "members": members
-#             }
-#             response_data.append(conv_data)
-
-#         return {
-#             "success": True,
-#             "data": response_data,
-#             "message": "Conversations fetched successfully"
-#         }
-
-#     except Exception as e:
-#         print(f"❌ Error fetching conversations: {e}")
-#         import traceback
-#         traceback.print_exc()
-#         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/conversations")
 async def get_conversations(
@@ -201,6 +67,64 @@ async def get_conversations(
             msg_result = await db.execute(msg_stmt)
             last_message = msg_result.scalar_one_or_none()
 
+            # ✅ ADD DETAILED DEBUG LOGGING
+            print(f"\n{'='*60}")
+            print(f"📊 Processing conversation: {conv.id}")
+            print(f"   Name/Title: {conv.title if conv.kind == 'group' else 'DM'}")
+
+            # ✅ CALCULATE REAL UNREAD COUNT
+            # Get user's last_read_message_id from conversation_members
+            member_stmt = select(ConversationMember).where(
+                ConversationMember.conversation_id == conv.id,
+                ConversationMember.user_id == current_user.id
+            )
+            member_result = await db.execute(member_stmt)
+            member = member_result.scalar_one_or_none()
+
+            if member:
+                print(f"   User's last_read_message_id: {member.last_read_message_id}")
+            else:
+                print(f"   ⚠️ User is not a member!")
+            
+            # Count total messages
+            total_msg_stmt = select(func.count(Message.id)).where(
+                Message.conversation_id == conv.id
+            )
+            total_result = await db.execute(total_msg_stmt)
+            total_messages = total_result.scalar() or 0
+            print(f"   Total messages: {total_messages}")
+
+            unread_count = 0
+
+            if member:
+                if member.last_read_message_id:
+                    # Count messages after last_read_message_id
+                    last_read_msg_stmt = select(Message).where(
+                        Message.id == member.last_read_message_id
+                    )
+                    last_read_result = await db.execute(last_read_msg_stmt)
+                    last_read_msg = last_read_result.scalar_one_or_none()
+                    
+                    if last_read_msg:
+                        # Count messages created after last read message
+                        unread_stmt = select(func.count(Message.id)).where(
+                            Message.conversation_id == conv.id,
+                            Message.created_at > last_read_msg.created_at,
+                            Message.sender_id != current_user.id  # Don't count own messages
+                        )
+                        unread_result = await db.execute(unread_stmt)
+                        unread_count = unread_result.scalar() or 0
+                else:
+                    # No last read message - count all messages from others
+                    unread_stmt = select(func.count(Message.id)).where(
+                        Message.conversation_id == conv.id,
+                        Message.sender_id != current_user.id
+                    )
+                    unread_result = await db.execute(unread_stmt)
+                    unread_count = unread_result.scalar() or 0
+
+            print(f"📊 Conversation {conv.id}: unread_count = {unread_count}")
+
             # ✅ Get other user for DM (to get name and avatar)
             other_user = None
             if conv.kind == 'dm':
@@ -218,7 +142,7 @@ async def get_conversations(
                 "avatar": other_user.avatar if other_user else conv.avatar_url,
                 "lastMessage": last_message.text if last_message else "",
                 "lastMessageTime": last_message.created_at.isoformat() if last_message else None,
-                "unreadCount": 0,  # Will be calculated by frontend
+                "unreadCount": unread_count, 
                 "isOnline": False,  # Will be updated by frontend based on online users
                 "isGroup": conv.kind == "group",
                 "members": member_ids,  # ✅ Just IDs, not full objects
@@ -315,6 +239,66 @@ async def get_messages(
         raise
     except Exception as e:
         print(f"❌ Error fetching messages: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# backend/app/api/v1/chat.py - ADD MARK AS READ ENDPOINT
+
+@router.post("/conversations/{conversation_id}/mark-read")
+async def mark_conversation_read(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Mark all messages in conversation as read up to the latest message"""
+    try:
+        # Verify user is member
+        member_stmt = select(ConversationMember).where(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.user_id == current_user.id
+        )
+        member_result = await db.execute(member_stmt)
+        member = member_result.scalar_one_or_none()
+
+        if not member:
+            raise HTTPException(status_code=403, detail="Not a member of this conversation")
+
+        # Get latest message in conversation
+        latest_msg_stmt = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        latest_result = await db.execute(latest_msg_stmt)
+        latest_message = latest_result.scalar_one_or_none()
+
+        if latest_message:
+            # Update last_read_message_id
+            member.last_read_message_id = latest_message.id
+            member.last_read_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            print(f"✅ Marked conversation {conversation_id} as read for user {current_user.id}")
+
+            return {
+                "success": True,
+                "message": "Conversation marked as read",
+                "last_read_message_id": str(latest_message.id)
+            }
+        else:
+            return {
+                "success": True,
+                "message": "No messages to mark as read"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"❌ Error marking as read: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

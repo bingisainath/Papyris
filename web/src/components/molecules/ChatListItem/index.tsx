@@ -35,8 +35,6 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
   onClick,
   className = ''
 }) => {
-
-  console.log('unreadCount : ', unreadCount);
   
   return (
     <div

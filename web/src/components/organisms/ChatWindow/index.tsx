@@ -134,13 +134,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     }
 
     // Debounce: Wait 500ms before marking as read
-    const timer = setTimeout(() => {
-      console.log(`📖 Marking message as read: ${lastMessage.id}`);
-      markAsRead(lastMessage.id);
-      lastMarkedMessageId.current = lastMessage.id;
-    }, 500);
+    // const timer = setTimeout(() => {
+    //   console.log(`📖 Marking message as read: ${lastMessage.id}`);
+    //   markAsRead(lastMessage.id);
+    //   lastMarkedMessageId.current = lastMessage.id;
+    // }, 500);
 
-    return () => clearTimeout(timer);
+    // return () => clearTimeout(timer);
 
   }, [messages, currentUserId, markAsRead]);
 
@@ -236,7 +236,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 pb-20 md:pb-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-muted-400">No messages yet. Say hi! 👋</p>
@@ -274,7 +274,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       )}
 
       {/* Message Input */}
-      <div className="border-t border-muted-200 bg-white">
+      <div className="border-t border-muted-200 bg-white mobile-safe-bottom md:pb-0">
         <MessageInput
           value={inputText}
           onChange={setInputText}

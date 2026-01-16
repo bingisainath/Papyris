@@ -198,9 +198,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       };
 
       // Get current user ID
-      const currentUserId = localStorage.getItem('userId');
-      const isOwnMessage = data.senderId === currentUserId;
-      const activeConversationId = (window as any).__activeConversationId;
+      // const currentUserId = localStorage.getItem('userId');
+      // const isOwnMessage = data.senderId === currentUserId;
+      // const activeConversationId = (window as any).__activeConversationId;
 
       const tempId = (window as any).__lastTempMessageId;
       if (tempId) {
@@ -225,17 +225,17 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         timestamp: data.timestamp || new Date().toISOString()
       }));
 
-      console.log('Listener counts:', wsService.getListenerCount());
+      // console.log('Listener counts:', wsService.getListenerCount());
 
       // ✅ Increment unread count if not own message and not viewing this conversation
-      if (!isOwnMessage && data.roomId !== activeConversationId) {
-        dispatch(incrementUnreadCount(data.roomId));
-        console.log(`📬 Unread count incremented for conversation ${data.roomId}`);
-      } else if (!isOwnMessage && data.roomId === activeConversationId) {
-        console.log('  👁️ Message in active conversation - not incrementing unread');
-      } else {
-        console.log('  🙋 Own message - not incrementing unread');
-      }
+      // if (!isOwnMessage && data.roomId !== activeConversationId) {
+      //   dispatch(incrementUnreadCount(data.roomId));
+      //   console.log(`📬 Unread count incremented for conversation ${data.roomId}`);
+      // } else if (!isOwnMessage && data.roomId === activeConversationId) {
+      //   console.log('  👁️ Message in active conversation - not incrementing unread');
+      // } else {
+      //   console.log('  🙋 Own message - not incrementing unread');
+      // }
 
       // ✅ Fetch conversations to get new conversations
       // (unread counts will be preserved by fetchConversations)

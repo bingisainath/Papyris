@@ -19,9 +19,9 @@ export const useConversations = () => {
   const error = useSelector((state: RootState) => state.chat?.error);
 
   // Fetch conversations on mount
-  useEffect(() => {
-    // dispatch(fetchConversations());
-  }, [dispatch]);
+  // useEffect(() => {
+  //   // dispatch(fetchConversations());
+  // }, [dispatch]);
 
   const startDirectConversation = async (userId: string) => {
 

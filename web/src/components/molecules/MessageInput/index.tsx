@@ -220,11 +220,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
       )}
 
       {/* Hint text */}
-      {!disabled && !message && (
+      {/* {!disabled && !message && (
         <div className="px-4 pb-2 text-xs text-muted-400">
           Press Enter to send, Shift+Enter for new line
         </div>
-      )}
+      )} */}
     </div>
   );
 };
