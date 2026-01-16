@@ -69,16 +69,16 @@ const chatSlice = createSlice({
 
     updateConversationLastMessage: (
       state,
-      action: PayloadAction<{ 
-        conversationId: string; 
-        lastMessage: string; 
+      action: PayloadAction<{
+        conversationId: string;
+        lastMessage: string;
         timestamp: string;
         createIfNotExists?: boolean;
       }>
     ) => {
       const { conversationId, lastMessage, timestamp, createIfNotExists } = action.payload;
       let conversation = state.conversations.find(c => c.id === conversationId);
-      
+
       if (!conversation && createIfNotExists) {
         // Create placeholder
         conversation = {
@@ -96,13 +96,14 @@ const chatSlice = createSlice({
       } else if (conversation) {
         conversation.lastMessage = lastMessage;
         conversation.lastMessageTime = timestamp;
-        
+
         // Move to top
         const index = state.conversations.indexOf(conversation);
         if (index > 0) {
           state.conversations.splice(index, 1);
           state.conversations.unshift(conversation);
         }
+        console.log(`✅ Updated last message for ${conversation.name}`);
       }
     },
 
@@ -115,13 +116,39 @@ const chatSlice = createSlice({
       action: PayloadAction<{ userId: string; isOnline: boolean }>
     ) => {
       const { userId, isOnline } = action.payload;
+      const currentUserId = localStorage.getItem('userId');
 
-      // Update in conversations
+      let updated = 0;
+
       state.conversations.forEach(conv => {
-        if (!conv.isGroup && conv.members?.includes(userId)) {
+
+        if (
+          !conv.isGroup &&
+          conv.members &&
+          Array.isArray(conv.members) &&
+          conv.members.includes(userId) &&
+          userId !== currentUserId
+        ) {
+          const oldStatus = conv.isOnline;
           conv.isOnline = isOnline;
+          updated++;
+
+          console.log(`     ✅ UPDATED: ${oldStatus} → ${isOnline}`);
+        } else {
+          console.log(`     ⏭️ SKIPPED`);
         }
       });
+
+      console.log(`  📊 Updated ${updated} conversations`);
+
+      if (updated === 0) {
+        console.log(`  ⚠️ No conversations updated!`);
+        console.log(`  📋 Current conversations:`, state.conversations.map(c => ({
+          name: c.name,
+          members: c.members,
+          isGroup: c.isGroup
+        })));
+      }
     },
 
     // Messages
@@ -224,18 +251,92 @@ const chatSlice = createSlice({
       }
     },
 
-    // Unread count
+    // ✅ Create placeholder conversation for new messages
+    createPlaceholderConversation: (
+      state,
+      action: PayloadAction<{
+        conversationId: string;
+        senderId: string;
+        senderName?: string;
+        senderAvatar?: string;
+        lastMessage: string;
+        timestamp: string;
+      }>
+    ) => {
+      const { conversationId, senderId, senderName, senderAvatar, lastMessage, timestamp } = action.payload;
+
+      // Check if already exists
+      const exists = state.conversations.some(c => c.id === conversationId);
+      if (exists) return;
+
+      console.log('🆕 Creating placeholder conversation:', conversationId.substring(0, 8));
+
+      // Create placeholder
+      const placeholder: Conversation = {
+        id: conversationId,
+        name: senderName || 'Unknown',
+        avatar: senderAvatar || null,
+        lastMessage: lastMessage,
+        lastMessageTime: timestamp,
+        unreadCount: 1,  // Start with 1 unread
+        isOnline: false,
+        isGroup: false,
+        members: [senderId],  // Will be updated when full data loads
+        isPinned: false,
+        isTyping: false,
+      };
+
+      // Add to top of list
+      state.conversations.unshift(placeholder);
+
+      console.log('✅ Placeholder conversation created');
+    },
+
+
+
+    // incrementUnreadCount: (state, action: PayloadAction<string>) => {
+    //   const conversationId = action.payload;
+    //   const conversation = state.conversations.find(c => c.id === conversationId);
+
+    //   if (conversation) {
+    //     conversation.unreadCount = (conversation.unreadCount || 0) + 1;
+    //     console.log(`📬 Unread count for ${conversation.name}: ${conversation.unreadCount}`);
+    //   }
+    // },
+
     incrementUnreadCount: (state, action: PayloadAction<string>) => {
-      const conv = state.conversations.find(c => c.id === action.payload);
-      if (conv && conv.id !== state.activeConversationId) {
-        conv.unreadCount = (conv.unreadCount || 0) + 1;
+      const conversationId = action.payload;
+      const conversation = state.conversations.find(c => c.id === conversationId);
+
+      if (conversation) {
+        const oldCount = conversation.unreadCount || 0;
+        conversation.unreadCount = oldCount + 1;
+
+        console.log(`%c📬 INCREMENT UNREAD`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px;');
+        console.log(`  Conversation: ${conversation.name}`);
+        console.log(`  ${oldCount} → ${conversation.unreadCount}`);
+        console.log(`  Called from:`);
+        console.trace(); // ✅ Shows call stack
       }
     },
 
+    // ✅ CLEAR - Track who's calling
     // clearUnreadCount: (state, action: PayloadAction<string>) => {
-    //   const conv = state.conversations.find(c => c.id === action.payload);
-    //   if (conv) {
-    //     conv.unreadCount = 0;
+    //   const conversationId = action.payload;
+    //   const conversation = state.conversations.find(c => c.id === conversationId);
+
+    //   if (conversation) {
+    //     const oldCount = conversation.unreadCount || 0;
+
+    //     if (oldCount > 0) {
+    //       console.log(`%c❌ CLEAR UNREAD`, 'background: #f44336; color: white; padding: 2px 5px; border-radius: 3px;');
+    //       console.log(`  Conversation: ${conversation.name}`);
+    //       console.log(`  ${oldCount} → 0`);
+    //       console.log(`  Called from:`);
+    //       console.trace(); // ✅ Shows call stack
+    //     }
+
+    //     conversation.unreadCount = 0;
     //   }
     // },
 
@@ -243,8 +344,14 @@ const chatSlice = createSlice({
       const conversationId = action.payload;
       const conversation = state.conversations.find(c => c.id === conversationId);
 
-      if (conversation) {
+      if (conversation && conversation.unreadCount > 0) {
+        const oldCount = conversation.unreadCount;
         conversation.unreadCount = 0;
+
+        console.log(`%c❌ CLEAR UNREAD`, 'background: #f44336; color: white; padding: 2px 5px;');
+        console.log(`  Conversation: ${conversation.name}`);
+        console.log(`  ${oldCount} → 0`);
+        console.trace();
       }
     },
 
@@ -276,6 +383,7 @@ export const {
   updateConversationLastMessage,
   replaceMessageId,
   setActiveConversation,
+  createPlaceholderConversation,
   incrementUnreadCount,
   clearUnreadCount,
   setLoading,
@@ -284,3 +392,7 @@ export const {
 } = chatSlice.actions;
 
 export default chatSlice.reducer;
+
+// Selectors
+export const selectActiveConversation = (state: { chat: ChatState }) =>
+  state.chat.conversations.find(c => c.id === state.chat.activeConversationId);

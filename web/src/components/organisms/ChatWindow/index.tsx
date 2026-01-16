@@ -1,7 +1,6 @@
 // src/components/organisms/ChatWindow.tsx - WITH WEBSOCKET INTEGRATION
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useDispatch } from 'react-redux';
 import { MessageBubble, MessageInput } from '../../molecules';
 import { Avatar, Loading } from '../../atoms';
 import {
@@ -9,12 +8,10 @@ import {
   useSendMessage,
   useTypingIndicator,
   useReadReceipt,
-  useOnlinePresence,
 } from '../../../hooks/useWebSocket';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../../redux/store';
 import { selectIsConnected } from '../../../redux/slices/websocketSlice';
-import { clearUnreadCount } from '../../../redux/slices/chatSlice';
 
 interface ChatWindowProps {
   conversationId: string;
@@ -37,9 +34,27 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState('');
+
   const isConnected = useSelector(selectIsConnected);
+  // const onlineUsers = useSelector(selectOnlineUsers);
+
   const lastMarkedMessageId = useRef<string>();
-  const dispatch = useDispatch();
+  // const dispatch = useDispatch();
+
+  const hasCleared = useRef(false);
+
+  // ✅ Online status calculation (1-to-1 chat)
+  const memberIds = ['user1', 'user2']; // TEMP – replace with real data
+
+  // const otherUserId = !isGroup
+  //   ? memberIds.find(id => id !== currentUserId)
+  //   : null;
+
+  // const isUserOnline = !!(
+  //   otherUserId && onlineUsers.includes(otherUserId)
+  // );
+
+  // console.log('isUserOnline : ',isUserOnline);
 
   // ✅ Track active conversation globally
   useEffect(() => {
@@ -69,21 +84,31 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
 
   // ✅ WebSocket: Online presence (for group members)
-  const memberIds = ['user1', 'user2']; // Get from conversation data
+  // const memberIds = ['user1', 'user2']; // Get from conversation data
   // const { isOnline: checkOnline } = useOnlinePresence(memberIds);
 
-  console.log('==========isOnline ============');
-  console.log(isOnline);
-  console.log('====================================');
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // useEffect(() => {
+  //   dispatch(clearUnreadCount(conversationId));
+  // }, [conversationId, dispatch]);
+
+  // useEffect(() => {
+  //   if (messages.length > 0 && !hasCleared.current) {
+  //     console.log(`✅ Clearing unread for conversation: ${conversationId}`);
+  //     dispatch(clearUnreadCount(conversationId));
+  //     hasCleared.current = true;
+  //   }
+  // }, [messages.length, conversationId, dispatch]);
+
+  // ✅ Reset hasCleared when conversation changes
   useEffect(() => {
-    dispatch(clearUnreadCount(conversationId));
-  }, [conversationId, dispatch]);
+    hasCleared.current = false;
+  }, [conversationId]);
 
   // Mark messages as read when viewing
   useEffect(() => {
@@ -109,13 +134,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     }
 
     // Debounce: Wait 500ms before marking as read
-    const timer = setTimeout(() => {
-      console.log(`📖 Marking message as read: ${lastMessage.id}`);
-      markAsRead(lastMessage.id);
-      lastMarkedMessageId.current = lastMessage.id;
-    }, 500);
+    // const timer = setTimeout(() => {
+    //   console.log(`📖 Marking message as read: ${lastMessage.id}`);
+    //   markAsRead(lastMessage.id);
+    //   lastMarkedMessageId.current = lastMessage.id;
+    // }, 500);
 
-    return () => clearTimeout(timer);
+    // return () => clearTimeout(timer);
 
   }, [messages, currentUserId, markAsRead]);
 
@@ -211,7 +236,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 pb-20 md:pb-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-muted-400">No messages yet. Say hi! 👋</p>
@@ -249,7 +274,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       )}
 
       {/* Message Input */}
-      <div className="border-t border-muted-200 bg-white">
+      <div className="border-t border-muted-200 bg-white mobile-safe-bottom md:pb-0">
         <MessageInput
           value={inputText}
           onChange={setInputText}

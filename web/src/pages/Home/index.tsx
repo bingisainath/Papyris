@@ -1,6 +1,6 @@
 // src/pages/Home/index.tsx - COMPLETE WITH ALL INTEGRATIONS
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAuth } from '../../app/AuthProvider';
@@ -26,6 +26,10 @@ import {
 } from '../../redux/actions/chatActions';
 import type { AppDispatch, RootState } from '../../redux/store';
 import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
+import { clearUnreadCount } from '../../redux/slices/chatSlice';
+import { chatService } from '../../services/chat.service';
+
+// import { selectActiveConversation } from '../../redux/slices/chatSlice';
 
 const Home: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -93,9 +97,19 @@ const Home: React.FC = () => {
     }
   }, [activeConversationId, dispatch, isAuthenticated]);
 
-  // Get active conversation
+  // Get active conversations
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
+  // const activeConversation = useSelector(selectActiveConversation);
+  const currentUserId = localStorage.getItem('userId') || '';
+
+  const sortedConversations = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
+      const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
+      return timeB - timeA; // Most recent first
+    });
+  }, [conversations]);
 
   const otherUserId = activeConversation ? getOtherUserId(activeConversation) : null;
   const isOnline = otherUserId ? onlineUsers.includes(otherUserId) : false;
@@ -182,7 +196,52 @@ const Home: React.FC = () => {
     navigate(path);
   };
 
-  const handleSelectConversation = (id: string) => {
+  // const handleSelectConversation = (id: string) => {
+
+  //   console.log('👆 User clicked conversation:', id.substring(0, 8));
+
+  //   // Get conversation
+  //   const conversation = conversations.find(c => c.id === id);
+
+  //   // Clear unread count if any
+  //   if (conversation && conversation.unreadCount > 0) {
+  //     console.log(`🧹 Clearing ${conversation.unreadCount} unread messages`);
+  //     dispatch(clearUnreadCount(id));
+  //   }
+
+  //   navigate(`/chat/${id}`);
+  // };
+
+  const handleSelectConversation = async (id: string) => {
+    console.log('👆 User clicked conversation:', id.substring(0, 8));
+
+    // Get conversation
+    const conversation = conversations.find(c => c.id === id);
+
+    // ✅ Mark as read on server
+    if (conversation && conversation.unreadCount > 0) {
+      console.log(`🧹 Marking ${conversation.unreadCount} messages as read on server`);
+
+      // Clear in Redux immediately for instant UI update
+      dispatch(clearUnreadCount(id));
+
+      // ✅ WAIT for server to mark as read, THEN fetch
+      try {
+        const result = await chatService.markConversationRead(id);
+
+        if (result.success) {
+          console.log('✅ Server marked as read, now fetching updated conversations');
+          // Now the server has updated counts, safe to fetch
+          await dispatch(fetchConversations());
+        } else {
+          console.error('❌ Failed to mark as read on server:', result.error);
+        }
+      } catch (error) {
+        console.error('❌ Error marking as read:', error);
+      }
+    }
+
+    // Navigate
     navigate(`/chat/${id}`);
   };
 
@@ -256,20 +315,23 @@ const Home: React.FC = () => {
         {activeRoute === 'chat' && (
           <>
             {/* Chat List */}
-            <div className="w-full md:w-96 flex-shrink-0 border-r border-muted-200 bg-white/80">
+            {/* <div className="w-full md:w-96 flex-shrink-0 border-r border-muted-200 bg-white/80"> */}
+            <div className={`w-full md:w-96 flex-shrink-0 border-r border-muted-200 bg-white/80 ${activeConversationId ? 'hidden md:block' : 'block'
+              }`}>
               <ChatList
-                conversations={conversations}
+                conversations={sortedConversations}
                 activeConversationId={activeConversationId}
                 onSelectConversation={handleSelectConversation}
-                onNewChat={() => setShowSearchUserModal(true)}      // ✅ CHANGED
+                onNewChat={() => setShowSearchUserModal(true)}
                 onNewGroup={() => setShowCreateGroupModal(true)}
                 isLoading={isLoading}
               />
             </div>
 
-            {/* Chat Window or Empty State */}
-            <div className="flex-1 hidden md:block">
-              {activeConversationId && activeConversation ? (
+            {/* Chat Window - Show on mobile when active, always show on desktop */}
+            <div className={`flex-1 ${activeConversationId ? 'block' : 'hidden md:block'  // ✅ FIX: Show window when chat is active
+              }`}>
+              {activeConversation ? (
                 <ChatWindow
                   conversationId={activeConversationId}
                   conversationName={activeConversation.name}
@@ -280,11 +342,10 @@ const Home: React.FC = () => {
                   currentUserId={currentUser.id}
                   onSendMessage={handleSendMessage}
                   onTyping={(isTyping) => console.log('Typing:', isTyping)}
-                  onBack={() => navigate('/chat')}
+                  onBack={() => navigate('/chat')}  // ✅ FIX: Go back to list on mobile
                   isLoading={messagesLoading}
                 />
               ) : (
-                // ✅ NEW: Use EmptyState component
                 <EmptyState
                   onNewChat={() => setShowSearchUserModal(true)}
                   onNewGroup={() => setShowCreateGroupModal(true)}
@@ -548,7 +609,8 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
   activeRoute,
   onNavigate
 }) => (
-  <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-muted-200 px-2 py-2 flex justify-around z-50 shadow-elevated">
+  // <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-muted-200 px-2 py-2 flex justify-around z-50 shadow-elevated">
+  <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-muted-200 px-2 py-2 flex justify-around z-50 shadow-lg">
     <button
       onClick={() => onNavigate('/chat')}
       className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'chat'

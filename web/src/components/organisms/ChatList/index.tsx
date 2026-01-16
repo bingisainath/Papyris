@@ -60,7 +60,7 @@ const ChatList: React.FC<ChatListProps> = ({
     // Apply search
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(c => 
+      filtered = filtered.filter(c =>
         c.name.toLowerCase().includes(query) ||
         c.lastMessage?.toLowerCase().includes(query)
       );
@@ -93,6 +93,8 @@ const ChatList: React.FC<ChatListProps> = ({
       unread: conversations.filter(c => c.unreadCount && c.unreadCount > 0).length
     };
   }, [conversations]);
+
+  // console.log('conversations online :', conversations);
 
   return (
     <div className={`flex flex-col h-full bg-white/80 backdrop-blur-sm ${className}`}>
@@ -141,8 +143,8 @@ const ChatList: React.FC<ChatListProps> = ({
             onClick={() => setFilter('all')}
             className={`
               px-3 py-1.5 rounded-lg text-sm font-medium transition-all
-              ${filter === 'all' 
-                ? 'bg-primary-600 text-white shadow-sm' 
+              ${filter === 'all'
+                ? 'bg-primary-600 text-white shadow-sm'
                 : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
               }
             `}
@@ -153,8 +155,8 @@ const ChatList: React.FC<ChatListProps> = ({
             onClick={() => setFilter('direct')}
             className={`
               px-3 py-1.5 rounded-lg text-sm font-medium transition-all
-              ${filter === 'direct' 
-                ? 'bg-primary-600 text-white shadow-sm' 
+              ${filter === 'direct'
+                ? 'bg-primary-600 text-white shadow-sm'
                 : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
               }
             `}
@@ -165,8 +167,8 @@ const ChatList: React.FC<ChatListProps> = ({
             onClick={() => setFilter('groups')}
             className={`
               px-3 py-1.5 rounded-lg text-sm font-medium transition-all
-              ${filter === 'groups' 
-                ? 'bg-primary-600 text-white shadow-sm' 
+              ${filter === 'groups'
+                ? 'bg-primary-600 text-white shadow-sm'
                 : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
               }
             `}
@@ -242,6 +244,8 @@ const ChatList: React.FC<ChatListProps> = ({
             <ChatListItem
               key={conversation.id}
               {...conversation}
+              unreadCount={conversation.unreadCount || 0}
+              isOnline={conversation.isOnline}
               isActive={conversation.id === activeConversationId}
               onClick={() => onSelectConversation(conversation.id)}
             />

@@ -1,4 +1,4 @@
-// src/hooks/useWebSocket.ts - NO AUTH DEPENDENCY
+// src/hooks/useWebSocket.ts
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -34,10 +34,13 @@ export const useWebSocket = (token?: string) => {
   const isConnecting = useSelector(selectIsConnecting);
   const error = useSelector(selectWebSocketError);
 
-  const connectionInitiated = useRef(false);  // ✅ ADD: Track if connection started
+  const connectionInitiated = useRef(false); 
   const currentToken = useRef<string>();
 
   useEffect(() => {
+
+    if (!token) return;
+    
     // Connect when token is provided
     if (token && !isConnected && !isConnecting) {
       console.log('🔌 Auto-connecting WebSocket...');
@@ -330,6 +333,10 @@ export const useOnlinePresence = (userIds: string[]) => {
   const isOnline = useCallback((userId: string) => {
     return onlineUsers.includes(userId);
   }, [onlineUsers]);
+
+  // console.log('===========websocket online =========');
+  // console.log(isOnline);
+  // console.log('====================================');
 
   const onlineCount = userIds.filter(isOnline).length;
 

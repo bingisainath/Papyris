@@ -1,6 +1,6 @@
 // src/redux/actions/chatActions.ts
 
-import { AppDispatch } from '../store';
+import { AppDispatch, RootState } from '../store';
 import { chatService } from '../../services/chat.service';
 import {
   setConversations,
@@ -14,33 +14,69 @@ import {
 /**
  * Fetch all conversations
  */
-export const fetchConversations = () => async (dispatch: AppDispatch) => {
+export const fetchConversations = () => async (dispatch: AppDispatch, getState: () => RootState) => {
   try {
     dispatch(setLoading(true));
 
     const response = await chatService.getConversations();
 
     if (response.success && response.data) {
-      // Transform backend data to frontend format
-      const conversations = response.data.map((conv: any) => ({
-        id: conv.id,
-        name: conv.title || conv.other_user?.username || 'Unknown',
-        avatar: conv.avatar_url || conv.other_user?.avatar,
-        lastMessage: conv.last_message?.text || '',
-        lastMessageTime: conv.last_message?.created_at || conv.updated_at,
-        unreadCount: conv.unread_count || 0,
-        isOnline: conv.other_user?.is_online || false,
-        isTyping: false,
-        isPinned: false,
-        isGroup: conv.kind === 'group',
-        members: conv.members?.map((m: any) => m.user_id) || [],
-      }));
 
-      console.log('============ Chat Actions ==========');
-      console.log(conversations);
-      console.log('====================================');
+      const state = getState();
+      const onlineUsers = state.websocket.onlineUsers || [];
+      const currentUserId = localStorage.getItem('userId');
 
-      dispatch(setConversations(conversations));
+      // ✅ CRITICAL: Get existing unread counts from Redux
+      const existingConversations = state.chat.conversations;
+      const unreadMap = new Map(
+        existingConversations.map(c => [c.id, c.unreadCount || 0])
+      );
+      
+      // const existingIds = new Set(existingConversations.map(c => c.id));
+
+      console.log('💾 Preserving unread counts:', Array.from(unreadMap.entries()).map(([id, count]) => `${id.substring(0, 8)}: ${count}`));
+
+      const conversationsWithOnline = response.data.map((conv: any) => {
+        let isOnline = false;
+
+        if (!conv.isGroup && conv.members && Array.isArray(conv.members)) {
+          // ✅ Find the OTHER user (not current user)
+          const otherUserId = conv.members.find((id: string) => id !== currentUserId);
+
+          // ✅ Check if OTHER user is online (exclude current user from check)
+          isOnline = !!(
+            otherUserId &&
+            otherUserId !== currentUserId &&  // Double-check it's not current user
+            onlineUsers.includes(otherUserId)
+          );
+
+        }
+
+        // ✅ Get existing unread count, or 0 for new conversations
+        // const existingUnread = unreadMap.get(conv.id) || 0;
+        // const isNewConversation = !existingIds.has(conv.id)
+        
+        // const unreadCount = existingUnread !== undefined ? existingUnread : conv.unreadCount || 0;
+        
+        // if (isNewConversation) {
+        //   console.log(`🆕 New conversation detected: ${conv.name} - unread: ${unreadCount}`);
+        // }
+
+        console.log('unread count :', conv.unreadCount);
+        
+
+        return {
+          ...conv,
+          isOnline,
+          members: conv.members || [],
+          unreadCount: conv.unreadCount || 0,
+        };
+      });
+
+      // console.log('✅ Conversations with online status:', conversationsWithOnline.length);
+      dispatch(setConversations(conversationsWithOnline));
+
+
     }
   } catch (error: any) {
     console.error('Failed to fetch conversations:', error);
