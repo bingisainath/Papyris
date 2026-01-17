@@ -5,7 +5,7 @@ import axios from 'axios';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
 
 export interface LoginCredentials {
-  username: string;
+  identifier: string;
   password: string;
 }
 
@@ -84,6 +84,53 @@ class AuthService {
     });
     return response.data;
   }
+
+  /**
+   * Request password reset email
+   */
+  async forgotPassword(identifier: string): Promise<any> {
+    try {
+      const response = await axios.post(`${API_URL}/auth/forgot-password`, {
+        identifier
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('Forgot password error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verify reset token is valid
+   */
+  async verifyResetToken(token: string): Promise<any> {
+    try {
+      const response = await axios.post(`${API_URL}/auth/verify-reset-token`, {
+        token
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('Verify token error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reset password with token
+   */
+  async resetPassword(token: string, newPassword: string): Promise<any> {
+    try {
+      const response = await axios.post(`${API_URL}/auth/reset-password`, {
+        token,
+        new_password: newPassword
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('Reset password error:', error);
+      throw error;
+    }
+  }
+
 }
 
 export const authService = new AuthService();

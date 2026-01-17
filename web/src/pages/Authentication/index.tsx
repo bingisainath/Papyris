@@ -1,14 +1,9 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useDispatch } from "react-redux";
-// import axiosHelper from "../../helper/axiosHelper";
-// import { setToken } from "../../redux/userSlice";
 import AuthContainer from "../../components/organisms/AuthContainer";
 import "./LoginPage.css";
 import { useAuth } from "../../app/AuthProvider";
 import { validatePassword } from "../../utils/passwordPolicy";
-
-import { connectWebSocket } from '../../redux/actions/websocketActions';
 
 import { toast } from "react-toastify";
 
@@ -16,16 +11,16 @@ const AuthenticationPage: React.FC = () => {
   const navigate = useNavigate();
   const { login, register } = useAuth();
 
-  const dispatch = useDispatch();
-
   const [isActive, setIsActive] = useState<boolean>(false);
   // const navigate = useNavigate();
   // const dispatch = useDispatch();
 
   // Login state
-  const [loginEmail, setLoginEmail] = useState<string>("");
+  // const [loginEmail, setLoginEmail] = useState<string>("");
+  const [loginIdentifier, setLoginIdentifier] = useState<string>("");
   const [loginPassword, setLoginPassword] = useState<string>("");
   const [loginError, setLoginError] = useState<string | null>(null);
+  
 
   // Register state
   const [registerUsername, setRegisterUsername] = useState<string>("");
@@ -46,10 +41,11 @@ const AuthenticationPage: React.FC = () => {
     setLoginError(null);
 
     try {
-      console.log("Attempting login...");
-      const loginMail = loginEmail.toLocaleLowerCase();
-      console.log('login called 2', loginMail);
-      await login(loginMail, loginPassword);
+      // console.log("Attempting login...");
+      // const loginMail = loginEmail.toLocaleLowerCase();
+      // console.log('login called 2', loginMail);
+      // await login(loginMail, loginPassword);
+      await login(loginIdentifier.trim(), loginPassword);
       toast.success("Logged in successfully");
       console.log("Login successful, navigating...");
       navigate("/", { replace: true });
@@ -94,8 +90,8 @@ const AuthenticationPage: React.FC = () => {
   };
 
   const loginData = {
-    email: loginEmail,
-    setEmail: setLoginEmail,
+    email: loginIdentifier,
+    setEmail: setLoginIdentifier,
     password: loginPassword,
     setPassword: setLoginPassword,
     onSubmit: handleLogin,

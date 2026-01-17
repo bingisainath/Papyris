@@ -72,33 +72,6 @@ class ChatService {
     return response.data;
   }
 
-  // // ✅ NEW: Mark conversation as read on server
-  // async markConversationRead(conversationId: string): Promise<ApiResponse<any>> {
-  //   try {
-  //     const response = await axios.post(
-  //       `${API_URL}/conversations/${conversationId}/mark-read`,
-  //       {
-  //         headers: getAuthHeader(),
-  //       }
-  //     );
-
-  //     const data = await response;
-
-  //     if (!response.ok) {
-  //       throw new Error(data.detail || 'Failed to mark as read');
-  //     }
-
-  //     return { success: true, data };
-  //   } catch (error) {
-  //     console.error('Failed to mark conversation as read:', error);
-  //     return {
-  //       success: false,
-  //       error: error instanceof Error ? error.message : 'Unknown error',
-  //     };
-  //   }
-  // }
-
-
   /**
    * Mark conversation as read on server
    */

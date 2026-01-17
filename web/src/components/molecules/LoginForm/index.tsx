@@ -3,6 +3,7 @@ import Input from "../../atoms/AuthInput";
 import Button from "../../atoms/AuthButton";
 import ErrorMessage from "../../atoms/ErrorMessage";
 import "./LoginForm.css";
+import { Link } from "react-router-dom";
 
 interface LoginFormProps {
   email: string;
@@ -25,8 +26,8 @@ const LoginForm: React.FC<LoginFormProps> = ({
     console.log("Button clicked");
     // Create a fake form event
     const fakeEvent = {
-      preventDefault: () => {},
-      stopPropagation: () => {},
+      preventDefault: () => { },
+      stopPropagation: () => { },
     } as React.FormEvent<HTMLFormElement>;
     onSubmit(fakeEvent);
   };
@@ -36,13 +37,13 @@ const LoginForm: React.FC<LoginFormProps> = ({
       <h1 className="auth-form-title">Sign In</h1>
       <ErrorMessage message={error} />
       <Input
-        type="email"
-        placeholder="Email"
+        type="text"
+        placeholder="Username or Email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        id="loginEmail"
-        name="loginEmail"
-        autoComplete="email"
+        id="loginIdentifier"
+        name="loginIdentifier"
+        autoComplete="username"
       />
       <Input
         type="password"
@@ -63,6 +64,20 @@ const LoginForm: React.FC<LoginFormProps> = ({
       >
         Forgot your password?
       </button> */}
+
+      {/* ✅ NEW: Forgot Password Link */}
+      <Link
+        to="/forgot-password"
+        className="forgot-password"
+        style={{
+          display: 'block',
+          textAlign: 'right',
+          marginTop: '8px',
+          marginBottom: '4px'
+        }}
+      >
+        Forgot your password?
+      </Link>
       <Button type="button" variant="submit" onClick={handleButtonClick}>
         Sign In
       </Button>

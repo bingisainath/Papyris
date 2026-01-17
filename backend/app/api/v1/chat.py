@@ -145,7 +145,7 @@ async def get_conversations(
                 "unreadCount": unread_count, 
                 "isOnline": False,  # Will be updated by frontend based on online users
                 "isGroup": conv.kind == "group",
-                "members": member_ids,  # ✅ Just IDs, not full objects
+                "members": member_ids,
                 "isPinned": False,
                 "isTyping": False,
             }
