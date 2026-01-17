@@ -5,7 +5,7 @@ export interface RegisterPayload {
 }
 
 export interface LoginPayload {
-  email: string;
+  identifier: string;  // Can be username OR email
   password: string;
 }
 
@@ -15,12 +15,38 @@ export interface LoginResponse {
   expires_in?: number; // optional (if backend adds it)
 }
 
+// export interface UserResponse {
+//   id: string;
+//   username: string;
+//   email: string;
+//   is_active: boolean;
+//   created_at: string;
+// }
+
+
+export interface LoginResponse {
+  success: boolean;
+  message: string;
+  data: {
+    access_token: string;
+    token_type: string;
+    refresh_token?: string;
+  };
+}
+
 export interface UserResponse {
-  id: string;
-  username: string;
-  email: string;
-  is_active: boolean;
-  created_at: string;
+  success: boolean;
+  message: string;
+  data: {
+    id: string;
+    username: string;
+    email: string;
+    is_active: boolean;
+    created_at: string;
+    name?: string;
+    avatar?: string;
+    bio?: string;
+  };
 }
 
 export interface JwtPayload {

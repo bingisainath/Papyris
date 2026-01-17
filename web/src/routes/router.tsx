@@ -1,7 +1,9 @@
 // src/routes/router.tsx
 import { createBrowserRouter, Navigate } from 'react-router-dom';
-import Login from '../pages/Authentication/index';
+import Login from '../pages/Authentication';
 import Home from '../pages/Home';
+import ForgotPassword from '../pages/ForgotPassword';
+import ResetPassword from '../pages/ResetPassword';
 import { RequireAuth } from '../app/RequireAuth';
 
 export const router = createBrowserRouter([
@@ -12,6 +14,14 @@ export const router = createBrowserRouter([
   {
     path: '/signup',
     element: <Login />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPassword />,
+  },
+  {
+    path: '/reset-password',
+    element: <ResetPassword />,
   },
   {
     path: '/',
