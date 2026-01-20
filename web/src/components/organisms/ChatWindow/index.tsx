@@ -1,4 +1,4 @@
-// src/components/organisms/ChatWindow.tsx - WITH WEBSOCKET INTEGRATION
+// src/components/organisms/ChatWindow.tsx
 
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageBubble, MessageInput } from '../../molecules';
@@ -46,16 +46,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   // ✅ Online status calculation (1-to-1 chat)
   const memberIds = ['user1', 'user2']; // TEMP – replace with real data
 
-  // const otherUserId = !isGroup
-  //   ? memberIds.find(id => id !== currentUserId)
-  //   : null;
-
-  // const isUserOnline = !!(
-  //   otherUserId && onlineUsers.includes(otherUserId)
-  // );
-
-  // console.log('isUserOnline : ',isUserOnline);
-
   // ✅ Track active conversation globally
   useEffect(() => {
     (window as any).__activeConversationId = conversationId;
@@ -81,44 +71,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // ✅ WebSocket: Read receipts
   const { markAsRead } = useReadReceipt(conversationId);
-
-
-  // ✅ WebSocket: Online presence (for group members)
-  // const memberIds = ['user1', 'user2']; // Get from conversation data
-  // const { isOnline: checkOnline } = useOnlinePresence(memberIds);
-
-
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // useEffect(() => {
-  //   dispatch(clearUnreadCount(conversationId));
-  // }, [conversationId, dispatch]);
-
-  // useEffect(() => {
-  //   if (messages.length > 0 && !hasCleared.current) {
-  //     console.log(`✅ Clearing unread for conversation: ${conversationId}`);
-  //     dispatch(clearUnreadCount(conversationId));
-  //     hasCleared.current = true;
-  //   }
-  // }, [messages.length, conversationId, dispatch]);
-
-  // ✅ Reset hasCleared when conversation changes
+  // Reset hasCleared when conversation changes
   useEffect(() => {
     hasCleared.current = false;
   }, [conversationId]);
 
   // Mark messages as read when viewing
   useEffect(() => {
-
-    // if (messages.length > 0) {
-    //   const lastMessage = messages[messages.length - 1];
-    //   if (lastMessage.senderId !== currentUserId) {
-    //     markAsRead(lastMessage.id);
-    //   }
-    // }
 
     if (messages.length === 0) return;
 
@@ -132,15 +96,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     ) {
       return;
     }
-
-    // Debounce: Wait 500ms before marking as read
-    // const timer = setTimeout(() => {
-    //   console.log(`📖 Marking message as read: ${lastMessage.id}`);
-    //   markAsRead(lastMessage.id);
-    //   lastMarkedMessageId.current = lastMessage.id;
-    // }, 500);
-
-    // return () => clearTimeout(timer);
 
   }, [messages, currentUserId, markAsRead]);
 

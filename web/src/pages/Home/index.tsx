@@ -196,22 +196,6 @@ const Home: React.FC = () => {
     navigate(path);
   };
 
-  // const handleSelectConversation = (id: string) => {
-
-  //   console.log('👆 User clicked conversation:', id.substring(0, 8));
-
-  //   // Get conversation
-  //   const conversation = conversations.find(c => c.id === id);
-
-  //   // Clear unread count if any
-  //   if (conversation && conversation.unreadCount > 0) {
-  //     console.log(`🧹 Clearing ${conversation.unreadCount} unread messages`);
-  //     dispatch(clearUnreadCount(id));
-  //   }
-
-  //   navigate(`/chat/${id}`);
-  // };
-
   const handleSelectConversation = async (id: string) => {
     console.log('👆 User clicked conversation:', id.substring(0, 8));
 
