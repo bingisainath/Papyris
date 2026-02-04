@@ -2,6 +2,8 @@
 
 import axios from 'axios';
 import { tokenStore } from '../utils/token';
+import { ApiResponse } from '@/types/api.types';
+import { UpdateGroupSettingsData } from '@/types/group.types';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
 
@@ -160,6 +162,106 @@ class ChatService {
     });
     return response.data;
   }
+
+  // ============================================
+  // NEW: READ RECEIPTS
+  // ============================================
+
+  /**
+   * Mark a single message as read
+   */
+  async markMessageRead(messageId: string, token: string): Promise<ApiResponse> {
+    const response = await axios.post(
+      `${API_URL}/messages/${messageId}/read`,
+      {},
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return response.data;
+  }
+
+  /**
+   * Get read receipts for a message
+   */
+  async getMessageReceipts(messageId: string, token: string): Promise<ApiResponse> {
+    const response = await axios.get(`${API_URL}/messages/${messageId}/receipts`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  }
+
+  // ============================================
+  // NEW: GROUP MANAGEMENT
+  // ============================================
+
+  /**
+   * Get complete group details
+   */
+  async getGroupDetails(groupId: string, token: string): Promise<ApiResponse<GroupDetails>> {
+    const response = await axios.get(`${API_URL}/groups/${groupId}/details`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  }
+
+  /**
+   * Update group settings (admin only)
+   */
+  async updateGroupSettings(
+    groupId: string,
+    settings: UpdateGroupSettingsData,
+    token: string
+  ): Promise<ApiResponse> {
+    const response = await axios.put(`${API_URL}/groups/${groupId}/settings`, settings, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  }
+
+  /**
+   * Make a member admin
+   */
+  async makeAdmin(groupId: string, userId: string, token: string): Promise<ApiResponse> {
+    const response = await axios.post(
+      `${API_URL}/groups/${groupId}/members/${userId}/make-admin`,
+      {},
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return response.data;
+  }
+
+  /**
+   * Remove admin role from a member
+   */
+  async removeAdmin(groupId: string, userId: string, token: string): Promise<ApiResponse> {
+    const response = await axios.delete(
+      `${API_URL}/groups/${groupId}/members/${userId}/remove-admin`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return response.data;
+  }
+
+  /**
+   * Remove a member from group
+   */
+  async removeMember(groupId: string, userId: string, token: string): Promise<ApiResponse> {
+    const response = await axios.delete(`${API_URL}/groups/${groupId}/members/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  }
+
+  /**
+   * Leave a group
+   */
+  async leaveGroup(groupId: string, token: string): Promise<ApiResponse> {
+    const response = await axios.post(
+      `${API_URL}/groups/${groupId}/leave`,
+      {},
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return response.data;
+  }
+
 }
 
 export const chatService = new ChatService();

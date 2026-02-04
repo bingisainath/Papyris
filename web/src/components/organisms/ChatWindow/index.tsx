@@ -1,3 +1,316 @@
+// // src/components/organisms/ChatWindow.tsx
+
+// import React, { useState, useEffect, useRef } from 'react';
+// import { MessageBubble, MessageInput } from '../../molecules';
+// import { Avatar, Loading } from '../../atoms';
+// import {
+//   useConversationRoom,
+//   useSendMessage,
+//   useTypingIndicator,
+//   useReadReceipt,
+// } from '../../../hooks/useWebSocket';
+// import { useSelector } from 'react-redux';
+// import type { RootState } from '../../../redux/store';
+// import { selectIsConnected } from '../../../redux/slices/websocketSlice';
+
+// import ChatHeader from '../ChatHeader';
+// import UserProfileModal from '../UserProfileModal';
+// import GroupDetailsModal from '../GroupDetailsModal';
+
+
+// interface ChatWindowProps {
+//   conversationId: string;
+//   conversationName: string;
+//   conversationAvatar?: string;
+//   isGroup?: boolean;
+//   isOnline?: boolean;
+//   currentUserId: string;
+//   onBack?: () => void;
+//   memberIds?: string[]; // Array of member user IDs
+//   token: string; // Auth token for API calls
+// }
+
+// const ChatWindow: React.FC<ChatWindowProps> = ({
+//   conversationId,
+//   conversationName,
+//   conversationAvatar,
+//   isGroup,
+//   isOnline,
+//   currentUserId,
+//   onBack,
+//   memberIds = [],
+//   token,
+// }) => {
+//   const messagesEndRef = useRef<HTMLDivElement>(null);
+//   const [inputText, setInputText] = useState('');
+
+//   const isConnected = useSelector(selectIsConnected);
+//   // const onlineUsers = useSelector(selectOnlineUsers);
+//   const onlineUsers = useSelector((state: RootState) => state.websocket?.onlineUsers || new Set<string>());
+
+//   const lastMarkedMessageId = useRef<string>();
+//   // const dispatch = useDispatch();
+
+//   const hasCleared = useRef(false);
+
+//   const [showUserProfile, setShowUserProfile] = useState(false);
+//   const [showGroupDetails, setShowGroupDetails] = useState(false);
+
+//   const otherUserId = !isGroup && memberIds.length > 0
+//     ? memberIds.find(id => id !== currentUserId) || null
+//     : null;
+
+//   const conversation = {
+//     id: conversationId,
+//     name: conversationName,
+//     avatar: conversationAvatar,
+//     isGroup,
+//     isOnline: isGroup ? false : (otherUserId ? onlineUsers.has(otherUserId) : false),
+//     members: memberIds,
+//     lastMessage: '',
+//     lastMessageTime: '',
+//     unreadCount: 0,
+//     isPinned: false,
+//   };
+
+//   useEffect(() => {
+//     (window as any).__activeConversationId = conversationId;
+
+//     return () => {
+//       (window as any).__activeConversationId = null;
+//     };
+//   }, [conversationId]);
+
+//   // ✅ WebSocket: Auto join/leave conversation room
+//   useConversationRoom(conversationId);
+
+//   // ✅ WebSocket: Get messages from Redux (populated by WebSocket)
+//   const messages = useSelector((state: RootState) =>
+//     state.chat?.messages[conversationId] || []
+//   );
+
+//   // ✅ WebSocket: Send message functionality
+//   const { sendMessage } = useSendMessage();
+
+//   // ✅ WebSocket: Typing indicators
+//   const { isTyping, typingUsers, startTyping, stopTyping } = useTypingIndicator(conversationId);
+
+//   // ✅ WebSocket: Read receipts
+//   const { markAsRead } = useReadReceipt(conversationId);
+
+//   // ✅ Online status calculation (1-to-1 chat)
+//   // const memberIds = ['user1', 'user2']; // TEMP – replace with real data
+
+//   // Reset hasCleared when conversation changes
+//   useEffect(() => {
+//     hasCleared.current = false;
+//   }, [conversationId]);
+
+//   // Mark messages as read when viewing
+//   useEffect(() => {
+
+//     if (messages.length === 0) return;
+
+//     const lastMessage = messages[messages.length - 1];
+
+//     // Skip if: (1) own message, (2) already marked, (3) temp message
+//     if (
+//       lastMessage.senderId === currentUserId ||
+//       lastMessage.id === lastMarkedMessageId.current ||
+//       lastMessage.id.startsWith('temp-')
+//     ) {
+//       return;
+//     }
+
+//   }, [messages, currentUserId, markAsRead]);
+
+//   // Handle send message
+//   const handleSendMessage = (text: string, file?: File) => {
+//     if (!text.trim() && !file) return;
+
+//     // Stop typing indicator
+//     stopTyping();
+
+//     // ✅ Send via WebSocket
+//     sendMessage(conversationId, text);
+
+//     // Clear input
+//     setInputText('');
+//   };
+
+//   // Handle typing
+//   const handleTyping = (isTyping: boolean) => {
+//     if (isTyping) {
+//       startTyping();
+//     } else {
+//       stopTyping();
+//     }
+//   };
+
+//   if (!isConnected) {
+//     return (
+//       <div className="flex items-center justify-center h-full">
+//         <div className="text-center">
+//           <Loading size="lg" />
+//           <p className="mt-4 text-muted-600">Connecting...</p>
+//         </div>
+//       </div>
+//     );
+//   }
+
+//   return (
+//     <div className="flex flex-col h-full bg-white">
+//       {/* Header */}
+//       <div className="flex items-center gap-4 px-6 py-4 border-b border-muted-200 bg-white/80 backdrop-blur-sm">
+//         {/* Back button (mobile) */}
+//         {onBack && (
+//           <button
+//             onClick={onBack}
+//             className="md:hidden p-2 hover:bg-muted-100 rounded-lg transition-colors"
+//           >
+//             <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+//               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+//             </svg>
+//           </button>
+//         )}
+
+//         {/* Avatar */}
+//         <Avatar
+//           src={conversationAvatar}
+//           name={conversationName}
+//           size="md"
+//           online={isOnline}
+//         />
+
+//         {/* Info */}
+//         <div className="flex-1 min-w-0">
+//           <h2 className="text-lg font-semibold text-muted-900 truncate">
+//             {conversationName}
+//           </h2>
+
+//           {/* Status */}
+//           {isTyping ? (
+//             <p className="text-sm text-primary-600 font-medium">
+//               Typing...
+//             </p>
+//           ) : (
+//             <p className="text-sm text-muted-500">
+//               {isOnline ? 'Online' : 'Offline'}
+//             </p>
+//           )}
+//         </div>
+
+//         {/* Actions */}
+//         <div className="flex items-center gap-2">
+//           {/* Connection status indicator */}
+//           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success-500' : 'bg-muted-300'}`}
+//             title={isConnected ? 'Connected' : 'Disconnected'}
+//           />
+
+//           <button className="p-2 hover:bg-muted-100 rounded-lg transition-colors">
+//             <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+//               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+//             </svg>
+//           </button>
+//         </div>
+//       </div>
+
+//       {/* Messages Area */}
+//       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 pb-20 md:pb-4">
+//         {messages.length === 0 ? (
+//           <div className="flex items-center justify-center h-full">
+//             <p className="text-muted-400">No messages yet. Say hi! 👋</p>
+//           </div>
+//         ) : (
+//           <>
+//             {messages.map((message) => (
+//               <MessageBubble
+//                 key={message.id}
+//                 text={message.text}
+//                 timestamp={message.timestamp}
+//                 isSent={message.senderId === currentUserId}
+//                 senderName={message.senderName}
+//                 senderAvatar={message.senderAvatar}
+//                 status={message.status}
+//                 mediaUrl={message.mediaUrl}
+//                 mediaType={message.mediaType}
+//               />
+//             ))}
+//             <div ref={messagesEndRef} />
+//           </>
+//         )}
+//       </div>
+
+//       {/* Typing Indicator */}
+//       {isTyping && (
+//         <div className="px-6 py-2 text-sm text-muted-500">
+//           {typingUsers.length === 1 ? 'Someone is' : 'Multiple people are'} typing
+//           <span className="inline-flex gap-1 ml-2">
+//             <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+//             <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+//             <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+//           </span>
+//         </div>
+//       )}
+
+//       {/* Message Input */}
+//       <div className="border-t border-muted-200 bg-white mobile-safe-bottom md:pb-0">
+//         <MessageInput
+//           value={inputText}
+//           onChange={setInputText}
+//           onSend={handleSendMessage}
+//           onTyping={handleTyping}
+//           placeholder="Type a message..."
+//           disabled={!isConnected}
+//         />
+//       </div>
+
+//       {/* Not connected warning */}
+//       {!isConnected && (
+//         <div className="px-6 py-2 bg-warning-50 border-t border-warning-200">
+//           <p className="text-sm text-warning-700">
+//             ⚠️ Not connected. Trying to reconnect...
+//           </p>
+//         </div>
+//       )}
+
+//       {/* <ChatHeader
+//         conversation={conversation}
+//         currentUserId={currentUserId}
+//         onlineUsers={onlineUsers}
+//         onViewProfile={() => setShowUserProfile(true)}
+//         onViewGroupDetails={() => setShowGroupDetails(true)}
+//         onBack={onBack}
+//       /> */}
+
+//       {!isGroup && otherUserId && (
+//         <UserProfileModal
+//           isOpen={showUserProfile}
+//           onClose={() => setShowUserProfile(false)}
+//           userId={otherUserId}
+//           currentUserId={currentUserId}
+//           token={token}
+//         />
+//       )}
+
+//       {isGroup && (
+//         <GroupDetailsModal
+//           isOpen={showGroupDetails}
+//           onClose={() => setShowGroupDetails(false)}
+//           groupId={conversation.id}
+//           currentUserId={currentUserId}
+//           token={token}
+//           onlineUsers={onlineUsers}
+//         />
+//       )}
+//     </div>
+//   );
+// };
+
+// export default ChatWindow;
+
+
+
 // src/components/organisms/ChatWindow.tsx
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -13,6 +326,10 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '../../../redux/store';
 import { selectIsConnected } from '../../../redux/slices/websocketSlice';
 
+import ChatHeader from '../ChatHeader';
+import UserProfileModal from '../UserProfileModal';
+import GroupDetailsModal from '../GroupDetailsModal';
+
 interface ChatWindowProps {
   conversationId: string;
   conversationName: string;
@@ -21,30 +338,54 @@ interface ChatWindowProps {
   isOnline?: boolean;
   currentUserId: string;
   onBack?: () => void;
+  memberIds?: string[]; // Array of member user IDs
+  token: string; // Auth token for API calls
 }
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
   conversationId,
   conversationName,
   conversationAvatar,
-  isGroup,
+  isGroup = false,
   isOnline,
   currentUserId,
-  onBack
+  onBack,
+  memberIds = [],
+  token,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState('');
 
   const isConnected = useSelector(selectIsConnected);
-  // const onlineUsers = useSelector(selectOnlineUsers);
+  const onlineUsers = useSelector((state: RootState) =>
+    state.websocket?.onlineUsers || new Set<string>()
+  );
 
   const lastMarkedMessageId = useRef<string>();
-  // const dispatch = useDispatch();
-
   const hasCleared = useRef(false);
 
-  // ✅ Online status calculation (1-to-1 chat)
-  const memberIds = ['user1', 'user2']; // TEMP – replace with real data
+  // ✅ Modal states
+  const [showUserProfile, setShowUserProfile] = useState(false);
+  const [showGroupDetails, setShowGroupDetails] = useState(false);
+
+  // ✅ Get other user ID for DM conversations
+  const otherUserId = !isGroup && memberIds.length > 0
+    ? memberIds.find(id => id !== currentUserId) || null
+    : null;
+
+  // ✅ Create conversation object for ChatHeader
+  const conversation = {
+    id: conversationId,
+    name: conversationName,
+    avatar: conversationAvatar,
+    isGroup,
+    isOnline: isGroup ? false : (otherUserId ? onlineUsers.has(otherUserId) : false),
+    members: memberIds,
+    lastMessage: '',
+    lastMessageTime: '',
+    unreadCount: 0,
+    isPinned: false,
+  };
 
   // ✅ Track active conversation globally
   useEffect(() => {
@@ -71,6 +412,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // ✅ WebSocket: Read receipts
   const { markAsRead } = useReadReceipt(conversationId);
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -83,7 +425,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // Mark messages as read when viewing
   useEffect(() => {
-
     if (messages.length === 0) return;
 
     const lastMessage = messages[messages.length - 1];
@@ -97,6 +438,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       return;
     }
 
+    // Mark as read
+    markAsRead(lastMessage.id);
+    lastMarkedMessageId.current = lastMessage.id;
   }, [messages, currentUserId, markAsRead]);
 
   // Handle send message
@@ -135,60 +479,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="flex items-center gap-4 px-6 py-4 border-b border-muted-200 bg-white/80 backdrop-blur-sm">
-        {/* Back button (mobile) */}
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="md:hidden p-2 hover:bg-muted-100 rounded-lg transition-colors"
-          >
-            <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-        )}
-
-        {/* Avatar */}
-        <Avatar
-          src={conversationAvatar}
-          name={conversationName}
-          size="md"
-          online={isOnline}
-        />
-
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-semibold text-muted-900 truncate">
-            {conversationName}
-          </h2>
-
-          {/* Status */}
-          {isTyping ? (
-            <p className="text-sm text-primary-600 font-medium">
-              Typing...
-            </p>
-          ) : (
-            <p className="text-sm text-muted-500">
-              {isOnline ? 'Online' : 'Offline'}
-            </p>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          {/* Connection status indicator */}
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success-500' : 'bg-muted-300'}`}
-            title={isConnected ? 'Connected' : 'Disconnected'}
-          />
-
-          <button className="p-2 hover:bg-muted-100 rounded-lg transition-colors">
-            <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      {/* ✅ NEW: Use ChatHeader component */}
+      <ChatHeader
+        conversation={conversation}
+        currentUserId={currentUserId}
+        onlineUsers={onlineUsers}
+        onViewProfile={(userId) => setShowUserProfile(true)}
+        onViewGroupDetails={(groupId) => setShowGroupDetails(true)}
+        onBack={onBack}
+      />
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 pb-20 md:pb-4">
@@ -247,6 +546,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             ⚠️ Not connected. Trying to reconnect...
           </p>
         </div>
+      )}
+
+      {/* ✅ Modals - Only render when appropriate */}
+      {!isGroup && otherUserId && (
+        <UserProfileModal
+          isOpen={showUserProfile}
+          onClose={() => setShowUserProfile(false)}
+          userId={otherUserId}
+          currentUserId={currentUserId}
+          token={token}
+          onStartChat={(conversationId) => {
+            // Already in this chat, just close modal
+            setShowUserProfile(false);
+          }}
+        />
+      )}
+
+      {isGroup && (
+        <GroupDetailsModal
+          isOpen={showGroupDetails}
+          onClose={() => setShowGroupDetails(false)}
+          groupId={conversationId}
+          currentUserId={currentUserId}
+          token={token}
+          onlineUsers={onlineUsers}
+        />
       )}
     </div>
   );

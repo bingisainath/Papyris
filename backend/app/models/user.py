@@ -7,6 +7,7 @@ import enum
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 from app.db.base import Base
 
@@ -70,6 +71,21 @@ class User(Base):
     # Online Status (can be moved to Redis for real-time)
     is_online = Column(Boolean, default=False)
     last_seen = Column(DateTime(timezone=True), nullable=True)
+
+    # Blocking relationships
+    blocked_users = relationship(
+        "BlockedUser",
+        foreign_keys="BlockedUser.blocker_id",
+        back_populates="blocker",
+        cascade="all, delete-orphan"
+    )
+    
+    blocked_by_users = relationship(
+        "BlockedUser",
+        foreign_keys="BlockedUser.blocked_id",
+        back_populates="blocked",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, email={self.email})>"

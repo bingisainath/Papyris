@@ -44,5 +44,13 @@ class Conversation(Base):
         server_default=func.now(), 
         onupdate=func.now()
     )
+
+    # Group settings relationship
+    settings = relationship(
+        "GroupSettings",
+        back_populates="conversation",
+        uselist=False,  # One-to-one relationship
+        cascade="all, delete-orphan"
+    )
     
     members = relationship("ConversationMember", back_populates="conversation", cascade="all, delete-orphan")

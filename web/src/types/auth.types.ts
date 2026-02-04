@@ -12,16 +12,8 @@ export interface LoginPayload {
 export interface LoginResponse {
   access_token: string;
   token_type: "bearer";
-  expires_in?: number; // optional (if backend adds it)
+  expires_in?: number;
 }
-
-// export interface UserResponse {
-//   id: string;
-//   username: string;
-//   email: string;
-//   is_active: boolean;
-//   created_at: string;
-// }
 
 
 export interface LoginResponse {

@@ -174,7 +174,7 @@
 #     asyncio.run(main())
 
 
-# backend/app/worker.py - COMPLETE FIXED VERSION
+# backend/app/worker.py
 
 import asyncio
 import json
