@@ -1,4 +1,3 @@
-
 // src/app/AuthProvider.tsx - WITH WEBSOCKET INTEGRATION
 
 import React, {
