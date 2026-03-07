@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 Database Management Script for Papyris
-Handles: Reset, Check, View Data, Add Missing Tables
+Handles: Reset, Check, View Data, Add Missing Columns
 
 Usage:
     python scripts/manage_db.py check           # Check database structure
     python scripts/manage_db.py reset           # Reset database (WARNING: Deletes all data)
-    python scripts/manage_db.py add-tables      # Add missing tables only
+    python scripts/manage_db.py add-columns     # Add missing columns to existing tables
     python scripts/manage_db.py view [table]    # View table data
 """
 
@@ -14,40 +14,38 @@ import sys
 import os
 import asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
-# Add parent directory to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Add parent directory to path so app imports work
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Database configuration
-DATABASE_URL = os.getenv('DATABASE_URL', "postgresql+asyncpg://papyris:papyris_dev@localhost:5432/papyris")
+
+def get_engine():
+    """Always use the app's engine - it already has the correct RDS connection."""
+    from app.db.session import engine
+    return engine
+
 
 async def check_database():
     """Check current database structure"""
-    engine = create_async_engine(DATABASE_URL, echo=False)
-    
+    engine = get_engine()
+
     async with engine.connect() as conn:
         print("🔍 Checking database structure...\n")
-        
-        # Get all tables
-        result = await conn.execute(
-            text("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public'
-                ORDER BY table_name;
-            """)
-        )
+
+        result = await conn.execute(text("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public' ORDER BY table_name
+        """))
         tables = [row[0] for row in result.fetchall()]
-        
-        print(f"📊 Found {len(tables)} tables:\n")
-        print("Tables:", ", ".join(tables))
-        
-        # Check for required tables
-        required_tables = ['users', 'conversations', 'messages', 'conversation_members', 
-                          'message_receipts', 'blocked_users', 'group_settings']
-        
-        print("\n✅ Required Tables Status:")
+
+        print(f"📊 Found {len(tables)} tables: {', '.join(tables)}\n")
+
+        required_tables = [
+            'users', 'conversations', 'messages', 'conversation_members',
+            'message_receipts', 'blocked_users', 'group_settings'
+        ]
+
+        print("✅ Required Tables Status:")
         missing_tables = []
         for table in required_tables:
             if table in tables:
@@ -55,289 +53,372 @@ async def check_database():
             else:
                 print(f"   ✗ {table} (MISSING)")
                 missing_tables.append(table)
-        
+
         if missing_tables:
-            print(f"\n⚠️  Missing tables: {', '.join(missing_tables)}")
-            print("   Run: python scripts/manage_db.py add-tables")
-        else:
-            print("\n✅ All required tables exist!")
-        
-        # Show column details for each table
-        print("\n📋 Table Structures:")
+            print(f"\n⚠️  Missing: {', '.join(missing_tables)}")
+
+        # Check messages columns specifically
+        if 'messages' in tables:
+            result = await conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'messages' ORDER BY ordinal_position
+            """))
+            msg_cols = [r[0] for r in result.fetchall()]
+            required_msg_cols = ['reactions', 'is_edited', 'edited_at', 'is_deleted', 'deleted_at']
+            print(f"\n📋 messages columns ({len(msg_cols)} total):")
+            for col in required_msg_cols:
+                status = "✓" if col in msg_cols else "✗ MISSING"
+                print(f"   {status} {col}")
+
+        print("\n📋 All table column counts:")
         for table in sorted(tables):
-            result = await conn.execute(
-                text(f"""
-                    SELECT column_name, data_type, is_nullable
-                    FROM information_schema.columns
-                    WHERE table_name = '{table}'
-                    ORDER BY ordinal_position;
-                """)
-            )
-            columns = result.fetchall()
-            print(f"\n  {table} ({len(columns)} columns):")
-            for col in columns[:5]:  # Show first 5 columns
-                nullable = "NULL" if col[2] == 'YES' else "NOT NULL"
-                print(f"    - {col[0]}: {col[1]} ({nullable})")
-            if len(columns) > 5:
-                print(f"    ... and {len(columns) - 5} more columns")
-    
-    await engine.dispose()
+            result = await conn.execute(text(f"""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = '{table}'
+            """))
+            count = result.scalar()
+            print(f"   {table}: {count} columns")
 
 
-async def add_missing_tables():
-    """Add blocked_users and group_settings tables if they don't exist"""
-    engine = create_async_engine(DATABASE_URL, echo=True)
-    
+async def add_missing_columns():
+    """Safely add any missing columns to existing tables without dropping data."""
+    engine = get_engine()
+
     async with engine.begin() as conn:
-        print("🔧 Adding missing tables...\n")
-        
-        # Check which tables exist
-        result = await conn.execute(
-            text("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public'
-                AND table_name IN ('blocked_users', 'group_settings');
-            """)
-        )
-        existing_tables = [row[0] for row in result.fetchall()]
-        
-        # Create blocked_users table
-        if 'blocked_users' not in existing_tables:
-            print("📦 Creating blocked_users table...")
-            await conn.execute(text("""
-                CREATE TABLE blocked_users (
-                    id SERIAL PRIMARY KEY,
+        print("🔧 Adding missing columns...\n")
+
+        # Define all ALTER TABLE statements - all use IF NOT EXISTS so safe to re-run
+        alterations = [
+            # messages - the main culprit
+            ("messages", "reactions",  "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reactions JSONB NOT NULL DEFAULT '{}'"),
+            ("messages", "is_edited",  "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("messages", "edited_at",  "ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ"),
+            ("messages", "is_deleted", "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("messages", "deleted_at", "ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"),
+            # users - extra profile fields
+            ("users", "bio",       "ALTER TABLE users ADD COLUMN IF NOT EXISTS bio VARCHAR(500)"),
+            ("users", "is_online", "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE"),
+            ("users", "last_seen", "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ"),
+        ]
+
+        for table, col, sql in alterations:
+            try:
+                await conn.execute(text(sql))
+                print(f"   ✅ {table}.{col}")
+            except Exception as e:
+                print(f"   ⚠️  {table}.{col}: {str(e)[:80]}")
+
+        # Create missing tables
+        tables_sql = {
+            "blocked_users": """
+                CREATE TABLE IF NOT EXISTS blocked_users (
+                    id         SERIAL PRIMARY KEY,
                     blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    blocked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+                    blocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     CONSTRAINT unique_blocker_blocked UNIQUE (blocker_id, blocked_id)
-                );
-            """))
-            
+                )""",
+            "group_settings": """
+                CREATE TABLE IF NOT EXISTS group_settings (
+                    id                          SERIAL PRIMARY KEY,
+                    conversation_id             UUID NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+                    only_admins_can_message     BOOLEAN NOT NULL DEFAULT FALSE,
+                    only_admins_can_add_members BOOLEAN NOT NULL DEFAULT TRUE,
+                    send_message_notification   BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )""",
+        }
+
+        for table, sql in tables_sql.items():
+            try:
+                await conn.execute(text(sql))
+                print(f"   ✅ {table} table ensured")
+            except Exception as e:
+                print(f"   ⚠️  {table}: {str(e)[:80]}")
+
+        # GIN index for reactions if not exists
+        try:
             await conn.execute(text("""
-                CREATE INDEX ix_blocked_users_blocker_id ON blocked_users(blocker_id);
+                CREATE INDEX IF NOT EXISTS idx_message_reactions
+                ON messages USING gin(reactions)
             """))
-            
-            await conn.execute(text("""
-                CREATE INDEX ix_blocked_users_blocked_id ON blocked_users(blocked_id);
-            """))
-            
-            print("   ✅ blocked_users table created")
-        else:
-            print("   ℹ️  blocked_users table already exists")
-        
-        # Create group_settings table
-        if 'group_settings' not in existing_tables:
-            print("📦 Creating group_settings table...")
-            await conn.execute(text("""
-                CREATE TABLE group_settings (
-                    id SERIAL PRIMARY KEY,
-                    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-                    only_admins_can_message BOOLEAN DEFAULT FALSE NOT NULL,
-                    only_admins_can_add_members BOOLEAN DEFAULT TRUE NOT NULL,
-                    send_message_notification BOOLEAN DEFAULT TRUE NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-                    CONSTRAINT unique_conversation_settings UNIQUE (conversation_id)
-                );
-            """))
-            
-            await conn.execute(text("""
-                CREATE INDEX ix_group_settings_conversation_id ON group_settings(conversation_id);
-            """))
-            
-            print("   ✅ group_settings table created")
-        else:
-            print("   ℹ️  group_settings table already exists")
-        
-        # Add bio column to users if missing
-        print("📦 Checking users.bio column...")
-        result = await conn.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'users' AND column_name = 'bio';
-        """))
-        
-        if not result.fetchone():
-            await conn.execute(text("""
-                ALTER TABLE users ADD COLUMN bio VARCHAR(500);
-            """))
-            print("   ✅ Added bio column to users")
-        else:
-            print("   ℹ️  bio column already exists")
-        
-        print("\n✅ All required tables are now present!")
-    
-    await engine.dispose()
+            print("   ✅ GIN index on messages.reactions")
+        except Exception as e:
+            print(f"   ⚠️  GIN index: {str(e)[:80]}")
+
+        print("\n✅ Done! Restart your backend now.")
 
 
 async def reset_database():
-    """Reset database by dropping and recreating all tables"""
-    try:
-        # Import models
-        from app.db.base import Base
-        from app.db.session import engine
-        from app.models.user import User
-        from app.models.conversation import Conversation
-        from app.models.conversation_member import ConversationMember
-        from app.models.message_receipt import MessageReceipt
-        from app.models.message import Message
-        
-        print("⚠️  WARNING: This will DELETE ALL DATA in the database!")
-        response = input("Are you sure you want to continue? (yes/no): ")
-        
-        if response.lower() != 'yes':
-            print("❌ Reset cancelled")
-            return
-        
-        async with engine.begin() as conn:
-            print("\n🗑️  Dropping all tables...")
-            await conn.run_sync(Base.metadata.drop_all)
-            print("   ✅ Tables dropped")
-            
-            print("\n📦 Creating tables from models...")
-            await conn.run_sync(Base.metadata.create_all)
-            print("   ✅ Tables created from models")
-            
-            # Ensure avatar column exists
-            await conn.execute(text("""
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar VARCHAR;
-            """))
-            print("   ✅ avatar column ensured")
-        
-        print("\n✅ Database reset complete!")
-        print("\n⚠️  Don't forget to run: python scripts/manage_db.py add-tables")
-        
-    except ImportError as e:
-        print(f"❌ Error importing models: {e}")
-        print("   Make sure you're running from the backend directory")
+    """Drop and recreate ALL tables from scratch using the app engine."""
+    engine = get_engine()
+
+    print("⚠️  WARNING: This will DELETE ALL DATA in the database!")
+    response = input("Type 'yes' to continue: ")
+    if response.lower() != 'yes':
+        print("❌ Cancelled")
         return
+
+    async with engine.begin() as conn:
+        print("\n🗑  Dropping tables in safe order...")
+        drops = [
+            "DROP TABLE IF EXISTS message_receipts CASCADE",
+            "DROP TABLE IF EXISTS messages CASCADE",
+            "DROP TABLE IF EXISTS group_settings CASCADE",
+            "DROP TABLE IF EXISTS conversation_members CASCADE",
+            "DROP TABLE IF EXISTS conversations CASCADE",
+            "DROP TABLE IF EXISTS blocked_users CASCADE",
+            "DROP TABLE IF EXISTS users CASCADE",
+            "DROP TYPE IF EXISTS message_type_enum CASCADE",
+            "DROP TYPE IF EXISTS member_role_enum CASCADE",
+            "DROP TYPE IF EXISTS receipt_status_enum CASCADE",
+            "DROP TYPE IF EXISTS gender_enum CASCADE",
+            "DROP TYPE IF EXISTS user_status_enum CASCADE",
+        ]
+        for sql in drops:
+            try:
+                await conn.execute(text(sql))
+                print(f"   🗑  {sql[:55]}")
+            except Exception as e:
+                print(f"   ⚠️  {sql[:55]}: {str(e)[:60]}")
+
+        print("\n📦 Creating enum types...")
+        enums = [
+            "DO $$ BEGIN CREATE TYPE gender_enum AS ENUM ('male','female','other',''); EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+            "DO $$ BEGIN CREATE TYPE user_status_enum AS ENUM ('active','inactive','suspended'); EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+            "DO $$ BEGIN CREATE TYPE message_type_enum AS ENUM ('text','image','video','file','audio','system'); EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+            "DO $$ BEGIN CREATE TYPE member_role_enum AS ENUM ('admin','moderator','member','viewer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+            "DO $$ BEGIN CREATE TYPE receipt_status_enum AS ENUM ('sent','delivered','read'); EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+        ]
+        for sql in enums:
+            await conn.execute(text(sql))
+        print("   ✅ Enums created")
+
+        print("\n📦 Creating tables...")
+
+        await conn.execute(text("""
+            CREATE TABLE users (
+                id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                username         VARCHAR(50)  NOT NULL UNIQUE,
+                email            VARCHAR(255) NOT NULL UNIQUE,
+                hashed_password  VARCHAR      NOT NULL,
+                name             VARCHAR(100),
+                phone            VARCHAR(20),
+                date_of_birth    TIMESTAMP,
+                gender           gender_enum  DEFAULT '',
+                address          TEXT,
+                bio              VARCHAR(500),
+                avatar           VARCHAR,
+                google_id        VARCHAR UNIQUE,
+                facebook_id      VARCHAR UNIQUE,
+                is_active        BOOLEAN      NOT NULL DEFAULT TRUE,
+                status           user_status_enum DEFAULT 'active',
+                reset_token      VARCHAR(255),
+                reset_token_expires TIMESTAMPTZ,
+                created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                last_login       TIMESTAMPTZ,
+                is_online        BOOLEAN      NOT NULL DEFAULT FALSE,
+                last_seen        TIMESTAMPTZ
+            )
+        """))
+        print("   ✅ users")
+
+        await conn.execute(text("""
+            CREATE TABLE blocked_users (
+                id         SERIAL PRIMARY KEY,
+                blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                blocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT unique_blocker_blocked UNIQUE (blocker_id, blocked_id)
+            )
+        """))
+        print("   ✅ blocked_users")
+
+        await conn.execute(text("""
+            CREATE TABLE conversations (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                kind        VARCHAR(10)  NOT NULL,
+                title       VARCHAR(255),
+                description VARCHAR(500),
+                avatar_url  VARCHAR(500) NOT NULL DEFAULT '',
+                created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+                is_archived BOOLEAN      NOT NULL DEFAULT FALSE,
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+            )
+        """))
+        print("   ✅ conversations")
+
+        await conn.execute(text("""
+            CREATE TABLE group_settings (
+                id                          SERIAL PRIMARY KEY,
+                conversation_id             UUID NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+                only_admins_can_message     BOOLEAN NOT NULL DEFAULT FALSE,
+                only_admins_can_add_members BOOLEAN NOT NULL DEFAULT TRUE,
+                send_message_notification   BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        print("   ✅ group_settings")
+
+        await conn.execute(text("""
+            CREATE TABLE messages (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                sender_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                message_type    message_type_enum NOT NULL DEFAULT 'text',
+                text            TEXT NOT NULL DEFAULT '',
+                media_url       VARCHAR(500),
+                media_thumbnail VARCHAR(500),
+                media_size      INTEGER,
+                media_filename  VARCHAR(255),
+                reply_to_id     UUID REFERENCES messages(id) ON DELETE SET NULL,
+                reactions       JSONB NOT NULL DEFAULT '{}',
+                is_edited       BOOLEAN NOT NULL DEFAULT FALSE,
+                edited_at       TIMESTAMPTZ,
+                is_deleted      BOOLEAN NOT NULL DEFAULT FALSE,
+                deleted_at      TIMESTAMPTZ,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ
+            )
+        """))
+        print("   ✅ messages")
+
+        await conn.execute(text("""
+            CREATE TABLE conversation_members (
+                id                   SERIAL PRIMARY KEY,
+                conversation_id      UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                role                 member_role_enum NOT NULL DEFAULT 'member',
+                can_send_messages    BOOLEAN NOT NULL DEFAULT TRUE,
+                last_read_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+                last_read_at         TIMESTAMPTZ,
+                muted                BOOLEAN NOT NULL DEFAULT FALSE,
+                joined_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_conversation_user UNIQUE (conversation_id, user_id)
+            )
+        """))
+        print("   ✅ conversation_members")
+
+        await conn.execute(text("""
+            CREATE TABLE message_receipts (
+                id           SERIAL PRIMARY KEY,
+                message_id   UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                status       receipt_status_enum NOT NULL DEFAULT 'sent',
+                delivered_at TIMESTAMPTZ,
+                read_at      TIMESTAMPTZ,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_message_user_receipt UNIQUE (message_id, user_id)
+            )
+        """))
+        print("   ✅ message_receipts")
+
+        print("\n📦 Creating indexes...")
+        indexes = [
+            "CREATE INDEX idx_conversation_kind    ON conversations(kind)",
+            "CREATE INDEX idx_conversation_updated ON conversations(updated_at)",
+            "CREATE INDEX idx_message_conversation ON messages(conversation_id)",
+            "CREATE INDEX idx_message_sender       ON messages(sender_id)",
+            "CREATE INDEX idx_message_created      ON messages(created_at)",
+            "CREATE INDEX idx_message_reactions    ON messages USING gin(reactions)",
+            "CREATE INDEX idx_member_conversation  ON conversation_members(conversation_id)",
+            "CREATE INDEX idx_member_user          ON conversation_members(user_id)",
+            "CREATE INDEX idx_receipt_message      ON message_receipts(message_id)",
+            "CREATE INDEX idx_receipt_user         ON message_receipts(user_id)",
+            "CREATE INDEX ix_blocked_users_blocker ON blocked_users(blocker_id)",
+            "CREATE INDEX ix_blocked_users_blocked ON blocked_users(blocked_id)",
+        ]
+        for sql in indexes:
+            await conn.execute(text(sql))
+        print("   ✅ All indexes created")
+
+    print("\n🎉 Database reset complete! Restart your backend.")
 
 
 async def view_table_data(table_name=None):
     """View data from specified table or all tables"""
-    engine = create_async_engine(DATABASE_URL, echo=False)
-    
+    engine = get_engine()
+
     async with engine.connect() as conn:
-        # Get list of tables
-        result = await conn.execute(
-            text("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public'
-                ORDER BY table_name;
-            """)
-        )
+        result = await conn.execute(text("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public' ORDER BY table_name
+        """))
         all_tables = [row[0] for row in result.fetchall()]
-        
         tables_to_view = [table_name] if table_name else all_tables
-        
+
         for table in tables_to_view:
             if table not in all_tables:
                 print(f"❌ Table '{table}' does not exist")
                 continue
-            
-            print(f"\n{'='*60}")
-            print(f"📄 Table: {table}")
-            print('='*60)
-            
-            try:
-                # Get row count
-                count_result = await conn.execute(
-                    text(f"SELECT COUNT(*) FROM {table};")
-                )
-                count = count_result.scalar()
-                print(f"Total rows: {count}")
-                
-                if count == 0:
-                    print("⚠️  No data in this table\n")
-                    continue
-                
-                # Get data
-                result = await conn.execute(
-                    text(f"SELECT * FROM {table} LIMIT 5;")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-                
-                print(f"\nShowing first {min(5, count)} rows:")
-                print("-" * 60)
-                
-                for i, row in enumerate(rows, 1):
-                    print(f"\nRow {i}:")
-                    row_dict = dict(zip(columns, row))
-                    for key, value in row_dict.items():
-                        # Truncate long values
-                        if isinstance(value, str) and len(value) > 50:
-                            value = value[:47] + "..."
-                        print(f"  {key}: {value}")
-                
-                if count > 5:
-                    print(f"\n... and {count - 5} more rows")
-                
-            except Exception as e:
-                print(f"❌ Error reading {table}: {e}")
-    
-    await engine.dispose()
+
+            print(f"\n{'='*60}\n📄 Table: {table}\n{'='*60}")
+            count_result = await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+            count = count_result.scalar()
+            print(f"Total rows: {count}")
+
+            if count == 0:
+                print("⚠️  No data\n")
+                continue
+
+            result = await conn.execute(text(f"SELECT * FROM {table} LIMIT 5"))
+            rows = result.fetchall()
+            columns = result.keys()
+            for i, row in enumerate(rows, 1):
+                print(f"\nRow {i}:")
+                for key, value in zip(columns, row):
+                    v = str(value)
+                    print(f"  {key}: {v[:60]}{'...' if len(v) > 60 else ''}")
+            if count > 5:
+                print(f"\n... and {count - 5} more rows")
 
 
 def print_usage():
-    """Print usage instructions"""
     print("""
 ╔════════════════════════════════════════════════════════════╗
 ║          Papyris Database Management Tool                  ║
 ╚════════════════════════════════════════════════════════════╝
 
-Usage:
-    python scripts/manage_db.py <command> [options]
-
 Commands:
-    check           Check database structure and missing tables
-    add-tables      Add blocked_users and group_settings tables
-    reset           Reset database (WARNING: Deletes all data!)
-    view [table]    View data from table (or all tables if not specified)
+    check           Check database structure and missing columns
+    add-columns     Safely add missing columns (no data loss)
+    reset           Full drop + recreate (DELETES ALL DATA)
+    view [table]    View table data
 
 Examples:
     python scripts/manage_db.py check
-    python scripts/manage_db.py add-tables
-    python scripts/manage_db.py view users
+    python scripts/manage_db.py add-columns     ← use this first!
     python scripts/manage_db.py reset
-
-Environment:
-    DATABASE_URL    Database connection string (optional)
-                    Default: postgresql+asyncpg://papyris:papyris_dev@localhost:5432/papyris
+    python scripts/manage_db.py view users
 """)
 
 
 async def main():
-    """Main entry point"""
     if len(sys.argv) < 2:
         print_usage()
         return
-    
+
     command = sys.argv[1].lower()
-    
+
     try:
         if command == 'check':
             await check_database()
-        
-        elif command == 'add-tables':
-            await add_missing_tables()
-        
+        elif command == 'add-columns':
+            await add_missing_columns()
         elif command == 'reset':
             await reset_database()
-        
         elif command == 'view':
             table = sys.argv[2] if len(sys.argv) > 2 else None
             await view_table_data(table)
-        
         else:
             print(f"❌ Unknown command: {command}\n")
             print_usage()
-    
     except KeyboardInterrupt:
-        print("\n\n⚠️  Operation cancelled by user")
+        print("\n⚠️  Cancelled")
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback

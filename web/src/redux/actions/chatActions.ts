@@ -65,12 +65,23 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
         console.log('unread count :', conv.unreadCount);
         
 
+        // return {
+        //   ...conv,
+        //   isOnline,
+        //   members: conv.members || [],
+        //   unreadCount: conv.unreadCount || 0,
+        // };
+
+        const preservedUnread = unreadMap.get(conv.id);
+        const unreadCount = preservedUnread !== undefined ? preservedUnread : (conv.unreadCount || 0);
+
         return {
           ...conv,
           isOnline,
           members: conv.members || [],
-          unreadCount: conv.unreadCount || 0,
+          unreadCount,
         };
+
       });
 
       // console.log('✅ Conversations with online status:', conversationsWithOnline.length);

@@ -150,8 +150,11 @@ class Message(Base):
     reactions: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,
-        default=dict
+        default=dict,
+        server_default='{}'    
     )
+    
+    
     
     # ✅ EDITING SUPPORT
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False)

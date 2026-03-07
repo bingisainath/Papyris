@@ -5,9 +5,9 @@ from sqlalchemy import Boolean, ForeignKey, UniqueConstraint, DateTime, func, In
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
+from datetime import datetime  
 
 from app.db.base import Base
-
 
 class MemberRole(str, enum.Enum):
     ADMIN = "admin"
@@ -47,11 +47,16 @@ class ConversationMember(Base):
     can_send_messages: Mapped[bool] = mapped_column(Boolean, default=True)
     
     # ✅ FIX: UUID for message_id too
-    last_read_message_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("messages.id", ondelete="SET NULL"),
-        nullable=True
+    # last_read_message_id: Mapped[uuid.UUID | None] = mapped_column(
+    #     UUID(as_uuid=True),
+    #     ForeignKey("messages.id", ondelete="SET NULL"),
+    #     nullable=True
+    # )
+    
+    last_read_at: Mapped[datetime | None] = mapped_column(
+    DateTime(timezone=True), nullable=True
     )
+    
     last_read_at: Mapped[DateTime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True
