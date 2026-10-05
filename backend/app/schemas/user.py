@@ -24,7 +24,7 @@
 
 # backend/app/schemas/user.py - UPDATED
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
@@ -61,6 +61,12 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_serializer("avatar")
+    def sign_avatar(self, avatar: Optional[str]) -> Optional[str]:
+        # Uploaded avatars are served through expiring signed links
+        from app.services.media_storage import sign_url
+        return sign_url(avatar)
 
 
 class UserUpdate(BaseModel):

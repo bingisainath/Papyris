@@ -30,7 +30,7 @@ import type { ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
-import { mediaTypeOf, messagePreview } from '../../utils/media';
+import { captureVideoPoster, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
 import { fetchConversations, fetchMessages } from './chatActions';
@@ -161,15 +161,36 @@ export const sendMessage = (
 
   let media: OutgoingMedia | undefined;
   if (file) {
+    // Size (to reserve space in the bubble) and, for videos, a poster frame; both best-effort
+    const dimensionsPromise = measureMedia(file).then(dims => {
+      if (dims) {
+        dispatch(updateMessage({
+          conversationId,
+          messageId: clientId,
+          updates: { mediaWidth: dims.width, mediaHeight: dims.height },
+        }));
+      }
+      return dims;
+    });
+    const posterPromise = mediaTypeOf(file) === 'video'
+      ? captureVideoPoster(file)
+          .then(poster => (poster ? mediaService.upload(poster) : null))
+          .catch(() => null)
+      : Promise.resolve(null);
+
     try {
       const uploaded = await mediaService.upload(file, (percent) => {
         dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: percent } }));
       });
+      const [dims, poster] = await Promise.all([dimensionsPromise, posterPromise]);
       media = {
         mediaUrl: uploaded.url,
         mediaType: uploaded.mediaType,
         mediaSize: uploaded.size,
         mediaFilename: uploaded.filename,
+        mediaThumbnail: poster?.url,
+        mediaWidth: dims?.width,
+        mediaHeight: dims?.height,
       };
     } catch (error) {
       // Nothing was sent, so don't leave a bubble behind
@@ -245,6 +266,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         mediaType: data.mediaType || undefined,
         mediaSize: data.mediaSize || undefined,
         mediaFilename: data.mediaFilename || undefined,
+        mediaThumbnail: data.mediaThumbnail || undefined,
+        mediaWidth: data.mediaWidth || undefined,
+        mediaHeight: data.mediaHeight || undefined,
         uploadProgress: undefined,
         messageType: data.messageType,
         replyTo: data.replyTo || null,

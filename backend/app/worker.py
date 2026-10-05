@@ -293,6 +293,9 @@ class MessageWorker:
                     media_url=media_url,
                     media_size=data.get('mediaSize'),
                     media_filename=data.get('mediaFilename'),
+                    media_thumbnail=data.get('mediaThumbnail'),
+                    media_width=data.get('mediaWidth'),
+                    media_height=data.get('mediaHeight'),
                     reply_to_id=uuid.UUID(data['replyToId']) if data.get('replyToId') else None,
                     created_at=created_at,
                 )

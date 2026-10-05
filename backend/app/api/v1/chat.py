@@ -124,7 +124,7 @@ async def get_conversations(
             response_data.append({
                 "id": str(conv.id),
                 "name": (other_user.name or other_user.username) if other_user else (conv.title or "Unknown"),
-                "avatar": other_user.avatar if other_user else conv.avatar_url,
+                "avatar": media_storage.sign_url(other_user.avatar if other_user else conv.avatar_url),
                 "lastMessage": MessageService.preview_text(last_message) if last_message else "",
                 "lastMessageTime": last_message.created_at.isoformat() if last_message else None,
                 "unreadCount": unread_counts.get(conv.id, 0),
@@ -231,7 +231,10 @@ async def get_messages(
                 "reply_to": replies.get(msg.reply_to_id) if msg.reply_to_id else None,
                 "reactions": reactions.get(msg.id, []),
                 "media_type": msg.message_type.value if msg.media_url else None,
-                "media_url": msg.media_url,
+                "media_url": media_storage.sign_url(msg.media_url),
+                "media_thumbnail": media_storage.sign_url(msg.media_thumbnail),
+                "media_width": msg.media_width,
+                "media_height": msg.media_height,
                 "media_size": msg.media_size,
                 "media_filename": msg.media_filename,
                 "created_at": msg.created_at.isoformat(),
@@ -240,7 +243,7 @@ async def get_messages(
                     "id": str(sender.id),
                     "username": sender.username,
                     "email": sender.email,
-                    "avatar": sender.avatar
+                    "avatar": media_storage.sign_url(sender.avatar)
                 } if sender else None
             }
             response_data.append(msg_data)
@@ -385,7 +388,7 @@ async def create_conversation(
             kind=request.kind,
             title=request.title.strip() if request.title else None,
             description=((request.description or '').strip() or None) if request.kind == 'group' else None,
-            avatar_url=(request.avatar_url or '') if request.kind == 'group' else '',
+            avatar_url=(media_storage.unsigned(request.avatar_url) or '') if request.kind == 'group' else '',
             created_by=current_user.id,
         )
         db.add(new_conv)
@@ -442,7 +445,7 @@ async def create_conversation(
                     "id": str(other_user_obj.id),
                     "username": other_user_obj.username,
                     "email": other_user_obj.email,
-                    "avatar": other_user_obj.avatar
+                    "avatar": media_storage.sign_url(other_user_obj.avatar)
                 }
 
         return {
@@ -511,7 +514,7 @@ async def get_users(
                 "id": str(user.id),
                 "username": user.username,
                 "name": user.name or user.username,
-                "avatar": user.avatar,
+                "avatar": media_storage.sign_url(user.avatar),
             }
             for user in users
         ]

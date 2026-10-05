@@ -32,6 +32,13 @@ except ImportError:
     Message = None
 
 
+# Columns added after their table was first created (safe to run repeatedly)
+ADDED_COLUMNS = [
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_width INTEGER",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_height INTEGER",
+]
+
+
 async def create_tables():
     """Create all database tables"""
     print("🚀 Starting database table creation...\n")
@@ -46,6 +53,12 @@ async def create_tables():
         print("📦 Creating tables from models...")
         await conn.run_sync(Base.metadata.create_all)
         print("✅ Created tables from models\n")
+
+        # create_all doesn't add columns to existing tables; add new ones here
+        print("🧩 Adding new columns to existing tables...")
+        for statement in ADDED_COLUMNS:
+            await conn.execute(text(statement))
+        print("✅ Columns up to date\n")
         
         # If Message model doesn't exist, create the table manually
         if Message is None:

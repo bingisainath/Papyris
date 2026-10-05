@@ -1,5 +1,5 @@
 // src/components/atoms/Avatar.tsx
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { resolveMediaUrl } from '../../../utils/media';
 
 interface AvatarProps {
@@ -19,6 +19,11 @@ const Avatar: React.FC<AvatarProps> = ({
   className = '',
   showRing = false 
 }) => {
+  // Fall back to initials if the photo can't load (e.g. its link expired)
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  const initialsUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(alt)}&background=7e22ce&color=fff&bold=true`;
+
   const sizes: Record<string, string> = {
     xs: 'w-6 h-6',
     sm: 'w-8 h-8',
@@ -39,7 +44,8 @@ const Avatar: React.FC<AvatarProps> = ({
       
       {/* Avatar image */}
       <img
-        src={resolveMediaUrl(src) || `https://ui-avatars.com/api/?name=${encodeURIComponent(alt)}&background=7e22ce&color=fff&bold=true`}
+        src={(!failed && resolveMediaUrl(src)) || initialsUrl}
+        onError={() => setFailed(true)}
         alt={alt}
         className={`${sizes[size]} rounded-full object-cover ${showRing ? 'relative z-10' : ''} transition-all duration-300 hover:scale-105`}
       />

@@ -1,6 +1,6 @@
 // src/components/organisms/ChatWindow.tsx
 
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { MessageBubble, MessageInput } from '../../molecules';
 import { Avatar, Loading } from '../../atoms';
 import {
@@ -12,7 +12,7 @@ import {
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
 import { selectIsConnected } from '../../../redux/slices/websocketSlice';
-import { fetchOlderMessages } from '../../../redux/actions/chatActions';
+import { fetchMessages, fetchOlderMessages } from '../../../redux/actions/chatActions';
 import { messagePreview, resolveMediaUrl } from '../../../utils/media';
 import { applyMessageUpdate, clearUnreadCount } from '../../../redux/slices/chatSlice';
 import type { Message, ReplyPreview } from '../../../redux/slices/chatSlice';
@@ -20,6 +20,8 @@ import { chatService } from '../../../services/chat.service';
 import { parseApiError } from '../../../utils/apiError';
 import { toast } from 'react-toastify';
 import ConversationInfoPanel from '../ConversationInfoPanel';
+import MediaViewer from '../MediaViewer';
+import type { ViewerImage } from '../MediaViewer';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -54,6 +56,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const lastMediaRefresh = useRef(0);
 
   const isConnected = useSelector(selectIsConnected);
   // const onlineUsers = useSelector(selectOnlineUsers);
@@ -223,6 +227,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     }
   };
 
+  // Photos in this chat, for the full-screen viewer
+  const viewerImages: ViewerImage[] = useMemo(
+    () => messages
+      .filter(m => m.mediaType === 'image' && m.mediaUrl && !m.isDeleted)
+      .map(m => ({
+        id: m.id,
+        url: resolveMediaUrl(m.mediaUrl)!,
+        filename: m.mediaFilename,
+        senderName: m.senderId === currentUserId ? 'You' : m.senderName,
+        timestamp: m.timestamp,
+      })),
+    [messages, currentUserId]
+  );
+
+  const openImage = (messageId: string) => {
+    const index = viewerImages.findIndex(image => image.id === messageId);
+    if (index !== -1) setViewerIndex(index);
+  };
+
+  // Media links are signed and expire after a day or two: reload the messages for fresh links
+  const refreshExpiredMedia = useCallback(() => {
+    if (Date.now() - lastMediaRefresh.current < 60_000) return;
+    lastMediaRefresh.current = Date.now();
+    dispatch(fetchMessages(conversationId));
+  }, [dispatch, conversationId]);
+
   // Scroll to (and briefly highlight) the message a reply quotes
   const jumpToMessage = (messageId: string) => {
     const container = scrollContainerRef.current;
@@ -370,6 +400,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 mediaType={message.mediaType}
                 mediaFilename={message.mediaFilename}
                 mediaSize={message.mediaSize}
+                mediaThumbnail={resolveMediaUrl(message.mediaThumbnail)}
+                mediaWidth={message.mediaWidth}
+                mediaHeight={message.mediaHeight}
                 uploadProgress={message.uploadProgress}
                 isGroup={isGroup}
                 isDeleted={message.isDeleted}
@@ -382,6 +415,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 onEdit={() => handleEdit(message)}
                 onDelete={() => handleDelete(message)}
                 onJumpToMessage={jumpToMessage}
+                onOpenImage={() => openImage(message.id)}
+                onMediaError={message.id.startsWith('temp-') ? undefined : refreshExpiredMedia}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -414,6 +449,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           disabled={!isConnected}
         />
       </div>
+
+      {viewerIndex !== null && (
+        <MediaViewer
+          images={viewerImages}
+          index={Math.min(viewerIndex, viewerImages.length - 1)}
+          onIndexChange={setViewerIndex}
+          onClose={() => setViewerIndex(null)}
+        />
+      )}
 
       <ConversationInfoPanel
         conversationId={conversationId}

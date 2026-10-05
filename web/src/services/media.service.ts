@@ -3,7 +3,8 @@ import api from '../utils/axios';
 import type { MediaType } from './websocket.service';
 
 export interface UploadedMedia {
-  url: string;
+  url: string; // plain URL: send this in messages / profile / group updates
+  signedUrl: string; // expiring URL for displaying the file
   mediaType: MediaType;
   mimeType: string;
   size: number;

@@ -164,6 +164,9 @@ class Message(Base):
     media_thumbnail: Mapped[str | None] = mapped_column(String(500), nullable=True)
     media_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     media_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Pixel size of images/videos, so clients can reserve space before loading
+    media_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    media_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     
     reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react';
 import { Avatar } from '../../atoms';
 import Icon from '../../atoms/Icon';
 import { formatMessageTime } from '../../../utils/dateFormat';
-import { formatFileSize } from '../../../utils/media';
+import { formatFileSize, mediaBoxStyle } from '../../../utils/media';
 import type { Reaction, ReplyPreview } from '../../../redux/slices/chatSlice';
 
 type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
@@ -23,6 +23,9 @@ interface MessageBubbleProps {
   mediaType?: 'image' | 'video' | 'file';
   mediaFilename?: string;
   mediaSize?: number;
+  mediaThumbnail?: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
   uploadProgress?: number; // 0-100 while the attachment uploads
   isGroup?: boolean;
   isDeleted?: boolean;
@@ -35,6 +38,8 @@ interface MessageBubbleProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onJumpToMessage?: (messageId: string) => void;
+  onOpenImage?: () => void;
+  onMediaError?: () => void; // e.g. the signed link expired
   className?: string;
 }
 
@@ -51,6 +56,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   mediaType,
   mediaFilename,
   mediaSize,
+  mediaThumbnail,
+  mediaWidth,
+  mediaHeight,
   uploadProgress,
   isGroup = false,
   isDeleted = false,
@@ -63,9 +71,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   onEdit,
   onDelete,
   onJumpToMessage,
+  onOpenImage,
+  onMediaError,
   className = ''
 }) => {
   const [showActions, setShowActions] = useState(false);
+  const box = mediaBoxStyle(mediaWidth, mediaHeight);
   const lastPointerType = useRef<string>('mouse');
 
   const statusIcons: Record<MessageStatus, React.ReactElement> = {
@@ -169,22 +180,33 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
               {mediaUrl && (
                 <div className={`relative ${text ? 'mb-2' : 'mb-1'}`}>
                   {mediaType === 'image' && (
-                    <a href={mediaUrl} target="_blank" rel="noopener noreferrer">
+                    <button
+                      type="button"
+                      onClick={onOpenImage}
+                      className={`block overflow-hidden rounded-lg ${box ? (isSent ? 'bg-white/10' : 'bg-muted-100') : ''}`}
+                      style={box}
+                      title="View photo"
+                    >
                       <img
                         src={mediaUrl}
                         alt={mediaFilename || 'Shared image'}
                         loading="lazy"
-                        className="rounded-lg max-w-full sm:max-w-xs max-h-64 object-cover"
+                        onError={onMediaError}
+                        className={box ? 'w-full h-full object-cover' : 'rounded-lg max-w-full sm:max-w-xs max-h-64 object-cover'}
                       />
-                    </a>
+                    </button>
                   )}
                   {mediaType === 'video' && (
                     <video
                       src={mediaUrl}
+                      poster={mediaThumbnail}
                       controls
                       playsInline
-                      preload="metadata"
-                      className="rounded-lg max-w-full sm:max-w-xs max-h-64 bg-black"
+                      // With a poster nothing needs to load until the user presses play
+                      preload={mediaThumbnail ? 'none' : 'metadata'}
+                      onError={onMediaError}
+                      style={box}
+                      className={box ? 'rounded-lg bg-black object-contain' : 'rounded-lg max-w-full sm:max-w-xs max-h-64 bg-black'}
                     />
                   )}
                   {mediaType === 'file' && (

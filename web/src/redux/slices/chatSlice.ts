@@ -30,6 +30,9 @@ export interface Message {
   mediaType?: 'image' | 'video' | 'file';
   mediaSize?: number;
   mediaFilename?: string;
+  mediaThumbnail?: string; // poster frame for videos
+  mediaWidth?: number; // pixel size, used to reserve space before media loads
+  mediaHeight?: number;
   uploadProgress?: number; // 0-100 while an attachment is uploading
   messageType?: 'text' | 'image' | 'video' | 'file' | 'system';
   replyTo?: ReplyPreview | null;

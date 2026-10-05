@@ -112,7 +112,7 @@ async def update_me(
     if payload.avatar is not None:
         if payload.avatar and not media_storage.is_stored_image_url(payload.avatar):
             raise HTTPException(status_code=400, detail="Avatar must be an uploaded image")
-        current_user.avatar = payload.avatar or None
+        current_user.avatar = media_storage.unsigned(payload.avatar) or None
 
     db.add(current_user)
     await db.commit()

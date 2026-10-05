@@ -95,7 +95,7 @@ async def get_conversation(
                 "id": str(user.id),
                 "username": user.username,
                 "name": user.name,
-                "avatar": user.avatar,
+                "avatar": media_storage.sign_url(user.avatar),
                 "bio": user.bio,
                 "role": member.role.value,
                 "joined_at": member.joined_at.isoformat() if member.joined_at else None,
@@ -114,7 +114,7 @@ async def get_conversation(
             "kind": conversation.kind,
             "title": conversation.title,
             "description": conversation.description,
-            "avatar_url": conversation.avatar_url or None,
+            "avatar_url": media_storage.sign_url(conversation.avatar_url) or None,
             "created_by": str(conversation.created_by) if conversation.created_by else None,
             "created_at": conversation.created_at.isoformat(),
             "my_role": me.role.value,
@@ -152,8 +152,9 @@ async def update_group(
     if payload.avatar_url is not None:
         if payload.avatar_url and not media_storage.is_stored_image_url(payload.avatar_url):
             raise HTTPException(status_code=400, detail="Group photo must be an uploaded image")
-        if payload.avatar_url != (conversation.avatar_url or ""):
-            conversation.avatar_url = payload.avatar_url
+        new_avatar = media_storage.unsigned(payload.avatar_url) or ""
+        if new_avatar != (conversation.avatar_url or ""):
+            conversation.avatar_url = new_avatar
             changes.append(
                 f"{current_user.username} changed the group photo" if payload.avatar_url
                 else f"{current_user.username} removed the group photo"

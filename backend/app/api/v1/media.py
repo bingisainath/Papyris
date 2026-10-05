@@ -2,8 +2,10 @@
 
 import os
 import re
+import time
+from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
 from app.api.dependencies import get_current_user
@@ -57,7 +59,10 @@ async def upload_media(
         "success": True,
         "message": "File uploaded successfully",
         "data": {
+            # Plain URL: send this back in messages / profile / group updates
             "url": media_storage.MEDIA_URL_PREFIX + key,
+            # Signed URL: use this to display the file right away
+            "signedUrl": media_storage.sign_url(media_storage.MEDIA_URL_PREFIX + key),
             "mediaType": media_type,
             "mimeType": mime,
             "size": size,
@@ -79,8 +84,19 @@ def _iter_file(path, start: int, length: int):
 
 
 @router.get("/{key:path}")
-async def get_media(key: str, request: Request):
-    """Serve an uploaded file. Supports Range requests so videos can seek."""
+async def get_media(
+    key: str,
+    request: Request,
+    exp: Optional[str] = Query(None),
+    sig: Optional[str] = Query(None),
+):
+    """
+    Serve an uploaded file. Needs the signature from a signed URL (see media_storage.sign_url).
+    Supports Range requests so videos can seek.
+    """
+    if not media_storage.verify_signature(key, exp, sig):
+        raise HTTPException(status_code=403, detail="Media link expired or invalid")
+
     path = media_storage.path_for_key(key)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Media not found")
@@ -89,7 +105,8 @@ async def get_media(key: str, request: Request):
     file_size = path.stat().st_size
     headers = {
         "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=31536000, immutable",
+        # Cache only as long as the link is valid
+        "Cache-Control": f"private, max-age={max(int(exp) - int(time.time()), 0)}",
         "X-Content-Type-Options": "nosniff",
     }
     if not (mime.startswith("image/") or mime.startswith("video/")):

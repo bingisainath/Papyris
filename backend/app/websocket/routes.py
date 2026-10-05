@@ -207,6 +207,19 @@ async def ws_chat(ws: WebSocket):
 
                 media_size = data.get("mediaSize") if isinstance(data.get("mediaSize"), int) else None
                 media_filename = (str(data.get("mediaFilename") or "")[:255] or None) if media_url else None
+                media_width = _dimension(data.get("mediaWidth")) if media_type in ("image", "video") else None
+                media_height = _dimension(data.get("mediaHeight")) if media_type in ("image", "video") else None
+                if not (media_width and media_height):
+                    media_width = media_height = None
+
+                # Optional poster frame for videos (an uploaded image)
+                media_thumbnail = data.get("mediaThumbnail") or None
+                if media_thumbnail and (media_type != "video" or not media_storage.is_stored_image_url(media_thumbnail)):
+                    media_thumbnail = None
+
+                # Store plain URLs; every response signs them for the people who may see them
+                media_url = media_storage.unsigned(media_url)
+                media_thumbnail = media_storage.unsigned(media_thumbnail)
 
                 async with async_session_maker() as db:
                     is_member = await _check_membership(db, user_id, room_id)
@@ -262,6 +275,9 @@ async def ws_chat(ws: WebSocket):
                     "mediaUrl": media_url,
                     "mediaSize": media_size,
                     "mediaFilename": media_filename,
+                    "mediaThumbnail": media_thumbnail,
+                    "mediaWidth": media_width,
+                    "mediaHeight": media_height,
                     "replyToId": reply_to["id"] if reply_to else None,
                     "timestamp": timestamp,
                 })
@@ -273,11 +289,14 @@ async def ws_chat(ws: WebSocket):
                     "clientId": client_id,
                     "senderId": user_id_str,
                     "senderName": sender_name,
-                    "senderAvatar": sender_avatar,
+                    "senderAvatar": media_storage.sign_url(sender_avatar),
                     "text": text,
                     "messageType": media_type or "text",
                     "mediaType": media_type,
-                    "mediaUrl": media_url,
+                    "mediaUrl": media_storage.sign_url(media_url),
+                    "mediaThumbnail": media_storage.sign_url(media_thumbnail),
+                    "mediaWidth": media_width,
+                    "mediaHeight": media_height,
                     "mediaSize": media_size,
                     "mediaFilename": media_filename,
                     "replyTo": reply_to,
@@ -346,6 +365,11 @@ async def ws_chat(ws: WebSocket):
             print(f"👋 [WS:{user_id_str[:8]}] Offline")
         else:
             print(f"🔌 [WS:{user_id_str[:8]}] Socket closed, {remaining} still open")
+
+
+def _dimension(value) -> int | None:
+    """A sane pixel dimension from the client, or None"""
+    return value if isinstance(value, int) and 0 < value <= 20000 else None
 
 
 async def _check_membership(db: AsyncSession, user_id: uuid.UUID, conversation_id: str) -> bool:

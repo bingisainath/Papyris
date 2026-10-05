@@ -157,7 +157,7 @@ class MessageService:
             "messageId": str(message.id),
             "senderId": str(actor.id),
             "senderName": actor.username,
-            "senderAvatar": actor.avatar,
+            "senderAvatar": media_storage.sign_url(actor.avatar),
             "text": text,
             "messageType": "system",
             "timestamp": now.isoformat(),

@@ -28,6 +28,9 @@ export interface OutgoingMedia {
   mediaType: MediaType;
   mediaSize?: number;
   mediaFilename?: string;
+  mediaThumbnail?: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
 }
 
 export interface WebSocketEvent {
@@ -47,6 +50,9 @@ export interface WebSocketEvent {
   mediaType?: MediaType | null;
   mediaSize?: number | null;
   mediaFilename?: string | null;
+  mediaThumbnail?: string | null;
+  mediaWidth?: number | null;
+  mediaHeight?: number | null;
   timestamp?: string;
   status?: string;
   isTyping?: boolean;
