@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased
 from typing import List, Optional
 from uuid import UUID
 
@@ -25,6 +25,10 @@ from datetime import datetime, timezone
 
 router = APIRouter()
 
+MIN_USER_SEARCH_LENGTH = 2
+USER_SEARCH_LIMIT = 20
+USER_LIST_LIMIT = 50
+
 
 # Request/Response Models
 class CreateConversationRequest(BaseModel):
@@ -39,123 +43,97 @@ async def get_conversations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all conversations for the current user"""
+    """
+    Get all conversations for the current user.
+    Uses a fixed number of queries (not one batch per conversation).
+    """
     try:
-        # Get conversations where user is a member
-        stmt = (
-            select(Conversation)
-            .join(ConversationMember)
+        # 1. My memberships + conversations, most recently active first
+        rows = (await db.execute(
+            select(Conversation, ConversationMember)
+            .join(ConversationMember, ConversationMember.conversation_id == Conversation.id)
             .where(ConversationMember.user_id == current_user.id)
-            .options(selectinload(Conversation.members))
             .order_by(Conversation.updated_at.desc())
-        )
-        
-        result = await db.execute(stmt)
-        conversations = result.scalars().all()
+        )).all()
+        if not rows:
+            return {"success": True, "data": [], "message": "Conversations fetched successfully"}
 
-        # Build response
-        response_data = []
-        for conv in conversations:
-            # ✅ Get all member IDs (just IDs, not full objects)
-            members_stmt = select(ConversationMember.user_id).where(
-                ConversationMember.conversation_id == conv.id
-            )
-            members_result = await db.execute(members_stmt)
-            member_ids = [str(uid) for uid in members_result.scalars().all()]
+        conversation_ids = [conv.id for conv, _ in rows]
 
-            # Get last message
-            msg_stmt = (
+        # 2. Members of all those conversations
+        member_ids: dict[UUID, list[str]] = {cid: [] for cid in conversation_ids}
+        for conv_id, user_id in (await db.execute(
+            select(ConversationMember.conversation_id, ConversationMember.user_id)
+            .where(ConversationMember.conversation_id.in_(conversation_ids))
+        )).all():
+            member_ids[conv_id].append(str(user_id))
+
+        # 3. Latest message per conversation (Postgres DISTINCT ON)
+        last_messages = {
+            msg.conversation_id: msg
+            for msg in (await db.execute(
                 select(Message)
-                .where(Message.conversation_id == conv.id)
-                .order_by(Message.created_at.desc())
-                .limit(1)
+                .where(Message.conversation_id.in_(conversation_ids))
+                .distinct(Message.conversation_id)
+                .order_by(Message.conversation_id, Message.created_at.desc(), Message.id.desc())
+            )).scalars().all()
+        }
+
+        # 4. Unread counts: messages from others newer than my read pointer
+        #    (no read pointer yet = everything from others is unread)
+        last_read = aliased(Message)
+        unread_counts = dict((await db.execute(
+            select(Message.conversation_id, func.count(Message.id))
+            .join(
+                ConversationMember,
+                and_(
+                    ConversationMember.conversation_id == Message.conversation_id,
+                    ConversationMember.user_id == current_user.id,
+                ),
             )
-            msg_result = await db.execute(msg_stmt)
-            last_message = msg_result.scalar_one_or_none()
-
-            # ✅ ADD DETAILED DEBUG LOGGING
-            print(f"\n{'='*60}")
-            print(f"📊 Processing conversation: {conv.id}")
-            print(f"   Name/Title: {conv.title if conv.kind == 'group' else 'DM'}")
-
-            # ✅ CALCULATE REAL UNREAD COUNT
-            # Get user's last_read_message_id from conversation_members
-            member_stmt = select(ConversationMember).where(
-                ConversationMember.conversation_id == conv.id,
-                ConversationMember.user_id == current_user.id
+            .outerjoin(last_read, last_read.id == ConversationMember.last_read_message_id)
+            .where(
+                Message.conversation_id.in_(conversation_ids),
+                Message.sender_id != current_user.id,
+                or_(last_read.id.is_(None), Message.created_at > last_read.created_at),
             )
-            member_result = await db.execute(member_stmt)
-            member = member_result.scalar_one_or_none()
+            .group_by(Message.conversation_id)
+        )).all())
 
-            if member:
-                print(f"   User's last_read_message_id: {member.last_read_message_id}")
-            else:
-                print(f"   ⚠️ User is not a member!")
-            
-            # Count total messages
-            total_msg_stmt = select(func.count(Message.id)).where(
-                Message.conversation_id == conv.id
-            )
-            total_result = await db.execute(total_msg_stmt)
-            total_messages = total_result.scalar() or 0
-            print(f"   Total messages: {total_messages}")
+        # 5. The other person in each DM (for name and avatar)
+        dm_partner_ids = {
+            UUID(uid)
+            for conv, _ in rows if conv.kind == "dm"
+            for uid in member_ids[conv.id] if uid != str(current_user.id)
+        }
+        partners = {}
+        if dm_partner_ids:
+            partners = {
+                str(u.id): u
+                for u in (await db.execute(select(User).where(User.id.in_(dm_partner_ids)))).scalars().all()
+            }
 
-            unread_count = 0
-
-            if member:
-                if member.last_read_message_id:
-                    # Count messages after last_read_message_id
-                    last_read_msg_stmt = select(Message).where(
-                        Message.id == member.last_read_message_id
-                    )
-                    last_read_result = await db.execute(last_read_msg_stmt)
-                    last_read_msg = last_read_result.scalar_one_or_none()
-                    
-                    if last_read_msg:
-                        # Count messages created after last read message
-                        unread_stmt = select(func.count(Message.id)).where(
-                            Message.conversation_id == conv.id,
-                            Message.created_at > last_read_msg.created_at,
-                            Message.sender_id != current_user.id  # Don't count own messages
-                        )
-                        unread_result = await db.execute(unread_stmt)
-                        unread_count = unread_result.scalar() or 0
-                else:
-                    # No last read message - count all messages from others
-                    unread_stmt = select(func.count(Message.id)).where(
-                        Message.conversation_id == conv.id,
-                        Message.sender_id != current_user.id
-                    )
-                    unread_result = await db.execute(unread_stmt)
-                    unread_count = unread_result.scalar() or 0
-
-            print(f"📊 Conversation {conv.id}: unread_count = {unread_count}")
-
-            # ✅ Get other user for DM (to get name and avatar)
+        response_data = []
+        for conv, _member in rows:
             other_user = None
-            if conv.kind == 'dm':
-                # Find the other user (not current user)
-                other_user_id = next((uid for uid in member_ids if uid != str(current_user.id)), None)
-                if other_user_id:
-                    user_stmt = select(User).where(User.id == UUID(other_user_id))
-                    user_result = await db.execute(user_stmt)
-                    other_user = user_result.scalar_one_or_none()
+            if conv.kind == "dm":
+                other_id = next((uid for uid in member_ids[conv.id] if uid != str(current_user.id)), None)
+                other_user = partners.get(other_id)
 
-            # ✅ Format response to match frontend expectations
-            conv_data = {
+            last_message = last_messages.get(conv.id)
+            response_data.append({
                 "id": str(conv.id),
                 "name": (other_user.name or other_user.username) if other_user else (conv.title or "Unknown"),
                 "avatar": other_user.avatar if other_user else conv.avatar_url,
                 "lastMessage": MessageService.preview_text(last_message) if last_message else "",
                 "lastMessageTime": last_message.created_at.isoformat() if last_message else None,
-                "unreadCount": unread_count, 
+                "unreadCount": unread_counts.get(conv.id, 0),
                 "isOnline": False,  # Will be updated by frontend based on online users
                 "isGroup": conv.kind == "group",
-                "members": member_ids,
+                "members": member_ids[conv.id],
                 "isPinned": False,
                 "isTyping": False,
-            }
-            response_data.append(conv_data)
+            })
 
         return {
             "success": True,
@@ -492,34 +470,48 @@ async def create_conversation(
 # GET /api/v1/users - List users
 @router.get("/users")
 async def get_users(
-    search: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, max_length=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all users (excluding current user)"""
+    """
+    Find people to chat with.
+    - With `search` (2+ characters): match on username or display name, or an exact email.
+    - Without `search`: people you already share a conversation with.
+    Emails are never returned, so this can't be used to collect them.
+    """
     try:
-        stmt = select(User).where(User.id != current_user.id)
+        query = (search or "").strip()
+        stmt = select(User).where(User.id != current_user.id, User.is_active.is_(True))
 
-        # Add search filter
-        if search:
+        if query:
+            if len(query) < MIN_USER_SEARCH_LENGTH:
+                return {"success": True, "data": [], "message": "Type at least 2 characters to search"}
+            pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             stmt = stmt.where(
                 or_(
-                    User.username.ilike(f"%{search}%"),
-                    User.email.ilike(f"%{search}%")
+                    User.username.ilike(pattern, escape="\\"),
+                    User.name.ilike(pattern, escape="\\"),
+                    func.lower(User.email) == query.lower(),
                 )
+            ).order_by(func.length(User.username), User.username).limit(USER_SEARCH_LIMIT)
+        else:
+            my_conversations = select(ConversationMember.conversation_id).where(
+                ConversationMember.user_id == current_user.id
             )
+            contacts = select(ConversationMember.user_id).where(
+                ConversationMember.conversation_id.in_(my_conversations)
+            )
+            stmt = stmt.where(User.id.in_(contacts)).order_by(User.username).limit(USER_LIST_LIMIT)
 
-        stmt = stmt.limit(50)
-        result = await db.execute(stmt)
-        users = result.scalars().all()
+        users = (await db.execute(stmt)).scalars().all()
 
         response_data = [
             {
                 "id": str(user.id),
                 "username": user.username,
-                "email": user.email,
+                "name": user.name or user.username,
                 "avatar": user.avatar,
-                "name": user.username  # Use username as name
             }
             for user in users
         ]

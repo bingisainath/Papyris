@@ -391,7 +391,13 @@ class WebSocketService {
       if (!token || isTokenExpired(token) || this.tokenRejected) {
         token = await refreshAccessToken();
       }
-      if (!token || !this.shouldReconnect) return;
+      if (!this.shouldReconnect) return;
+      if (!token) {
+        // Refresh failed. If we still have a refresh token it was a network problem: keep trying.
+        // (If the session really ended, tokens are cleared and the app logs out.)
+        if (tokenStore.getRefresh()) this.scheduleReconnect();
+        return;
+      }
 
       this.tokenRejected = false;
       this.connect(token).catch(error => {

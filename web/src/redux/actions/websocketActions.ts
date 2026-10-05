@@ -24,6 +24,7 @@ import {
   setActiveConversation,
   updateUserOnlineStatus,
   updateConversationLastMessage,
+  incrementUnreadCount,
 } from '../slices/chatSlice';
 import type { ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
@@ -265,9 +266,11 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         timestamp: data.timestamp || new Date().toISOString()
       }));
 
+      const roomId = data.roomId;
+      const isOwn = data.senderId === localStorage.getItem('userId');
+
       // Desktop notification for messages from others (skipped if this chat is in view)
-      if (data.senderId !== localStorage.getItem('userId') && data.messageType !== 'system') {
-        const roomId = data.roomId;
+      if (!isOwn && data.messageType !== 'system') {
         dispatch((_: AppDispatch, getState: () => RootState) => {
           const conversation = getState().chat.conversations.find(c => c.id === roomId);
           const sender = data.senderName || 'Someone';
@@ -281,24 +284,20 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         });
       }
 
-      // console.log('Listener counts:', wsService.getListenerCount());
-
-      // ✅ Increment unread count if not own message and not viewing this conversation
-      // if (!isOwnMessage && data.roomId !== activeConversationId) {
-      //   dispatch(incrementUnreadCount(data.roomId));
-      //   console.log(`📬 Unread count incremented for conversation ${data.roomId}`);
-      // } else if (!isOwnMessage && data.roomId === activeConversationId) {
-      //   console.log('  👁️ Message in active conversation - not incrementing unread');
-      // } else {
-      //   console.log('  🙋 Own message - not incrementing unread');
-      // }
-
-      // ✅ Fetch conversations to get new conversations
-      // (unread counts will be preserved by fetchConversations)
-      console.log('  🔄 Fetching conversations (unread will be preserved)');
-      setTimeout(() => {
-        dispatch(fetchConversations());
-      }, 100);
+      // Keep the chat list in sync locally (last message was updated above);
+      // only reload it when the message is for a conversation we don't know yet
+      dispatch((_: AppDispatch, getState: () => RootState) => {
+        const known = getState().chat.conversations.some(c => c.id === roomId);
+        if (!known) {
+          dispatch(fetchConversations());
+          return;
+        }
+        const viewing =
+          (window as any).__activeConversationId === roomId && document.visibilityState === 'visible';
+        if (!isOwn && !viewing) {
+          dispatch(incrementUnreadCount(roomId));
+        }
+      });
     }
   });
 

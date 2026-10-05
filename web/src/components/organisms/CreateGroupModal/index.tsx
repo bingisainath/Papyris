@@ -378,7 +378,9 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <Icon name="search" size={48} className="text-muted-300 mb-3" />
                     <Typography variant="body1" className="text-muted-500">
-                      No users found
+                      {searchQuery.trim()
+                        ? searchQuery.trim().length < 2 ? 'Keep typing…' : 'No users found'
+                        : 'Search by name or username to add people'}
                     </Typography>
                   </div>
                 ) : (

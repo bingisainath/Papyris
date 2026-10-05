@@ -458,57 +458,19 @@ const chatSlice = createSlice({
     // },
 
     incrementUnreadCount: (state, action: PayloadAction<string>) => {
-      const conversationId = action.payload;
-      const conversation = state.conversations.find(c => c.id === conversationId);
-
+      const conversation = state.conversations.find(c => c.id === action.payload);
       if (conversation) {
-        const oldCount = conversation.unreadCount || 0;
-        conversation.unreadCount = oldCount + 1;
-
-        console.log(`%c📬 INCREMENT UNREAD`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px;');
-        console.log(`  Conversation: ${conversation.name}`);
-        console.log(`  ${oldCount} → ${conversation.unreadCount}`);
-        console.log(`  Called from:`);
-        console.trace(); // ✅ Shows call stack
+        conversation.unreadCount = (conversation.unreadCount || 0) + 1;
       }
     },
-
-    // ✅ CLEAR - Track who's calling
-    // clearUnreadCount: (state, action: PayloadAction<string>) => {
-    //   const conversationId = action.payload;
-    //   const conversation = state.conversations.find(c => c.id === conversationId);
-
-    //   if (conversation) {
-    //     const oldCount = conversation.unreadCount || 0;
-
-    //     if (oldCount > 0) {
-    //       console.log(`%c❌ CLEAR UNREAD`, 'background: #f44336; color: white; padding: 2px 5px; border-radius: 3px;');
-    //       console.log(`  Conversation: ${conversation.name}`);
-    //       console.log(`  ${oldCount} → 0`);
-    //       console.log(`  Called from:`);
-    //       console.trace(); // ✅ Shows call stack
-    //     }
-
-    //     conversation.unreadCount = 0;
-    //   }
-    // },
 
     clearUnreadCount: (state, action: PayloadAction<string>) => {
-      const conversationId = action.payload;
-      const conversation = state.conversations.find(c => c.id === conversationId);
-
-      if (conversation && (conversation.unreadCount ?? 0) > 0) {
-        const oldCount = conversation.unreadCount;
+      const conversation = state.conversations.find(c => c.id === action.payload);
+      if (conversation) {
         conversation.unreadCount = 0;
-
-        console.log(`%c❌ CLEAR UNREAD`, 'background: #f44336; color: white; padding: 2px 5px;');
-        console.log(`  Conversation: ${conversation.name}`);
-        console.log(`  ${oldCount} → 0`);
-        console.trace();
       }
     },
 
-    // Loading states
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.isLoading = action.payload;
     },
