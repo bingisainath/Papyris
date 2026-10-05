@@ -53,8 +53,24 @@ class UserResponse(BaseModel):
     id: UUID
     username: str
     email: EmailStr
+    name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar: Optional[str] = None
     is_active: bool
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    """Profile fields a user can change. Omitted fields are left as they are."""
+    name: Optional[str] = Field(None, max_length=100)
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    bio: Optional[str] = Field(None, max_length=500)
+    avatar: Optional[str] = Field(None, description="Uploaded image URL, or empty string to remove")
+
+    @field_validator('name', 'username', 'bio')
+    @classmethod
+    def strip_text(cls, v: Optional[str]) -> Optional[str]:
+        return v.strip() if isinstance(v, str) else v

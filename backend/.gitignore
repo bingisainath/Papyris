@@ -31,3 +31,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Uploaded media (local storage)
+uploads/

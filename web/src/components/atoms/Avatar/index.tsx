@@ -1,8 +1,9 @@
 // src/components/atoms/Avatar.tsx
 import React from 'react';
+import { resolveMediaUrl } from '../../../utils/media';
 
 interface AvatarProps {
-  src?: string;
+  src?: string | null;
   alt?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   online?: boolean;
@@ -38,7 +39,7 @@ const Avatar: React.FC<AvatarProps> = ({
       
       {/* Avatar image */}
       <img
-        src={src || `https://ui-avatars.com/api/?name=${encodeURIComponent(alt)}&background=7e22ce&color=fff&bold=true`}
+        src={resolveMediaUrl(src) || `https://ui-avatars.com/api/?name=${encodeURIComponent(alt)}&background=7e22ce&color=fff&bold=true`}
         alt={alt}
         className={`${sizes[size]} rounded-full object-cover ${showRing ? 'relative z-10' : ''} transition-all duration-300 hover:scale-105`}
       />

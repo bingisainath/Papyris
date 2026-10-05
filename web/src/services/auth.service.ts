@@ -1,8 +1,9 @@
 // src/services/auth.service.ts
 
 import axios from 'axios';
+import { API_V1_URL } from '../config/env';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+const API_URL = API_V1_URL;
 
 export interface LoginCredentials {
   identifier: string;

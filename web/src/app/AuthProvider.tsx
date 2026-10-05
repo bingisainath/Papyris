@@ -10,11 +10,13 @@ import React, {
   useState,
 } from "react";
 import { useDispatch } from "react-redux";
-import { loginUser, registerUser, getMe } from "../api/auth.api";
-import { UserResponse } from "../types/auth.types";
+import { loginUser, registerUser, getMe, updateMe } from "../api/auth.api";
+import type { ProfileUpdate } from "../api/auth.api";
+import { User } from "../types/auth.types";
 import { isTokenExpired, tokenStore } from "../utils/token";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
+import type { AppDispatch } from "../redux/store";
 import { authService } from "../services/auth.service";
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data?: T };
@@ -26,7 +28,7 @@ function unwrap<T>(res: any): ApiEnvelope<T> {
 }
 
 type AuthContextType = {
-  user: UserResponse | null;
+  user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
@@ -38,17 +40,32 @@ type AuthContextType = {
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   logout: () => void;
   clearError: () => void;
+  updateProfile: (data: ProfileUpdate) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<UserResponse | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const dispatch = useDispatch();  // ✅ ADD: Redux dispatch
+  const dispatch = useDispatch<AppDispatch>();
 
   const clearError = useCallback(() => setError(null), []);
+
+  // Chat code reads the current user from localStorage (sender id, own-message checks)
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem("userId", user.id);
+      localStorage.setItem("username", user.username);
+      if (user.avatar) localStorage.setItem("userAvatar", user.avatar);
+      else localStorage.removeItem("userAvatar");
+    } else {
+      localStorage.removeItem("userId");
+      localStorage.removeItem("username");
+      localStorage.removeItem("userAvatar");
+    }
+  }, [user]);
 
   const logout = useCallback(() => {
     // ✅ ADD: Disconnect WebSocket before logout
@@ -71,7 +88,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        const res = unwrap<UserResponse>(await getMe());
+        const res = unwrap<User>(await getMe());
         if (!res.success || !res.data) {
           logout();
           return;
@@ -123,7 +140,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         tokenStore.set(res.data.access_token);
 
         // Fetch user profile
-        const meRes = unwrap<UserResponse>(await getMe());
+        const meRes = unwrap<User>(await getMe());
         if (!meRes.success || !meRes.data) {
           throw new Error(meRes.message || "Unable to fetch user profile");
         }
@@ -171,7 +188,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error("Password must be at least 6 characters");
         }
 
-        const res = unwrap<UserResponse>(
+        const res = unwrap<User>(
           await registerUser({ username, email, password })
         );
 
@@ -291,6 +308,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     []
   );
 
+  const updateProfile = useCallback(async (data: ProfileUpdate): Promise<void> => {
+    const res = unwrap<User>(await updateMe(data));
+    if (!res.success || !res.data) {
+      throw new Error(res.message || "Profile update failed");
+    }
+    setUser(res.data);
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -301,11 +326,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       register,
       logout,
       clearError,
+      updateProfile,
       forgotPassword,    
       verifyResetToken,    
       resetPassword,        
     }),
-    [user, isLoading, error, login, register, logout, clearError, forgotPassword, verifyResetToken, resetPassword]
+    [user, isLoading, error, login, register, logout, clearError, updateProfile, forgotPassword, verifyResetToken, resetPassword]
   );
 
 return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

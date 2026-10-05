@@ -16,7 +16,11 @@ from app.models.conversation_member import ConversationMember
 
 from app.models.message import Message
 from app.api.dependencies import get_current_user
-from pydantic import BaseModel
+from app.services.chat_service import ChatService
+from app.services.message_service import MessageService
+from app.services import media_storage
+from app.websocket.routes import publish_users
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 
 router = APIRouter()
@@ -25,7 +29,9 @@ router = APIRouter()
 # Request/Response Models
 class CreateConversationRequest(BaseModel):
     kind: str  # 'dm' or 'group'
-    title: Optional[str] = None
+    title: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    avatar_url: Optional[str] = None
     participant_ids: List[str]
 
 @router.get("/conversations")
@@ -138,9 +144,9 @@ async def get_conversations(
             # ✅ Format response to match frontend expectations
             conv_data = {
                 "id": str(conv.id),
-                "name": other_user.username if other_user else (conv.title or "Unknown"),
+                "name": (other_user.name or other_user.username) if other_user else (conv.title or "Unknown"),
                 "avatar": other_user.avatar if other_user else conv.avatar_url,
-                "lastMessage": last_message.text if last_message else "",
+                "lastMessage": MessageService.preview_text(last_message) if last_message else "",
                 "lastMessageTime": last_message.created_at.isoformat() if last_message else None,
                 "unreadCount": unread_count, 
                 "isOnline": False,  # Will be updated by frontend based on online users
@@ -169,11 +175,14 @@ async def get_conversations(
 async def get_messages(
     conversation_id: UUID,
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    before: Optional[UUID] = Query(None, description="Return messages older than this message id"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get messages for a conversation"""
+    """
+    Get the newest `limit` messages (or the ones older than `before`),
+    returned oldest-first. `has_more` tells whether older messages exist.
+    """
     try:
         # Verify user is member
         member_stmt = (
@@ -194,32 +203,61 @@ async def get_messages(
                 detail="Not a member of this conversation"
             )
 
-        # Get messages
+        # Newest first, then reversed for display
         stmt = (
             select(Message)
             .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at.asc())
-            .limit(limit)
-            .offset(offset)
+            .order_by(Message.created_at.desc(), Message.id.desc())
+            .limit(limit + 1)
         )
-        result = await db.execute(stmt)
-        messages = result.scalars().all()
+        if before is not None:
+            cursor = (await db.execute(
+                select(Message.created_at).where(
+                    Message.id == before,
+                    Message.conversation_id == conversation_id,
+                )
+            )).scalar_one_or_none()
+            if cursor is None:
+                raise HTTPException(status_code=404, detail="Cursor message not found")
+            stmt = stmt.where(Message.created_at < cursor)
 
-        # Build response with sender info
+        result = await db.execute(stmt)
+        messages = list(result.scalars().all())
+        has_more = len(messages) > limit
+        messages = list(reversed(messages[:limit]))
+
+        # Load all senders in one query
+        sender_ids = {msg.sender_id for msg in messages}
+        senders = {}
+        if sender_ids:
+            senders_result = await db.execute(select(User).where(User.id.in_(sender_ids)))
+            senders = {u.id: u for u in senders_result.scalars().all()}
+
+        read_up_to = await ChatService.read_up_to(db, conversation_id)
+        replies = await MessageService.reply_previews(db, {m.reply_to_id for m in messages if m.reply_to_id})
+        reactions = await MessageService.reactions_for(db, [m.id for m in messages])
+
         response_data = []
         for msg in messages:
-            # Get sender
-            sender_stmt = select(User).where(User.id == msg.sender_id)
-            sender_result = await db.execute(sender_stmt)
-            sender = sender_result.scalar_one_or_none()
+            sender = senders.get(msg.sender_id)
+            is_read = read_up_to is not None and msg.created_at <= read_up_to
 
             msg_data = {
                 "id": str(msg.id),
                 "conversation_id": str(msg.conversation_id),
                 "sender_id": str(msg.sender_id),
                 "text": msg.text,
+                "message_type": msg.message_type.value,
+                "is_deleted": msg.is_deleted,
+                "edited_at": msg.updated_at.isoformat() if msg.updated_at and not msg.is_deleted else None,
+                "reply_to": replies.get(msg.reply_to_id) if msg.reply_to_id else None,
+                "reactions": reactions.get(msg.id, []),
+                "media_type": msg.message_type.value if msg.media_url else None,
+                "media_url": msg.media_url,
+                "media_size": msg.media_size,
+                "media_filename": msg.media_filename,
                 "created_at": msg.created_at.isoformat(),
-                "status": "delivered",  # Default status
+                "status": "read" if is_read else "delivered",
                 "sender": {
                     "id": str(sender.id),
                     "username": sender.username,
@@ -232,6 +270,7 @@ async def get_messages(
         return {
             "success": True,
             "data": response_data,
+            "has_more": has_more,
             "message": "Messages fetched successfully"
         }
 
@@ -265,23 +304,25 @@ async def mark_conversation_read(
         if not member:
             raise HTTPException(status_code=403, detail="Not a member of this conversation")
 
-        # Get latest message in conversation
-        latest_msg_stmt = (
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at.desc())
-            .limit(1)
-        )
-        latest_result = await db.execute(latest_msg_stmt)
-        latest_message = latest_result.scalar_one_or_none()
+        latest_message = await ChatService.mark_read(db, current_user.id, conversation_id)
 
         if latest_message:
-            # Update last_read_message_id
-            member.last_read_message_id = latest_message.id
-            member.last_read_at = datetime.now(timezone.utc)
-            await db.commit()
-
             print(f"✅ Marked conversation {conversation_id} as read for user {current_user.id}")
+
+            # Let the other members update their read ticks
+            member_ids = [str(uid) for uid in (await db.execute(
+                select(ConversationMember.user_id).where(
+                    ConversationMember.conversation_id == conversation_id
+                )
+            )).scalars().all()]
+            read_up_to = await ChatService.read_up_to(db, conversation_id)
+            await publish_users(member_ids, {
+                "type": "read",
+                "roomId": str(conversation_id),
+                "userId": str(current_user.id),
+                "lastMessageId": str(latest_message.id),
+                "readUpTo": read_up_to.isoformat() if read_up_to else None,
+            })
 
             return {
                 "success": True,
@@ -356,9 +397,18 @@ async def create_conversation(
                 }
 
         # Create new conversation
+        if request.kind == 'group':
+            if not (request.title or '').strip():
+                raise HTTPException(status_code=400, detail="Group name is required")
+            if request.avatar_url and not media_storage.is_stored_image_url(request.avatar_url):
+                raise HTTPException(status_code=400, detail="Group photo must be an uploaded image")
+
         new_conv = Conversation(
             kind=request.kind,
-            title=request.title
+            title=request.title.strip() if request.title else None,
+            description=((request.description or '').strip() or None) if request.kind == 'group' else None,
+            avatar_url=(request.avatar_url or '') if request.kind == 'group' else '',
+            created_by=current_user.id,
         )
         db.add(new_conv)
         await db.flush()
@@ -373,17 +423,34 @@ async def create_conversation(
         )
         db.add(member)
 
-        # Add other participants
-        for participant_id in request.participant_ids:
+        # Add other participants (skip the creator and duplicates)
+        participant_uuids = list(dict.fromkeys(
+            UUID(pid) for pid in request.participant_ids if UUID(pid) != current_user.id
+        ))
+        for participant_uuid in participant_uuids:
             member = ConversationMember(
                 conversation_id=new_conv.id,
-                user_id=UUID(participant_id),
+                user_id=participant_uuid,
                 role=MemberRole.MEMBER
             )
             db.add(member)
 
         await db.commit()
         await db.refresh(new_conv)
+
+        # Tell every member (including the creator's other tabs) so it shows up in their chat list
+        await publish_users(
+            [str(current_user.id)] + [str(u) for u in participant_uuids],
+            {
+                "type": "conversation_created",
+                "conversationId": str(new_conv.id),
+                "kind": new_conv.kind,
+                "title": new_conv.title,
+                "createdBy": str(current_user.id),
+                "createdByName": current_user.username,
+                "memberCount": len(participant_uuids) + 1,
+            },
+        )
 
         # Get other user info for DM
         other_user = None

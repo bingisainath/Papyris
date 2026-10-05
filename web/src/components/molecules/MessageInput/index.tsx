@@ -1,7 +1,10 @@
 // src/components/molecules/MessageInput.tsx
-import React, { useState, useRef, KeyboardEvent } from 'react';
+import React, { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { toast } from 'react-toastify';
 import { Button } from '../../atoms';
 import Icon from '../../atoms/Icon';
+import EmojiPicker from '../EmojiPicker';
+import { ACCEPTED_FILE_TYPES, formatFileSize, mediaTypeOf, validateFile } from '../../../utils/media';
 
 interface MessageInputProps {
   placeholder?: string;
@@ -13,6 +16,10 @@ interface MessageInputProps {
   showEmoji?: boolean;
   showExpense?: boolean; // For adding expense from chat
   className?: string;
+  replyingTo?: { senderName?: string | null; text: string } | null;
+  onCancelReply?: () => void;
+  editingText?: string | null; // set while editing a sent message
+  onCancelEdit?: () => void;
 }
 
 const MessageInput: React.FC<MessageInputProps> = ({
@@ -24,14 +31,65 @@ const MessageInput: React.FC<MessageInputProps> = ({
   showAttachment = true,
   showEmoji = true,
   showExpense = false,
-  className = ''
+  className = '',
+  replyingTo = null,
+  onCancelReply,
+  editingText = null,
+  onCancelEdit
 }) => {
   const [message, setMessage] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const isEditing = editingText !== null;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Free the preview's object URL when it changes or the input unmounts
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  // Entering edit mode loads the message text; leaving it clears the box
+  useEffect(() => {
+    setMessage(editingText ?? '');
+    if (editingText !== null) {
+      setPendingFile(null);
+      setPreviewUrl(null);
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        textarea?.focus();
+        textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+      });
+    }
+  }, [editingText]);
+
+  useEffect(() => {
+    if (replyingTo) textareaRef.current?.focus();
+  }, [replyingTo]);
+
+  const insertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? message.length;
+    const end = textarea?.selectionEnd ?? message.length;
+    const next = message.slice(0, start) + emoji + message.slice(end);
+    if (next.length > maxLength) return;
+    setMessage(next);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
+
+  const clearAttachment = () => {
+    setPendingFile(null);
+    setPreviewUrl(null);
+  };
 
   // Auto-resize textarea
   const adjustHeight = () => {
@@ -71,9 +129,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   const handleSend = () => {
     const trimmedMessage = message.trim();
-    if (trimmedMessage && !disabled) {
-      onSend(trimmedMessage);
+    if ((trimmedMessage || pendingFile || isEditing) && !disabled) {
+      onSend(trimmedMessage, pendingFile ?? undefined);
       setMessage('');
+      clearAttachment();
       setIsTyping(false);
       if (onTyping) onTyping(false);
       
@@ -85,6 +144,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      if (isEditing) onCancelEdit?.();
+      else if (replyingTo) onCancelReply?.();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -97,10 +161,18 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      onSend('', file);
-      e.target.value = ''; // Reset input
+    e.target.value = ''; // Reset input so the same file can be picked again
+    if (!file) return;
+
+    const error = validateFile(file);
+    if (error) {
+      toast.error(`${file.name}: ${error}`);
+      return;
     }
+
+    setPendingFile(file);
+    setPreviewUrl(mediaTypeOf(file) === 'file' ? null : URL.createObjectURL(file));
+    textareaRef.current?.focus();
   };
 
   return (
@@ -119,16 +191,65 @@ const MessageInput: React.FC<MessageInputProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,video/*,.pdf,.doc,.docx"
+        accept={ACCEPTED_FILE_TYPES}
         onChange={handleFileChange}
         className="hidden"
       />
 
+      {/* Reply / edit banner */}
+      {(isEditing || replyingTo) && (
+        <div className="flex items-center gap-3 mx-3 mt-3 pl-3 pr-1.5 py-2 bg-primary-50 border-l-4 border-primary-600 rounded-lg">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-primary-700">
+              {isEditing ? 'Editing message' : `Replying to ${replyingTo?.senderName || 'message'}`}
+            </p>
+            {!isEditing && (
+              <p className="text-sm text-muted-600 truncate">{replyingTo?.text}</p>
+            )}
+          </div>
+          <button
+            onClick={isEditing ? onCancelEdit : onCancelReply}
+            className="p-1.5 hover:bg-primary-100 rounded-lg transition-colors"
+            title={isEditing ? 'Cancel editing' : 'Cancel reply'}
+          >
+            <Icon name="close" size={16} className="text-muted-500" />
+          </button>
+        </div>
+      )}
+
+      {/* Attachment preview (sent together with the caption) */}
+      {pendingFile && (
+        <div className="flex items-center gap-3 px-3 pt-3">
+          {previewUrl && mediaTypeOf(pendingFile) === 'image' && (
+            <img src={previewUrl} alt={pendingFile.name} className="h-16 w-16 rounded-lg object-cover" />
+          )}
+          {previewUrl && mediaTypeOf(pendingFile) === 'video' && (
+            <video src={previewUrl} muted className="h-16 w-16 rounded-lg object-cover bg-black" />
+          )}
+          {!previewUrl && (
+            <div className="h-16 w-16 rounded-lg bg-muted-100 flex items-center justify-center">
+              <Icon name="attach" size={24} className="text-muted-500" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-muted-900 truncate">{pendingFile.name}</p>
+            <p className="text-xs text-muted-500">{formatFileSize(pendingFile.size)} · add a caption or press Send</p>
+          </div>
+          <button
+            onClick={clearAttachment}
+            className="p-1.5 hover:bg-muted-100 rounded-lg transition-colors"
+            title="Remove attachment"
+          >
+            <Icon name="close" size={18} className="text-muted-500" />
+          </button>
+        </div>
+      )}
+
       {/* Input container */}
-      <div className="flex items-end gap-2 p-3">
+      <div className="flex items-end gap-1 sm:gap-2 p-2 sm:p-3">
         {/* Left actions */}
         <div className="flex items-center gap-1 pb-2">
-          {showAttachment && (
+          {showAttachment && !isEditing && (
             <button
               onClick={handleAttachment}
               disabled={disabled}
@@ -140,17 +261,23 @@ const MessageInput: React.FC<MessageInputProps> = ({
           )}
 
           {showEmoji && (
-            <button
-              onClick={() => {
-                // TODO: Implement emoji picker
-                console.log('Emoji picker');
-              }}
-              disabled={disabled}
-              className="p-2 hover:bg-muted-100 rounded-lg transition-colors disabled:opacity-50"
-              title="Add emoji"
-            >
-              <Icon name="emoji" size={20} className="text-muted-500" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowEmojiPicker(open => !open)}
+                disabled={disabled}
+                className="p-2 hover:bg-muted-100 rounded-lg transition-colors disabled:opacity-50"
+                title="Add emoji"
+              >
+                <Icon name="emoji" size={20} className="text-muted-500" />
+              </button>
+              {showEmojiPicker && (
+                <EmojiPicker
+                  className="absolute bottom-full left-0 mb-2"
+                  onSelect={insertEmoji}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              )}
+            </div>
           )}
 
           {showExpense && (
@@ -176,12 +303,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder={placeholder}
+          placeholder={isEditing ? 'Edit message…' : pendingFile ? 'Add a caption…' : placeholder}
           disabled={disabled}
           rows={1}
           className="
             flex-1
-            px-3 py-2
+            min-w-0
+            px-2 sm:px-3 py-2
             bg-transparent
             border-none
             outline-none
@@ -201,11 +329,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
             variant="primary"
             size="sm"
             onClick={handleSend}
-            disabled={disabled || !message.trim()}
+            disabled={disabled || (!message.trim() && !pendingFile && !isEditing)}
             icon={<Icon name="send" size={18} />}
-            className="rounded-xl px-4"
+            className="rounded-xl px-3 sm:px-4"
           >
-            Send
+            <span className="hidden sm:inline">{isEditing ? 'Save' : 'Send'}</span>
           </Button>
         </div>
       </div>

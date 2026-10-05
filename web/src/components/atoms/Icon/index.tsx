@@ -31,7 +31,7 @@ const Icon: React.FC<IconProps> = ({
   onClick,
   strokeWidth = 2 
 }) => {
-  const icons: Record<IconName, JSX.Element> = {
+  const icons: Record<IconName, React.ReactElement> = {
     // === EXISTING ICONS ===
     search: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth}>

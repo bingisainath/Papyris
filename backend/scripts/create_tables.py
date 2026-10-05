@@ -21,6 +21,7 @@ from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.conversation_member import ConversationMember
 from app.models.message_receipt import MessageReceipt
+from app.models.message_reaction import MessageReaction
 
 # Import Message model (create this file if it doesn't exist yet)
 try:

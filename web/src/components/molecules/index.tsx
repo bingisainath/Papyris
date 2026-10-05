@@ -1,6 +1,7 @@
 // src/components/molecules/index.ts
 export { default as BalanceSummary } from './BalanceSummary';
 export { default as ChatListItem } from './ChatListItem';
+export { default as EmojiPicker } from './EmojiPicker';
 export { default as ExpenseItem } from './ExpenseItem';
 export { default as GroupCard } from './Groupcard';
 export { default as MessageBubble } from './MessageBubble';

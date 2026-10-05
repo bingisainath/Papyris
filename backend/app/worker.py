@@ -179,15 +179,15 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone
 
 from app.db.session import async_session_maker
 from app.websocket.streams import RedisStreams
-from app.models.message import Message
+from app.models.conversation import Conversation
+from app.models.message import Message, MessageType
 from app.models.message_receipt import MessageReceipt
 from app.models.conversation_member import ConversationMember
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 
 class MessageWorker:
@@ -253,9 +253,11 @@ class MessageWorker:
         message_id = data.get('messageId')
         conversation_id = data.get('conversationId')
         sender_id_str = data.get('senderId')
-        text = data.get('text')
+        text = data.get('text') or ''
+        media_type = data.get('mediaType')
+        media_url = data.get('mediaUrl')
         
-        if not all([message_id, conversation_id, sender_id_str, text]):
+        if not all([message_id, conversation_id, sender_id_str]) or not (text or media_url):
             print(f"⚠️ Invalid message data: {data}")
             await self.streams.ack_message(msg_id)
             return
@@ -278,15 +280,41 @@ class MessageWorker:
                     await self.streams.ack_message(msg_id)
                     return
                 
+                timestamp_str = data.get('timestamp')
+                created_at = datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now(timezone.utc)
+
                 # Create message
                 message = Message(
                     id=message_uuid,
                     conversation_id=conversation_uuid,
                     sender_id=sender_id,
-                    text=text
+                    text=text,
+                    message_type=MessageType(media_type) if media_url else MessageType.TEXT,
+                    media_url=media_url,
+                    media_size=data.get('mediaSize'),
+                    media_filename=data.get('mediaFilename'),
+                    reply_to_id=uuid.UUID(data['replyToId']) if data.get('replyToId') else None,
+                    created_at=created_at,
                 )
                 db.add(message)
                 await db.flush()
+
+                # Sending implies the sender has read the conversation up to here
+                await db.execute(
+                    update(ConversationMember)
+                    .where(
+                        ConversationMember.conversation_id == conversation_uuid,
+                        ConversationMember.user_id == sender_id,
+                    )
+                    .values(last_read_message_id=message_uuid, last_read_at=created_at)
+                )
+
+                # Keep conversation ordering in sync with its latest message
+                await db.execute(
+                    update(Conversation)
+                    .where(Conversation.id == conversation_uuid)
+                    .values(updated_at=created_at)
+                )
                 
                 # Create delivery receipts
                 members_result = await db.execute(

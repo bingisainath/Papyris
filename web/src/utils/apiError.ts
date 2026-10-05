@@ -56,7 +56,7 @@ export function parseApiError(error: unknown): string {
     case 403:
       return "Your account is inactive. Please contact support.";
     case 404:
-      return "User not found. Please register first.";
+      return "Not found. Please check the server address and try again.";
     case 409:
       return "This email is already registered.";
     case 422:

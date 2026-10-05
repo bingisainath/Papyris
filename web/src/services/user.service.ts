@@ -3,8 +3,9 @@
 
 import axios from 'axios';
 import { tokenStore } from '../utils/token';
+import { API_BASE_URL } from '../config/env';
 
-const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+const API_URL = API_BASE_URL;
 
 const getAuthHeader = () => {
   const token = tokenStore.get();

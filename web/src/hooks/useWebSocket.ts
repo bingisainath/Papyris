@@ -21,6 +21,11 @@ import {
 import type { AppDispatch, RootState } from '../redux/store';
 
 import { wsService } from '../services/websocket.service';
+import type { ReplyPreview } from '../redux/slices/chatSlice';
+
+// Stable empty value for selectors: returning a new [] each time makes components re-render
+const EMPTY: never[] = [];
+const selectNoTypingUsers = () => EMPTY;
 
 /**
  * Main WebSocket hook - connects automatically on mount
@@ -35,7 +40,7 @@ export const useWebSocket = (token?: string) => {
   const error = useSelector(selectWebSocketError);
 
   const connectionInitiated = useRef(false); 
-  const currentToken = useRef<string>();
+  const currentToken = useRef<string | undefined>(undefined);
 
   useEffect(() => {
 
@@ -146,41 +151,13 @@ export const useWebSocket = (token?: string) => {
 // };
 
 export const useConversationRoom = (conversationId: string | undefined) => {
-  const lastConversationId = useRef<string | undefined>();
-  const isConnected = useSelector(selectIsConnected);  // ✅ Use Redux state
-
+  // The service remembers joined rooms and (re)joins them whenever the socket opens
   useEffect(() => {
-    // Wait for connection
-    if (!isConnected) {
-      console.log('⏳ WebSocket not connected, waiting...');
-      return;
-    }
+    if (!conversationId) return;
 
-    // Skip if no conversation or already joined
-    if (!conversationId || conversationId === lastConversationId.current) {
-      return;
-    }
-
-    // Leave previous room
-    if (lastConversationId.current && lastConversationId.current !== conversationId) {
-      console.log(`📤 Leaving previous: ${lastConversationId.current}`);
-      wsService.leaveConversation(lastConversationId.current);
-    }
-
-    // Join new room
-    console.log(`📥 Joining: ${conversationId}`);
     wsService.joinConversation(conversationId);
-    lastConversationId.current = conversationId;
-
-    // Cleanup
-    return () => {
-      if (conversationId) {
-        console.log(`📤 Leaving on unmount: ${conversationId}`);
-        wsService.leaveConversation(conversationId);
-        lastConversationId.current = undefined;
-      }
-    };
-  }, [conversationId, isConnected]);  // ✅ Re-run when connection changes
+    return () => wsService.leaveConversation(conversationId);
+  }, [conversationId]);
 };
 
 
@@ -235,13 +212,18 @@ export const useSendMessage = () => {
   // Get current user ID from localStorage or wherever you store it
   const currentUserId = localStorage.getItem('userId') || 'unknown';
 
-  const sendMessage = useCallback((conversationId: string, text: string) => {
+  const sendMessage = useCallback((
+    conversationId: string,
+    text: string,
+    file?: File,
+    replyTo?: ReplyPreview | null
+  ) => {
     if (!isConnected) {
       console.error('❌ Cannot send message: WebSocket not connected');
       return;
     }
 
-    dispatch(sendMessageAction(conversationId, text, currentUserId));
+    dispatch(sendMessageAction(conversationId, text, currentUserId, file, replyTo));
   }, [isConnected, currentUserId, dispatch]);
 
   return { sendMessage, isConnected };
@@ -253,12 +235,12 @@ export const useSendMessage = () => {
 export const useTypingIndicator = (conversationId: string | undefined) => {
   const dispatch = useDispatch<AppDispatch>();
   const isConnected = useSelector(selectIsConnected);
-  const typingTimeoutRef = useRef<NodeJS.Timeout>();
+  const typingTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const currentUserId = localStorage.getItem('userId') || 'unknown';
 
   // Get who's typing (excluding current user)
   const typingUserIds = useSelector(
-    conversationId ? selectTypingUsers(conversationId) : () => []
+    conversationId ? selectTypingUsers(conversationId) : selectNoTypingUsers
   );
   const typingUsers = typingUserIds.filter(id => id !== currentUserId);
 

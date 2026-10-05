@@ -1,8 +1,9 @@
 import axios from "axios";
 import { tokenStore } from "./token";
+import { API_BASE_URL } from "../config/env";
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_BASE_URL,
+  baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
 });
 

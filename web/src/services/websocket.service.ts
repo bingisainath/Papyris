@@ -1,5 +1,7 @@
 // src/services/websocket.service.ts
 
+import { WS_URL } from '../config/env';
+
 // import { io, Socket } from 'socket.io-client';
 
 export interface Message {
@@ -12,21 +14,57 @@ export interface Message {
   timestamp: string;
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   mediaUrl?: string;
-  mediaType?: 'image' | 'video' | 'file';
+  mediaType?: MediaType;
+}
+
+export type MediaType = 'image' | 'video' | 'file';
+
+export interface OutgoingMedia {
+  mediaUrl: string;
+  mediaType: MediaType;
+  mediaSize?: number;
+  mediaFilename?: string;
 }
 
 export interface WebSocketEvent {
-  type: 'message' | 'typing' | 'read' | 'joined' | 'left' | 'online' | 'offline' | 'error';
+  type: 'message' | 'typing' | 'read' | 'joined' | 'left' | 'online' | 'offline' | 'presence'
+    | 'conversation_created' | 'conversation_updated' | 'conversation_removed'
+    | 'message_updated' | 'reactions_updated' | 'error';
   roomId?: string;
   userId?: string;
+  userIds?: string[];
   messageId?: string;
+  clientId?: string;
   senderId?: string;
+  senderName?: string;
+  senderAvatar?: string;
   text?: string;
+  mediaUrl?: string | null;
+  mediaType?: MediaType | null;
+  mediaSize?: number | null;
+  mediaFilename?: string | null;
   timestamp?: string;
   status?: string;
   isTyping?: boolean;
   lastMessageId?: string;
+  readUpTo?: string | null;
   message?: string;
+  conversationId?: string;
+  kind?: 'dm' | 'group';
+  title?: string | null;
+  createdBy?: string;
+  createdByName?: string;
+  removedBy?: string;
+  removedByName?: string;
+  left?: boolean;
+  messageType?: 'text' | 'image' | 'video' | 'file' | 'system';
+  replyTo?: {
+    id: string; text: string; senderId: string;
+    senderName?: string | null; messageType?: string; isDeleted?: boolean;
+  } | null;
+  reactions?: { emoji: string; userIds: string[] }[];
+  isDeleted?: boolean;
+  editedAt?: string;
 }
 
 type EventCallback = (event: WebSocketEvent) => void;
@@ -38,6 +76,8 @@ class WebSocketService {
   // private reconnectDelay = 1000;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private eventListeners: Map<string, EventCallback[]> = new Map();
+  // Rooms this client wants to be in; re-joined whenever the socket (re)opens
+  private rooms = new Set<string>();
   private isConnecting = false;
   private shouldReconnect = true;
   private token: string | null = null;
@@ -49,7 +89,7 @@ class WebSocketService {
 
   constructor() {
     // WebSocket URL - adjust for your backend
-    this.wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:8000/api/v1/ws/chat';
+    this.wsUrl = WS_URL;
   }
 
   connect(token: string): Promise<void> {
@@ -81,6 +121,7 @@ class WebSocketService {
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
+        this.rooms.forEach(roomId => this.send({ type: 'join', roomId }));
         this.emit('connected', {});  // ✅ ADD THIS
         resolve();
       };
@@ -127,6 +168,7 @@ class WebSocketService {
    */
   disconnect() {
     this.shouldReconnect = false;
+    this.rooms.clear();
     this.stopHeartbeat();
 
     if (this.ws) {
@@ -168,14 +210,10 @@ class WebSocketService {
    * Join a conversation room
    */
   joinConversation(conversationId: string) {
-    console.log(`📥 Joining conversation: ${conversationId}`);
-    const sent = this.send({
-      type: 'join',
-      roomId: conversationId
-    });
-
-    if (!sent) {
-      console.warn(`⚠️ Failed to join ${conversationId} - not connected`);
+    this.rooms.add(conversationId);
+    // If not connected yet, the room is joined when the socket opens
+    if (this.isConnected()) {
+      this.send({ type: 'join', roomId: conversationId });
     }
   }
 
@@ -183,26 +221,30 @@ class WebSocketService {
    * Leave a conversation room
    */
   leaveConversation(conversationId: string) {
-    console.log(`📤 Leaving conversation: ${conversationId}`);
-    const sent = this.send({
-      type: 'leave',
-      roomId: conversationId
-    });
-
-    if (!sent) {
-      console.warn(`⚠️ Failed to leave ${conversationId} - not connected`);
+    this.rooms.delete(conversationId);
+    if (this.isConnected()) {
+      this.send({ type: 'leave', roomId: conversationId });
     }
   }
 
   /**
    * Send a message
    */
-  sendMessage(conversationId: string, text: string) {
+  sendMessage(
+    conversationId: string,
+    clientId: string,
+    text: string,
+    media?: OutgoingMedia,
+    replyToId?: string
+  ) {
     console.log(`💬 Sending message to ${conversationId}`);
     const sent = this.send({
       type: 'message',
       roomId: conversationId,
-      text
+      clientId,
+      text,
+      ...media,
+      ...(replyToId ? { replyToId } : {})
     });
 
     if (!sent) {

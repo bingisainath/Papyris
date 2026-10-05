@@ -55,3 +55,7 @@ export interface JwtPayload {
   iat?: number;
   type?: string;
 }
+
+
+/** The user object inside UserResponse.data (what AuthProvider keeps as `user`) */
+export type User = UserResponse['data'];

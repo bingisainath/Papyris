@@ -3,6 +3,9 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { RootState } from '../store';
 
+// Stable empty value for selectors: returning a new [] each time makes components re-render
+const EMPTY: never[] = [];
+
 interface WebSocketState {
   isConnected: boolean;
   isConnecting: boolean;
@@ -105,8 +108,8 @@ export const {
 export const selectIsConnected = (state: RootState) => state.websocket?.isConnected || false;
 export const selectIsConnecting = (state: RootState) => state.websocket?.isConnecting || false;
 export const selectWebSocketError = (state: RootState) => state.websocket?.error;
-export const selectOnlineUsers = (state: RootState) => state.websocket?.onlineUsers || [];
+export const selectOnlineUsers = (state: RootState) => state.websocket?.onlineUsers ?? EMPTY;
 export const selectTypingUsers = (conversationId: string) => (state: RootState) =>
-  state.websocket?.typingUsers[conversationId] || [];
+  state.websocket?.typingUsers[conversationId] ?? EMPTY;
 
 export default websocketSlice.reducer;

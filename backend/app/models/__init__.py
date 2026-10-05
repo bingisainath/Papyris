@@ -3,6 +3,7 @@
 # from app.models.conversation_member import ConversationMember
 # from app.models.message import Message
 # from app.models.message_receipt import MessageReceipt
+from app.models.message_reaction import MessageReaction
 
 # __all__ = [
 #     "User",
@@ -32,4 +33,5 @@ __all__ = [
     "Message",
     "MessageType",
     "MessageReceipt",
+    "MessageReaction",
 ]

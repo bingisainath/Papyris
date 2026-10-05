@@ -8,6 +8,9 @@ interface InputProps {
   onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
   onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  autoFocus?: boolean;
+  maxLength?: number;
   className?: string;
   disabled?: boolean;
   error?: boolean | string;
@@ -29,6 +32,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
   onChange,
   onFocus,
   onBlur,
+  onKeyDown,
+  autoFocus,
+  maxLength,
   className = '',
   disabled = false,
   error = false,
@@ -77,6 +83,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
           onChange={onChange}
           onFocus={onFocus}
           onBlur={onBlur}
+          onKeyDown={onKeyDown}
+          autoFocus={autoFocus}
+          maxLength={maxLength}
           placeholder={placeholder}
           disabled={disabled}
           autoComplete={autoComplete}

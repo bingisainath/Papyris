@@ -1,7 +1,7 @@
 // src/components/organisms/CreateGroupModal.tsx
 
 import React, { useState, useEffect } from 'react';
-import { Button, Input, Textarea, Typography } from '../../atoms';
+import { Avatar, Button, Input, Textarea, Typography } from '../../atoms';
 import Icon from '../../atoms/Icon';
 import { UserCard } from '../../molecules';
 import { useDebounce } from '../../../hooks/useDebounce';
@@ -331,13 +331,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                     {selectedMembers.map(member => (
                       <div key={member.id} className="flex items-center justify-between p-2 bg-white rounded-lg">
                         <div className="flex items-center gap-2">
-                          {member.avatar ? (
-                            <img src={member.avatar} alt={member.name} className="w-8 h-8 rounded-full" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-primary-200 flex items-center justify-center">
-                              <Icon name="user" size={16} className="text-primary-600" />
-                            </div>
-                          )}
+                          <Avatar src={member.avatar} alt={member.name || member.username} size="sm" />
                           <div>
                             <Typography variant="body2" weight="medium">{member.name}</Typography>
                             <Typography variant="caption" className="text-muted-500">@{member.username}</Typography>

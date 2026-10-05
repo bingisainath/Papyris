@@ -70,9 +70,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
     ]
     
-    # File Upload (for future media messages)
-    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
-    UPLOAD_DIR: str = "uploads"
+    # Media uploads (stored on local disk, served by /api/v1/media)
+    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB - images and documents
+    MAX_VIDEO_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
+    UPLOAD_DIR: str = "uploads"  # relative paths resolve against the backend/ directory
     
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds
