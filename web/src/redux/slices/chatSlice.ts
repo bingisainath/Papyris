@@ -189,12 +189,17 @@ const chatSlice = createSlice({
       const newestFetched = messages.length
         ? new Date(messages[messages.length - 1].timestamp).getTime()
         : 0;
+      const oldestFetched = messages.length
+        ? new Date(messages[0].timestamp).getTime()
+        : Infinity;
 
-      // Keep pending sends and live messages that arrived while the request was in flight
-      const keep = (state.messages[conversationId] || []).filter(m =>
-        !fetchedIds.has(m.id) &&
-        (m.id.startsWith('temp-') || new Date(m.timestamp).getTime() > newestFetched)
-      );
+      // Keep pending sends, live messages that arrived while the request was in flight,
+      // and older pages already loaded with "Load older messages" (e.g. on a re-fetch after reconnect)
+      const keep = (state.messages[conversationId] || []).filter(m => {
+        if (fetchedIds.has(m.id)) return false;
+        const time = new Date(m.timestamp).getTime();
+        return m.id.startsWith('temp-') || time > newestFetched || time < oldestFetched;
+      });
 
       state.messages[conversationId] = [...messages, ...keep].sort(byTimestamp);
       state.hasMoreMessages[conversationId] = !!hasMore;

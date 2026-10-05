@@ -14,7 +14,7 @@ import type { AppDispatch, RootState } from '../../../redux/store';
 import { selectIsConnected } from '../../../redux/slices/websocketSlice';
 import { fetchOlderMessages } from '../../../redux/actions/chatActions';
 import { messagePreview, resolveMediaUrl } from '../../../utils/media';
-import { applyMessageUpdate } from '../../../redux/slices/chatSlice';
+import { applyMessageUpdate, clearUnreadCount } from '../../../redux/slices/chatSlice';
 import type { Message, ReplyPreview } from '../../../redux/slices/chatSlice';
 import { chatService } from '../../../services/chat.service';
 import { parseApiError } from '../../../utils/apiError';
@@ -133,12 +133,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       }
       lastMarkedMessageId.current = latestFromOthers.id;
       markAsRead(latestFromOthers.id);
+      dispatch(clearUnreadCount(conversationId));
     };
 
     markIfVisible();
     document.addEventListener('visibilitychange', markIfVisible);
     return () => document.removeEventListener('visibilitychange', markIfVisible);
-  }, [messages, currentUserId, markAsRead, isConnected]);
+  }, [messages, currentUserId, markAsRead, isConnected, conversationId, dispatch]);
 
   const handleLoadOlder = async () => {
     if (loadingOlder) return;

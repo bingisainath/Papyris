@@ -13,7 +13,7 @@ import { userService } from '../../../services/user.service';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { parseApiError } from '../../../utils/apiError';
 import { mediaTypeOf, validateFile } from '../../../utils/media';
-import { CONVERSATION_UPDATED_EVENT, NAVIGATE_EVENT } from '../../../redux/actions/websocketActions';
+import { CONVERSATION_UPDATED_EVENT, NAVIGATE_EVENT } from '../../../utils/events';
 
 interface ConversationInfoPanelProps {
   conversationId: string;

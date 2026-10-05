@@ -3,6 +3,8 @@ import { JwtPayload } from "../types/auth.types";
 const STORAGE_KEY =
   process.env.REACT_APP_TOKEN_STORAGE_KEY || "papyris_access_token";
 
+const REFRESH_STORAGE_KEY = `${STORAGE_KEY}_refresh`;
+
 export const tokenStore = {
   get(): string | null {
     return localStorage.getItem(STORAGE_KEY);
@@ -10,8 +12,15 @@ export const tokenStore = {
   set(token: string) {
     localStorage.setItem(STORAGE_KEY, token);
   },
+  getRefresh(): string | null {
+    return localStorage.getItem(REFRESH_STORAGE_KEY);
+  },
+  setRefresh(token: string) {
+    localStorage.setItem(REFRESH_STORAGE_KEY, token);
+  },
   clear() {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(REFRESH_STORAGE_KEY);
   },
 };
 

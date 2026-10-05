@@ -104,7 +104,8 @@ import re
 from app.models.user import User
 from app.schemas.user import UserCreate
 from app.schemas.auth import Token
-from app.core.security import hash_password, verify_password, create_access_token
+from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.config.settings import settings
 
 
 class AuthService:
@@ -221,8 +222,17 @@ class AuthService:
         user.last_login = datetime.now(timezone.utc)
         await db.commit()
 
-        access_token = create_access_token(subject=str(user.id))
-        return Token(access_token=access_token, token_type="bearer")
+        return AuthService.issue_tokens(user)
+
+    @staticmethod
+    def issue_tokens(user: User) -> Token:
+        """Access + refresh token pair for a user"""
+        return Token(
+            access_token=create_access_token(subject=str(user.id)),
+            refresh_token=create_refresh_token(str(user.id), user.hashed_password),
+            token_type="bearer",
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
 
     # -----------------------------
     # ✅ NEW: Password Reset

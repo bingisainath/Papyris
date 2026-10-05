@@ -1,6 +1,6 @@
 // src/redux/actions/websocketActions.ts - NO AUTH DEPENDENCY
 
-import type { AppDispatch } from '../store';
+import type { AppDispatch, RootState } from '../store';
 import { wsService } from '../../services/websocket.service';
 import {
   setConnecting,
@@ -32,16 +32,15 @@ import type { OutgoingMedia } from '../../services/websocket.service';
 import { mediaTypeOf, messagePreview } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
-import { fetchConversations } from './chatActions';
+import { fetchConversations, fetchMessages } from './chatActions';
+import { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT } from '../../utils/events';
+import { notifyNewMessage } from '../../utils/notifications';
 
 // import { clearUnreadCount } from '../slices/chatSlice';
 
 let listenersInitialized = false;
 
-// Non-component code can ask the app to navigate by dispatching this window event (see Home)
-export const NAVIGATE_EVENT = 'papyris:navigate';
-// Fired with a conversation id when its details change (info panel refreshes)
-export const CONVERSATION_UPDATED_EVENT = 'papyris:conversation-updated';
+export { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT };
 
 // clientId -> object URL of a local attachment preview, revoked once the server echoes the message
 const pendingPreviews = new Map<string, string>();
@@ -266,6 +265,22 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         timestamp: data.timestamp || new Date().toISOString()
       }));
 
+      // Desktop notification for messages from others (skipped if this chat is in view)
+      if (data.senderId !== localStorage.getItem('userId') && data.messageType !== 'system') {
+        const roomId = data.roomId;
+        dispatch((_: AppDispatch, getState: () => RootState) => {
+          const conversation = getState().chat.conversations.find(c => c.id === roomId);
+          const sender = data.senderName || 'Someone';
+          const preview = messagePreview(data.text, data.mediaType, data.mediaFilename);
+          notifyNewMessage({
+            conversationId: roomId,
+            title: conversation?.name || sender,
+            body: conversation?.isGroup ? `${sender}: ${preview}` : preview,
+            icon: conversation?.isGroup ? conversation.avatar : data.senderAvatar,
+          });
+        });
+      }
+
       // console.log('Listener counts:', wsService.getListenerCount());
 
       // ✅ Increment unread count if not own message and not viewing this conversation
@@ -427,12 +442,24 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   });
 
   // Connection events
+  // Messages, reads and group changes sent while we were offline aren't replayed
+  // over the socket, so reload them from the API after a reconnect.
+  let missedEvents = false;
+
   wsService.on('connected', () => {
     console.log('✅ WebSocket connected event');
     dispatch(setConnected(true));
+
+    if (missedEvents) {
+      missedEvents = false;
+      dispatch(fetchConversations());
+      const activeId = (window as any).__activeConversationId;
+      if (activeId) dispatch(fetchMessages(activeId));
+    }
   });
 
   wsService.on('disconnected', () => {
+    missedEvents = true;
     console.log('🔌 WebSocket disconnected event');
     dispatch(setConnected(false));
   });

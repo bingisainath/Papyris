@@ -8,7 +8,9 @@ from app.db.session import get_db
 from app.schemas.user import UserCreate, UserLogin, UserResponse, UserUpdate
 from app.services import media_storage
 from sqlalchemy import select, func
-from app.schemas.auth import Token, ForgotPasswordRequest, VerifyResetTokenRequest, ResetPasswordRequest
+from app.schemas.auth import Token, RefreshTokenRequest, ForgotPasswordRequest, VerifyResetTokenRequest, ResetPasswordRequest
+from app.core.security import decode_token, password_fingerprint
+from uuid import UUID
 from app.schemas.response import APIResponse
 from app.services.auth_service import AuthService
 from app.services.email_service import email_service
@@ -45,6 +47,34 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
         success=True,
         message="Login successful",
         data=token,
+    )
+
+
+@router.post("/refresh", response_model=APIResponse[Token])
+async def refresh(payload: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Exchange a refresh token for a new access + refresh token pair.
+    Fails if the token expired, the user is inactive, or the password changed since.
+    """
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Session expired. Please log in again.",
+    )
+    try:
+        claims = decode_token(payload.refresh_token)
+    except HTTPException:
+        raise invalid
+    if claims.get("type") != "refresh" or not claims.get("sub"):
+        raise invalid
+
+    user = await db.get(User, UUID(claims["sub"]))
+    if user is None or not user.is_active or claims.get("pwd") != password_fingerprint(user.hashed_password):
+        raise invalid
+
+    return APIResponse(
+        success=True,
+        message="Token refreshed",
+        data=AuthService.issue_tokens(user),
     )
 
 # ============================================

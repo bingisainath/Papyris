@@ -66,8 +66,9 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
         console.log('unread count :', conv.unreadCount);
         
 
-        // The open chat is being read live; its read receipt may still be in flight
-        const isActive = conv.id === (window as any).__activeConversationId;
+        // The open chat is being read live (if the tab is visible); its read receipt may still be in flight
+        const isActive =
+          conv.id === (window as any).__activeConversationId && document.visibilityState === 'visible';
 
         return {
           ...conv,

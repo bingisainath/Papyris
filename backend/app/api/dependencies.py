@@ -43,6 +43,10 @@ async def get_current_user(
             algorithms=[settings.JWT_ALGORITHM]
         )
 
+        # Refresh tokens can only be used at /auth/refresh
+        if payload.get("type") == "refresh":
+            raise credentials_exception
+
         # Get user ID from token payload
         user_id: str = payload.get("sub")
         if user_id is None:

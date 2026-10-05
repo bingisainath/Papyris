@@ -1,6 +1,10 @@
 // src/services/websocket.service.ts
 
 import { WS_URL } from '../config/env';
+import { isTokenExpired, tokenStore } from '../utils/token';
+import { refreshAccessToken } from '../utils/authRefresh';
+
+const MAX_RECONNECT_DELAY = 30_000;
 
 // import { io, Socket } from 'socket.io-client';
 
@@ -78,18 +82,20 @@ class WebSocketService {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   // Rooms this client wants to be in; re-joined whenever the socket (re)opens
   private rooms = new Set<string>();
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private tokenRejected = false; // server closed with 1008 (bad/expired token)
   private isConnecting = false;
   private shouldReconnect = true;
   private token: string | null = null;
   private wsUrl: string;
   // private listeners: Record<string, Array<(data: any) => void>> = {};
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
   private reconnectDelay = 2000;
 
   constructor() {
     // WebSocket URL - adjust for your backend
     this.wsUrl = WS_URL;
+    window.addEventListener('online', this.handleOnline);
   }
 
   connect(token: string): Promise<void> {
@@ -147,6 +153,7 @@ class WebSocketService {
       this.ws.onclose = (event) => {
         console.log('🔌 WebSocket disconnected:', event.code, event.reason);
         this.isConnecting = false;
+        if (event.code === 1008) this.tokenRejected = true;
         this.stopHeartbeat();
         this.emit('disconnected', {});
 
@@ -168,6 +175,10 @@ class WebSocketService {
    */
   disconnect() {
     this.shouldReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.rooms.clear();
     this.stopHeartbeat();
 
@@ -361,21 +372,45 @@ class WebSocketService {
   /**
    * Schedule reconnection attempt
    */
-  private scheduleReconnect() {
+  private scheduleReconnect(immediate = false) {
+    if (this.reconnectTimer) return;
+
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const delay = immediate
+      ? 0
+      : Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), MAX_RECONNECT_DELAY);
 
-    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
-    setTimeout(() => {
-      if (this.shouldReconnect && this.token) {
-        console.log(`🔄 Reconnection attempt ${this.reconnectAttempts}`);
-        this.connect(this.token).catch(error => {
-          console.error('Reconnection failed:', error);
-        });
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (!this.shouldReconnect) return;
+
+      // Use the newest token; renew it if it expired (or was rejected) while we were away
+      let token = tokenStore.get();
+      if (!token || isTokenExpired(token) || this.tokenRejected) {
+        token = await refreshAccessToken();
       }
+      if (!token || !this.shouldReconnect) return;
+
+      this.tokenRejected = false;
+      this.connect(token).catch(error => {
+        console.error('Reconnection failed:', error);
+      });
     }, delay);
   }
+
+  /** Browser came back online: reconnect now instead of waiting for the backoff */
+  private handleOnline = () => {
+    if (!this.shouldReconnect || this.isConnected() || !this.token) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    this.scheduleReconnect(true);
+  };
+
 
 }
 

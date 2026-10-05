@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 import bcrypt
@@ -28,6 +29,27 @@ def create_access_token(subject: str, expires_minutes: Optional[int] = None) -> 
         "type": "access",
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+def password_fingerprint(hashed_password: str) -> str:
+    """Short digest of the password hash; changes when the password changes."""
+    return hashlib.sha256(hashed_password.encode("utf-8")).hexdigest()[:16]
+
+
+def create_refresh_token(subject: str, hashed_password: str) -> str:
+    """
+    Long-lived token used only to get new access tokens (POST /auth/refresh).
+    It embeds a password fingerprint, so changing the password revokes it.
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": subject,
+        "exp": now + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES),
+        "iat": now,
+        "type": "refresh",
+        "pwd": password_fingerprint(hashed_password),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
 
 def decode_token(token: str) -> dict[str, Any]:
     try:

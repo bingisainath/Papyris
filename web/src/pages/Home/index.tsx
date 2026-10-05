@@ -24,7 +24,9 @@ import type { AppDispatch, RootState } from '../../redux/store';
 import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
 import { clearUnreadCount } from '../../redux/slices/chatSlice';
 import { chatService } from '../../services/chat.service';
-import { NAVIGATE_EVENT } from '../../redux/actions/websocketActions';
+import { NAVIGATE_EVENT } from '../../utils/events';
+import { getNotificationStatus, setNotificationsEnabled } from '../../utils/notifications';
+import type { NotificationStatus } from '../../utils/notifications';
 import { mediaService } from '../../services/media.service';
 import { mediaTypeOf, validateFile } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
@@ -68,6 +70,13 @@ const Home: React.FC = () => {
   const [creatingConversation, setCreatingConversation] = useState(false);  // ✅ NEW
 
   // Active route
+  // Unread count in the browser tab title, e.g. "(3) Papyris"
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+  useEffect(() => {
+    document.title = totalUnread > 0 ? `(${totalUnread}) Papyris` : 'Papyris';
+  }, [totalUnread]);
+  useEffect(() => () => { document.title = 'Papyris'; }, []);
+
   // Lets toasts and other non-component code open a route (e.g. "added to group" toast)
   useEffect(() => {
     const onNavigate = (e: Event) => navigate((e as CustomEvent<string>).detail);
@@ -581,6 +590,57 @@ const GroupsPage: React.FC<{
 
 
 
+// Desktop notification preference (Settings)
+const NotificationSettings: React.FC = () => {
+  const [status, setStatus] = useState<NotificationStatus>(getNotificationStatus);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      setStatus(await setNotificationsEnabled(status !== 'on'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const description: Record<NotificationStatus, string> = {
+    on: 'You get a desktop notification for new messages when Papyris is in the background.',
+    off: 'Turn on to get a desktop notification for new messages when Papyris is in the background.',
+    denied: 'Notifications are blocked for this site. Allow them in your browser\'s site settings, then reload.',
+    unsupported: 'This browser does not support desktop notifications.',
+  };
+
+  return (
+    <div className="card p-4 sm:p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-muted-900">Notifications</h2>
+          <p className="text-sm text-muted-500">{description[status]}</p>
+        </div>
+        {(status === 'on' || status === 'off') && (
+          <button
+            role="switch"
+            aria-checked={status === 'on'}
+            aria-label="Desktop notifications"
+            onClick={toggle}
+            disabled={busy}
+            className={`relative flex-shrink-0 w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+              status === 'on' ? 'bg-primary-600' : 'bg-muted-300'
+            }`}
+          >
+            <span
+              className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                status === 'on' ? 'translate-x-5' : ''
+              }`}
+            />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Settings Page Component
 const SettingsPage: React.FC<{
   user: any;
@@ -622,6 +682,8 @@ const SettingsPage: React.FC<{
             </div>
           </div>
         </div>
+
+        <NotificationSettings />
 
         <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between gap-4">

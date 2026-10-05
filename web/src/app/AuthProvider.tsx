@@ -13,7 +13,9 @@ import { useDispatch } from "react-redux";
 import { loginUser, registerUser, getMe, updateMe } from "../api/auth.api";
 import type { ProfileUpdate } from "../api/auth.api";
 import { User } from "../types/auth.types";
-import { isTokenExpired, tokenStore } from "../utils/token";
+import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
+import { refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
+import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
 import type { AppDispatch } from "../redux/store";
@@ -79,13 +81,44 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [dispatch]);
 
 
+  // Renew the access token shortly before it expires, for as long as we're logged in
+  useEffect(() => {
+    if (!user) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const exp = decodeJwt(tokenStore.get() || "")?.exp;
+      const msLeft = exp ? exp * 1000 - Date.now() : 0;
+      timer = setTimeout(async () => {
+        if (await refreshAccessToken()) schedule();
+      }, Math.max(msLeft - 60_000, 5_000));
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [user]);
+
+  // The refresh token was rejected (expired, password changed, ...): end the session
+  useEffect(() => {
+    const onExpired = () => {
+      if (!tokenStore.get()) {
+        logout();
+        toast.info("Your session expired. Please log in again.");
+      }
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, [logout]);
+
   useEffect(() => {
     const init = async () => {
       try {
-        const token = tokenStore.get();
+        let token = tokenStore.get();
         if (!token || isTokenExpired(token)) {
-          logout();
-          return;
+          // Access token gone or expired: try to renew it before giving up
+          token = await refreshAccessToken();
+          if (!token) {
+            logout();
+            return;
+          }
         }
 
         const res = unwrap<User>(await getMe());
@@ -124,7 +157,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!password.trim()) throw new Error("Password is required");
 
         // ✅ CHANGED: Use identifier instead of email
-        const res = unwrap<{ access_token: string; token_type: string }>(
+        const res = unwrap<{ access_token: string; refresh_token?: string; token_type: string }>(
           await loginUser({ identifier, password })
         );
 
@@ -138,6 +171,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         tokenStore.set(res.data.access_token);
+        if (res.data.refresh_token) tokenStore.setRefresh(res.data.refresh_token);
 
         // Fetch user profile
         const meRes = unwrap<User>(await getMe());
