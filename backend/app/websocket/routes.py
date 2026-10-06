@@ -78,7 +78,7 @@ async def on_redis_event(evt: dict):
                 try:
                     await ws.send_json(payload)
                 except Exception as e:
-                    print(f"❌ Failed to send global event to {user_id}: {e}")
+                    logger.debug("Failed to send global event to %s: %s", user_id, e)
     elif room_id:
         # Regular room broadcast
         await manager.broadcast_room(room_id, payload)
@@ -92,7 +92,7 @@ async def _ws_start():
     # NOTE: assumes a single backend instance; with several, track presence per instance.
     await pubsub.redis.delete(PRESENCE_KEY, LEGACY_ONLINE_SET_KEY)
     pubsub.start(on_redis_event)
-    print("✅ WebSocket services started")
+    logger.info("WebSocket services started")
 
 
 @router.on_event("shutdown")
@@ -100,7 +100,7 @@ async def _ws_stop():
     """Cleanup on shutdown"""
     await pubsub.stop()
     await streams.close()
-    print("🛑 WebSocket services stopped")
+    logger.info("WebSocket services stopped")
 
 
 @router.websocket("/chat")
@@ -110,15 +110,15 @@ async def ws_chat(ws: WebSocket):
     # 1. Authenticate
     token = get_token_from_ws(ws)
     if not token:
-        print("❌ [WS] Connection rejected: Missing token")
+        logger.info("WebSocket rejected: missing token")
         await ws.close(code=1008, reason="Missing token")
         return
 
     try:
         user_id_str = verify_ws_token(token)
         user_id = uuid.UUID(user_id_str)
-    except Exception as e:
-        print(f"❌ [WS] Auth failed: {e}")
+    except Exception:
+        logger.info("WebSocket rejected: invalid or expired token")
         await ws.close(code=1008, reason="Invalid token")
         return
 
@@ -134,7 +134,7 @@ async def ws_chat(ws: WebSocket):
     online_user_ids = await pubsub.redis.hkeys(PRESENCE_KEY)
     await ws.send_json({"type": "presence", "userIds": online_user_ids})
 
-    print(f"✅ [WS] User {user_id_str[:8]} connected ({socket_count} socket(s))")
+    logger.info("User %s connected (%d socket(s))", user_id_str, socket_count)
 
     try:
         while True:
@@ -144,7 +144,7 @@ async def ws_chat(ws: WebSocket):
             event_type = data.get("type")
             room_id = data.get("roomId")
 
-            print(f"📥 [WS:{user_id_str[:8]}] Event: {event_type} | Room: {room_id[:8] if room_id else 'N/A'}")
+            logger.debug("User %s sent %s for %s", user_id_str, event_type, room_id)
 
             # JOIN ROOM
             if event_type == "join" and room_id:
@@ -152,7 +152,7 @@ async def ws_chat(ws: WebSocket):
                     is_member = await _check_membership(db, user_id, room_id)
 
                     if not is_member:
-                        print(f"⚠️  [WS:{user_id_str[:8]}] Not member of {room_id[:8]}")
+                        logger.warning("User %s tried to join %s without being a member", user_id_str, room_id)
                         await ws.send_json({
                             "type": "error",
                             "message": "Not a member of this conversation"
@@ -161,14 +161,14 @@ async def ws_chat(ws: WebSocket):
 
                 manager.join_room(room_id, ws)
                 await ws.send_json({"type": "joined", "roomId": room_id})
-                print(f"✅ [WS:{user_id_str[:8]}] Joined room {room_id[:8]}")
+                logger.debug("User %s joined room %s", user_id_str, room_id)
                 continue
 
             # LEAVE ROOM
             if event_type == "leave" and room_id:
                 manager.room_sockets.get(room_id, set()).discard(ws)
                 await ws.send_json({"type": "left", "roomId": room_id})
-                print(f"📤 [WS:{user_id_str[:8]}] Left room {room_id[:8]}")
+                logger.debug("User %s left room %s", user_id_str, room_id)
                 continue
 
             # SEND MESSAGE (text and/or media)
@@ -225,7 +225,7 @@ async def ws_chat(ws: WebSocket):
                     is_member = await _check_membership(db, user_id, room_id)
 
                     if not is_member:
-                        print(f"⚠️  [WS:{user_id_str[:8]}] Can't send to {room_id[:8]} - not member")
+                        logger.warning("User %s tried to send to %s without being a member", user_id_str, room_id)
                         await reject("Not a member of this conversation")
                         continue
 
@@ -305,7 +305,7 @@ async def ws_chat(ws: WebSocket):
                 }
 
                 await publish_users(member_ids, payload)
-                print(f"✅ [WS] Message {msg_id[:8]} published to {len(member_ids)} members")
+                logger.debug("Message %s published to %d members", msg_id, len(member_ids))
                 continue
 
             # TYPING INDICATOR
@@ -332,7 +332,7 @@ async def ws_chat(ws: WebSocket):
 
                 # Every member (not just those with the chat open) so chat lists can show it
                 await publish_users(others, payload)
-                print(f"⌨️  [WS:{user_id_str[:8]}] Typing: {is_typing} in {room_id[:8]}")
+                logger.debug("User %s typing=%s in %s", user_id_str, is_typing, room_id)
                 continue
 
             # READ RECEIPT
@@ -353,14 +353,12 @@ async def ws_chat(ws: WebSocket):
                 await ws.send_json({"type": "pong"})
                 continue
 
-            print(f"⚠️  [WS:{user_id_str[:8]}] Unknown event: {event_type}")
+            logger.warning("User %s sent unknown event type %r", user_id_str, event_type)
 
     except WebSocketDisconnect:
-        print(f"🔌 [WS:{user_id_str[:8]}] Disconnected normally")
-    except Exception as e:
-        print(f"❌ [WS:{user_id_str[:8]}] Error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.debug("User %s disconnected", user_id_str)
+    except Exception:
+        logger.exception("WebSocket error for user %s", user_id_str)
     finally:
         manager.untrack(user_id_str, ws)
 
@@ -369,9 +367,9 @@ async def ws_chat(ws: WebSocket):
         if remaining <= 0:
             await pubsub.redis.hdel(PRESENCE_KEY, user_id_str)
             await publish_global({"type": "offline", "userId": user_id_str})
-            print(f"👋 [WS:{user_id_str[:8]}] Offline")
+            logger.info("User %s went offline", user_id_str)
         else:
-            print(f"🔌 [WS:{user_id_str[:8]}] Socket closed, {remaining} still open")
+            logger.debug("User %s closed a socket (%d still open)", user_id_str, remaining)
 
 
 def _dimension(value) -> int | None:
@@ -391,7 +389,7 @@ async def _check_membership(db: AsyncSession, user_id: uuid.UUID, conversation_i
         )
         return result.scalar_one_or_none() is not None
     except Exception as e:
-        print(f"❌ Membership check error: {e}")
+        logger.warning("Membership check failed for %s: %s", conversation_id, e)
         return False
 
 
@@ -409,7 +407,7 @@ async def _handle_read(user_id: uuid.UUID, conversation_id: str, last_message_id
         "lastMessageId": last_message_id,
         "readUpTo": read_up_to.isoformat() if read_up_to else None,
     })
-    print(f"📖 [WS:{str(user_id)[:8]}] Marked {last_message_id[:8]} as read")
+    logger.debug("User %s read %s up to %s", user_id, conversation_id, last_message_id)
 
 
 async def _mark_read(
@@ -451,8 +449,8 @@ async def _mark_read(
                 )).scalars().all()]
                 return member_ids, await ChatService.read_up_to(db, conv_uuid)
 
-        print(f"⚠️ Mark read: message {last_message_id[:8]} not found")
+        logger.warning("Read receipt for unknown message %s", last_message_id)
         return None
-    except Exception as e:
-        print(f"❌ Mark read error: {e}")
+    except Exception:
+        logger.exception("Failed to mark %s as read", last_message_id)
         return None

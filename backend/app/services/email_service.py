@@ -32,13 +32,11 @@ class EmailService:
         
         # In development, just print to console
         if self.environment == "local" or self.environment == "development":
-            logger.info(f"\n{'='*80}")
-            logger.info(f"📧 EMAIL (DEV MODE - NOT ACTUALLY SENT)")
-            logger.info(f"{'='*80}")
-            logger.info(f"To: {to_email}")
-            logger.info(f"Subject: {subject}")
-            logger.info(f"\n{text_content or 'No text content'}")
-            logger.info(f"{'='*80}\n")
+            # Local development only: show the email (e.g. the password-reset link) in the log
+            logger.warning(
+                "EMAIL NOT SENT (local mode)\nTo: %s\nSubject: %s\n\n%s",
+                to_email, subject, text_content or "(no text content)",
+            )
             return True
         
         try:
@@ -63,11 +61,11 @@ class EmailService:
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(msg)
 
-            logger.info(f"✅ Email sent to {to_email}")
+            logger.info("Email sent: %s", subject)
             return True
 
         except Exception as e:
-            logger.error(f"❌ Failed to send email to {to_email}: {e}")
+            logger.exception("Failed to send email: %s", subject)
             return False
 
     def send_password_reset_email(

@@ -5,6 +5,9 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+import logging
+
+from app.core.logging import setup_logging
 from app.db.session import async_session_maker
 from app.websocket.streams import RedisStreams
 from app.models.conversation import Conversation
@@ -12,6 +15,8 @@ from app.models.message import Message, MessageType
 from app.models.message_receipt import MessageReceipt
 from app.models.conversation_member import ConversationMember
 from sqlalchemy import select, update
+
+logger = logging.getLogger("app.worker")
 
 
 class MessageWorker:
@@ -22,26 +27,26 @@ class MessageWorker:
 
     async def start(self):
         """Start the worker"""
-        print(f"🚀 Starting message worker: {self.consumer_name}")
+        logger.info("Starting message worker %s", self.consumer_name)
         await self.streams.init_stream()
         self.running = True
         
         try:
             await self.consume_loop()
         except KeyboardInterrupt:
-            print("\n⚠️ Received interrupt signal")
+            logger.info("Interrupted")
         finally:
             await self.stop()
 
     async def stop(self):
         """Stop the worker"""
-        print("🛑 Stopping message worker...")
+        logger.info("Stopping message worker")
         self.running = False
         await self.streams.close()
 
     async def consume_loop(self):
         """Main consumption loop"""
-        print("👂 Listening for messages...")
+        logger.info("Listening for messages")
         
         while self.running:
             try:
@@ -59,13 +64,11 @@ class MessageWorker:
                         try:
                             # ✅ FIX: msg_id is already a string, no .decode() needed
                             await self.process_message(msg_id, fields)
-                        except Exception as e:
-                            print(f"❌ Error processing message {msg_id}: {e}")
-                            import traceback
-                            traceback.print_exc()
+                        except Exception:
+                            logger.exception("Failed to process stream entry %s (will retry)", msg_id)
                         
-            except Exception as e:
-                print(f"❌ Error in consume loop: {e}")
+            except Exception:
+                logger.exception("Error in consume loop")
                 await asyncio.sleep(1)
 
     async def process_message(self, msg_id: str, fields: dict):
@@ -82,11 +85,11 @@ class MessageWorker:
         media_url = data.get('mediaUrl')
         
         if not all([message_id, conversation_id, sender_id_str]) or not (text or media_url):
-            print(f"⚠️ Invalid message data: {data}")
+            logger.warning("Dropping invalid stream entry %s: missing fields", msg_id)
             await self.streams.ack_message(msg_id)
             return
         
-        print(f"📨 Processing message {message_id} from {sender_id_str}")
+        logger.debug("Processing message %s from %s", message_id, sender_id_str)
         
         async with async_session_maker() as db:
             try:
@@ -100,7 +103,7 @@ class MessageWorker:
                     select(Message).where(Message.id == message_uuid)
                 )
                 if result.scalar_one_or_none():
-                    print(f"ℹ️ Message {message_id} already exists, skipping")
+                    logger.debug("Message %s already saved, skipping", message_id)
                     await self.streams.ack_message(msg_id)
                     return
                 
@@ -162,19 +165,17 @@ class MessageWorker:
                 
                 await db.commit()
                 
-                print(f"✅ Message {message_id} persisted with {len(members)} receipts")
+                logger.debug("Saved message %s (%d receipts)", message_id, len(members))
                 await self.streams.ack_message(msg_id)
                 
-            except Exception as e:
+            except Exception:
                 await db.rollback()
-                print(f"❌ Failed to persist message {message_id}: {e}")
-                import traceback
-                traceback.print_exc()
                 raise
 
 
 async def main():
     """Main entry point"""
+    setup_logging()
     worker = MessageWorker()
     await worker.start()
 

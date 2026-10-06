@@ -22,6 +22,9 @@ from app.services import media_storage
 from app.websocket.routes import publish_users
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -142,11 +145,9 @@ async def get_conversations(
             "message": "Conversations fetched successfully"
         }
 
-    except Exception as e:
-        print(f"❌ Error fetching conversations: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Logged by CatchUnhandledErrors; clients get a generic error, not internals
+        raise
 
 
 # GET /api/v1/conversations/:id/messages - Get messages
@@ -258,11 +259,9 @@ async def get_messages(
 
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"❌ Error fetching messages: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Logged by CatchUnhandledErrors; clients get a generic error, not internals
+        raise
 
 
 # backend/app/api/v1/chat.py - ADD MARK AS READ ENDPOINT
@@ -289,7 +288,7 @@ async def mark_conversation_read(
         latest_message = await ChatService.mark_read(db, current_user.id, conversation_id)
 
         if latest_message:
-            print(f"✅ Marked conversation {conversation_id} as read for user {current_user.id}")
+            logger.debug("User %s marked %s as read", current_user.id, conversation_id)
 
             # Let the other members update their read ticks
             member_ids = [str(uid) for uid in (await db.execute(
@@ -319,12 +318,10 @@ async def mark_conversation_read(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
-        print(f"❌ Error marking as read: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Logged by CatchUnhandledErrors; clients get a generic error, not internals
+        raise
 
 
 # POST /api/v1/conversations - Create new conversation
@@ -463,12 +460,10 @@ async def create_conversation(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
-        print(f"❌ Error creating conversation: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Logged by CatchUnhandledErrors; clients get a generic error, not internals
+        raise
 
 
 # GET /api/v1/users - List users
@@ -526,8 +521,6 @@ async def get_users(
             "message": "Users fetched successfully"
         }
 
-    except Exception as e:
-        print(f"❌ Error fetching users: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Logged by CatchUnhandledErrors; clients get a generic error, not internals
+        raise

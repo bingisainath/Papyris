@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 import os
 
 from app.db.session import get_db
@@ -16,6 +17,8 @@ from app.services.auth_service import AuthService
 from app.services.email_service import email_service
 from app.utils.deps import get_current_user
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -146,16 +149,10 @@ async def forgot_password(
             frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
             reset_link = f"{frontend_url}/reset-password?token={user.reset_token}"
             
-            # ✅ PRINT IMMEDIATELY (not in background task)
-            print(f"\n{'='*100}")
-            print(f"🔐 PASSWORD RESET REQUESTED")
-            print(f"{'='*100}")
-            print(f"📧 User: {user.username} ({user.email})")
-            print(f"🔗 Reset Link: {reset_link}")
-            print(f"🔑 Token: {user.reset_token[:20]}...")
-            print(f"⏰ Expires: {user.reset_token_expires}")
-            print(f"{'='*100}\n")
-            
+            # Never log the link or token: anyone reading logs could reset the password.
+            # (Without SMTP configured, email_service logs the email in dev mode instead.)
+            logger.info("Password reset requested for user %s", user.id)
+
             # Send email in background
             background_tasks.add_task(
                 email_service.send_password_reset_email,
@@ -164,7 +161,7 @@ async def forgot_password(
                 reset_link
             )
         else:
-            print(f"⚠️ Password reset requested for non-existent user: {payload.identifier}")
+            logger.info("Password reset requested for an unknown account")
         
         # Always return success (security best practice)
         return APIResponse(
@@ -173,10 +170,8 @@ async def forgot_password(
             data={"email_sent": True}
         )
         
-    except Exception as e:
-        print(f"❌ Error in forgot-password: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        logger.exception("forgot-password failed")
         # Still return success to prevent information disclosure
         return APIResponse(
             success=True,
@@ -200,8 +195,7 @@ async def verify_reset_token(
     try:
         user = await AuthService.verify_reset_token(db, payload.token)
         
-        print(f"✅ Token verified for user: {user.username}")
-        
+
         return APIResponse(
             success=True,
             message="Token is valid",
@@ -213,10 +207,8 @@ async def verify_reset_token(
         )
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"❌ Error verifying token: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        logger.exception("verify-reset-token failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Server error while verifying token"
@@ -238,13 +230,8 @@ async def reset_password(
     try:
         user = await AuthService.reset_password(db, payload.token, payload.new_password)
         
-        print(f"\n{'='*100}")
-        print(f"✅ PASSWORD RESET SUCCESSFUL")
-        print(f"{'='*100}")
-        print(f"📧 User: {user.username} ({user.email})")
-        print(f"🔒 Password has been changed")
-        print(f"{'='*100}\n")
-        
+        logger.info("Password reset completed for user %s", user.id)
+
         return APIResponse(
             success=True,
             message="Password has been reset successfully",
@@ -252,10 +239,8 @@ async def reset_password(
         )
     except HTTPException as e:
         raise e
-    except Exception as e:
-        print(f"❌ Error resetting password: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        logger.exception("reset-password failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to reset password"

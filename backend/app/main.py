@@ -6,11 +6,17 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import app.models
 from app.config.settings import settings
+from app.core.errors import CatchUnhandledErrors
+from app.core.logging import setup_logging
 from app.api.v1 import api_router
 from app.websocket.routes import router as ws_router
 
+setup_logging()
+
 app = FastAPI(title=settings.APP_NAME)
 
+# Order matters: middleware added later wraps earlier ones, so CORS stays outermost
+app.add_middleware(CatchUnhandledErrors)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,

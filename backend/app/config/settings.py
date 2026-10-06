@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Papyris API"
     DEBUG: bool = True
+    LOG_LEVEL: str = "INFO"  # DEBUG shows every WebSocket event and worker step
+    SQL_ECHO: bool = False  # log every SQL statement (very noisy)
     
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/papyris"
