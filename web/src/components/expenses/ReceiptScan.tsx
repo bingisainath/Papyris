@@ -1,0 +1,228 @@
+// src/components/expenses/ReceiptScan.tsx
+// Pick receipt photos -> upload -> the AI reads them in the background -> review.
+
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'react-toastify';
+import { expenseService } from '../../services/expense.service';
+import type { Expense, Receipt } from '../../services/expense.service';
+import { mediaService } from '../../services/media.service';
+import { parseApiError } from '../../utils/apiError';
+import { RECEIPT_READY_EVENT } from '../../utils/events';
+import { mediaTypeOf, resolveMediaUrl, validateFile } from '../../utils/media';
+import ReceiptReview from './ReceiptReview';
+import type { Member } from './shared';
+
+const MAX_PHOTOS = 4;
+
+interface Props {
+  conversationId: string;
+  members: Member[];
+  currentUserId: string;
+  receiptId?: string; // continue reviewing one
+  onSaved: (expense: Expense) => void;
+  onManual: () => void;
+  onClose: () => void;
+}
+
+const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, receiptId, onSaved, onManual, onClose }) => {
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<'idle' | 'uploading' | 'reading'>(receiptId ? 'reading' : 'idle');
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [drafts, setDrafts] = useState<Awaited<ReturnType<typeof expenseService.openReceipts>>>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const currentId = useRef<string | undefined>(receiptId);
+
+  useEffect(() => {
+    if (receiptId) return;
+    expenseService.openReceipts(conversationId).then(setDrafts).catch(() => undefined);
+  }, [conversationId, receiptId]);
+
+  useEffect(() => {
+    const urls = files.map((f) => URL.createObjectURL(f));
+    setPreviews(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, [files]);
+
+  const load = useCallback(async (id: string) => {
+    const r = await expenseService.getReceipt(id);
+    if (currentId.current !== id) return;
+    if (r.status === 'processing') return;
+    setReceipt(r);
+    setBusy('idle');
+  }, []);
+
+  // Done when the server says so (WebSocket), with a slow poll as a safety net
+  useEffect(() => {
+    if (busy !== 'reading' || !currentId.current) return;
+    const id = currentId.current;
+    (window as any).__waitingForReceiptId = id;
+    load(id).catch(() => undefined);
+    const onReady = (e: Event) => {
+      if ((e as CustomEvent).detail?.receiptId === id) load(id).catch(() => undefined);
+    };
+    window.addEventListener(RECEIPT_READY_EVENT, onReady);
+    const poll = setInterval(() => load(id).catch(() => undefined), 5000);
+    return () => {
+      window.removeEventListener(RECEIPT_READY_EVENT, onReady);
+      clearInterval(poll);
+      if ((window as any).__waitingForReceiptId === id) (window as any).__waitingForReceiptId = null;
+    };
+  }, [busy, load]);
+
+  const pick = (list: FileList | null) => {
+    if (!list) return;
+    const chosen = Array.from(list).filter((f) => {
+      const error = validateFile(f) || (mediaTypeOf(f) !== 'image' ? 'Choose a photo of the receipt' : null);
+      if (error) toast.error(`${f.name}: ${error}`);
+      return !error;
+    });
+    setFiles((current) => [...current, ...chosen].slice(0, MAX_PHOTOS));
+  };
+
+  const start = async () => {
+    if (!files.length) return;
+    setBusy('uploading');
+    try {
+      const uploaded = await Promise.all(files.map((f) => mediaService.upload(f)));
+      const created = await expenseService.scanReceipt(conversationId, uploaded.map((u) => u.url), note.trim());
+      currentId.current = created.id;
+      setBusy('reading');
+    } catch (error) {
+      toast.error(parseApiError(error));
+      setBusy('idle');
+    }
+  };
+
+  const retry = async () => {
+    if (!receipt) return;
+    try {
+      await expenseService.retryReceipt(receipt.id);
+      currentId.current = receipt.id;
+      setReceipt(null);
+      setBusy('reading');
+    } catch (error) {
+      toast.error(parseApiError(error));
+    }
+  };
+
+  if (busy === 'reading') {
+    return (
+      <div className="py-16 text-center">
+        <div className="mx-auto mb-4 w-12 h-12 rounded-full border-4 border-primary-200 border-t-primary-600 animate-spin" />
+        <p className="font-medium text-muted-900">Reading the receipt…</p>
+        <p className="text-sm text-muted-500 mt-1">This usually takes 10–40 seconds. You can close this; we’ll let you know when it’s ready.</p>
+        <button type="button" onClick={onClose} className="mt-6 text-sm text-primary-700 hover:underline">Close and wait in the background</button>
+      </div>
+    );
+  }
+
+  if (receipt && receipt.status === 'failed') {
+    return (
+      <div className="py-10 text-center space-y-4">
+        <p className="font-medium text-muted-900">Couldn’t read this receipt</p>
+        <p className="text-sm text-accent-600">{receipt.error}</p>
+        <div className="flex justify-center gap-2">
+          {receipt.uploaded_by === currentUserId && (
+            <button type="button" onClick={retry} className="px-4 py-2 rounded-lg bg-primary-600 text-white font-medium">Try again</button>
+          )}
+          <button type="button" onClick={onManual} className="px-4 py-2 rounded-lg bg-muted-100 font-medium">Enter it manually</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (receipt) {
+    return (
+      <ReceiptReview
+        receipt={receipt}
+        members={members}
+        currentUserId={currentUserId}
+        onSaved={onSaved}
+        onDiscard={onClose}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {previews.map((src, i) => (
+          <div key={src} className="relative aspect-[3/4] rounded-xl overflow-hidden bg-muted-100">
+            <img src={src} alt={`Receipt part ${i + 1}`} className="w-full h-full object-cover" />
+            <button
+              type="button"
+              aria-label="Remove photo"
+              onClick={() => setFiles((f) => f.filter((_, n) => n !== i))}
+              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {files.length < MAX_PHOTOS && (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="aspect-[3/4] rounded-xl border-2 border-dashed border-muted-300 hover:border-primary-400 flex flex-col items-center justify-center gap-1 text-muted-500"
+          >
+            <span className="text-3xl">📷</span>
+            <span className="text-sm">{files.length ? 'Add another part' : 'Photo of the bill'}</span>
+          </button>
+        )}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        hidden
+        onChange={(e) => { pick(e.target.files); e.target.value = ''; }}
+      />
+      <p className="text-xs text-muted-500">
+        Long receipt? Add up to {MAX_PHOTOS} photos, top to bottom. Flat, well lit and the whole width in view works best.
+      </p>
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        maxLength={300}
+        placeholder="Note for the scan (optional), e.g. “ignore the bag charge”"
+        className="w-full px-3 py-2 rounded-lg border border-muted-300 text-sm"
+      />
+      <button
+        type="button"
+        onClick={start}
+        disabled={!files.length || busy !== 'idle'}
+        className="w-full py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold disabled:opacity-50"
+      >
+        {busy === 'uploading' ? 'Uploading…' : 'Read receipt'}
+      </button>
+
+      {drafts.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-muted-700">Not finished yet</p>
+          {drafts.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => { currentId.current = d.id; setBusy('reading'); }}
+              className="w-full flex items-center gap-3 p-2 rounded-xl border border-muted-200 hover:bg-muted-50 text-left"
+            >
+              {d.images[0] && <img src={resolveMediaUrl(d.images[0])} alt="" className="w-10 h-12 rounded object-cover" />}
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium truncate">{d.store_name || 'Receipt'}</span>
+                <span className="block text-xs text-muted-500">
+                  {d.status === 'processing' ? 'Still reading…' : d.status === 'failed' ? 'Couldn’t read it' : 'Ready to review'} · {new Date(d.created_at).toLocaleString()}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ReceiptScan;

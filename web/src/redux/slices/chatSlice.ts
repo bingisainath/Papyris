@@ -39,6 +39,7 @@ export interface Message {
   reactions?: Reaction[];
   isDeleted?: boolean;
   editedAt?: string | null;
+  expenseId?: string | null; // system message shown as an expense card
 }
 
 const byTimestamp = (a: Message, b: Message) =>

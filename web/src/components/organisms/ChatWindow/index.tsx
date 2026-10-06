@@ -22,6 +22,10 @@ import { toast } from 'react-toastify';
 import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
+import { useSearchParams } from 'react-router-dom';
+import AddExpenseSheet from '../../expenses/AddExpenseSheet';
+import ExpenseCard from '../../expenses/ExpenseCard';
+import ExpenseDetail from '../../expenses/ExpenseDetail';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -58,6 +62,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [showInfo, setShowInfo] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const lastMediaRefresh = useRef(0);
+
+  // Expenses: ?receipt=<id> opens a receipt to review, ?expense=<id> opens an expense
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [addingExpense, setAddingExpense] = useState(false);
+  const openReceiptId = searchParams.get('receipt');
+  const openExpenseId = searchParams.get('expense');
+  const closeExpenseView = () => setSearchParams({}, { replace: true });
 
   const isConnected = useSelector(selectIsConnected);
   // const onlineUsers = useSelector(selectOnlineUsers);
@@ -125,6 +136,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     setReplyingTo(null);
     setEditingMessage(null);
     setShowInfo(false);
+    setAddingExpense(false);
   }, [conversationId]);
 
   // Send a read receipt for the newest message from others while the chat is visible
@@ -387,7 +399,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           </div>
         ) : (
           <>
-            {messages.map((message) => message.messageType === 'system' ? (
+            {messages.map((message) => message.messageType === 'system' && message.expenseId ? (
+              <div key={message.id} data-message-id={message.id}>
+                <ExpenseCard
+                  expenseId={message.expenseId}
+                  text={message.text}
+                  timestamp={message.timestamp}
+                  currentUserId={currentUserId}
+                  onOpen={(id) => setSearchParams({ expense: id })}
+                />
+              </div>
+            ) : message.messageType === 'system' ? (
               <div key={message.id} data-message-id={message.id} className="flex justify-center">
                 <span className="px-3 py-1 text-xs text-muted-600 bg-muted-100 rounded-full text-center">
                   {message.text}
@@ -454,6 +476,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           onTyping={handleTyping}
           placeholder="Type a message..."
           disabled={!isConnected}
+          showExpense
+          onExpense={() => setAddingExpense(true)}
         />
       </div>
 
@@ -464,6 +488,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           onIndexChange={setViewerIndex}
           onClose={() => setViewerIndex(null)}
         />
+      )}
+
+      {(addingExpense || openReceiptId) && (
+        <AddExpenseSheet
+          conversationId={conversationId}
+          currentUserId={currentUserId}
+          receiptId={openReceiptId || undefined}
+          onClose={() => { setAddingExpense(false); if (openReceiptId) closeExpenseView(); }}
+        />
+      )}
+      {openExpenseId && (
+        <ExpenseDetail expenseId={openExpenseId} currentUserId={currentUserId} onClose={closeExpenseView} />
       )}
 
       <ConversationInfoPanel

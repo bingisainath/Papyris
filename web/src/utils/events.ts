@@ -6,3 +6,12 @@ export const NAVIGATE_EVENT = 'papyris:navigate';
 
 /** detail: conversation id. Fired when a conversation's details change (info panel refreshes). */
 export const CONVERSATION_UPDATED_EVENT = 'papyris:conversation-updated';
+
+/** detail: { conversationId, expenseId?, action }. An expense, payment or expense setting changed. */
+export const EXPENSE_CHANGED_EVENT = 'papyris:expense-changed';
+
+/** detail: { receiptId, conversationId, status, error }. The AI finished reading a receipt. */
+export const RECEIPT_READY_EVENT = 'papyris:receipt-ready';
+
+/** detail: { conversationId, expenseId? }. Open the add-expense sheet (or an expense) in a chat. */
+export const OPEN_EXPENSE_EVENT = 'papyris:open-expense';

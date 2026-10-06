@@ -36,7 +36,7 @@ export interface OutgoingMedia {
 export interface WebSocketEvent {
   type: 'message' | 'typing' | 'read' | 'joined' | 'left' | 'online' | 'offline' | 'presence'
     | 'conversation_created' | 'conversation_updated' | 'conversation_removed' | 'conversation_pinned'
-    | 'message_updated' | 'reactions_updated' | 'error';
+    | 'message_updated' | 'reactions_updated' | 'expense_changed' | 'receipt_scan_ready' | 'error';
   roomId?: string;
   userId?: string;
   userIds?: string[];
@@ -58,6 +58,10 @@ export interface WebSocketEvent {
   isTyping?: boolean;
   lastMessageId?: string;
   readUpTo?: string | null;
+  expenseId?: string | null;
+  receiptId?: string;
+  error?: string | null;
+  action?: string;
   message?: string;
   conversationId?: string;
   kind?: 'dm' | 'group';

@@ -131,9 +131,11 @@ class MessageService:
         conversation_id: uuid.UUID,
         actor: User,
         text: str,
+        expense_id: uuid.UUID | None = None,
     ) -> dict:
         """
         Store a system message ("alice added bob") and return its WebSocket payload.
+        With expense_id the chat shows it as an expense card.
         Written directly (not via the worker) so it is in the DB before anyone reacts to it.
         """
         now = datetime.now(timezone.utc)
@@ -144,6 +146,7 @@ class MessageService:
             message_type=MessageType.SYSTEM,
             text=text,
             created_at=now,
+            expense_id=expense_id,
         )
         db.add(message)
         await db.execute(
@@ -160,6 +163,7 @@ class MessageService:
             "senderAvatar": media_storage.sign_url(actor.avatar),
             "text": text,
             "messageType": "system",
+            "expenseId": str(expense_id) if expense_id else None,
             "timestamp": now.isoformat(),
             "status": "delivered",
         }

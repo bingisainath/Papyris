@@ -68,6 +68,11 @@ class Message(Base):
     )
     
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Set on the chat card posted when an expense is added
+    expense_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("expenses.id", ondelete="SET NULL"), nullable=True
+    )
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
