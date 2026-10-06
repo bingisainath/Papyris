@@ -1,0 +1,26 @@
+// src/navigation/types.ts
+export type AuthStackParams = {
+  Login: undefined;
+  SignUp: undefined;
+  VerifyEmail: { email: string; justSent?: boolean };
+  ForgotPassword: undefined;
+};
+
+export type TabParams = {
+  Chats: undefined;
+  Expenses: undefined;
+  Settings: undefined;
+};
+
+export type AppStackParams = {
+  Tabs: undefined;
+  Chat: { conversationId: string };
+  ChatInfo: { conversationId: string; addMembers?: boolean };
+  NewChat: undefined;
+  NewGroup: undefined;
+  ChatExpenses: { conversationId: string };
+  AddExpense: { conversationId: string; expenseId?: string };
+  ScanReceipt: { conversationId: string; receiptId?: string };
+  ExpenseDetail: { expenseId: string };
+  Profile: undefined;
+};

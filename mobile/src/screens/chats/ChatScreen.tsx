@@ -1,0 +1,323 @@
+// src/screens/chats/ChatScreen.tsx
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View,
+} from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
+import { useFocusEffect } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Copy, CornerUpLeft, Info, Pencil, ReceiptText, SendHorizontal, Trash2, X } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Avatar from '../../components/Avatar';
+import MessageBubble from '../../components/MessageBubble';
+import { chatApi, Message, ReplyPreview } from '../../api/chat';
+import { errorMessage } from '../../api/client';
+import { mediaUrl } from '../../config';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
+import { useAuth } from '../../store/auth';
+import { typingNames, useChat } from '../../store/chat';
+import { socket } from '../../ws/socket';
+import { colors, radius, space } from '../../theme';
+import { dayLabel } from '../../utils/time';
+import type { AppStackParams } from '../../navigation/types';
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const TYPING_REPEAT_MS = 2500;
+const EMPTY: Message[] = [];
+
+type Row = { kind: 'message'; message: Message } | { kind: 'day'; label: string; key: string };
+
+const preview = (m: Message) =>
+  m.text || (m.mediaType === 'image' ? 'Photo' : m.mediaType === 'video' ? 'Video' : m.mediaType === 'audio' ? 'Voice message' : m.mediaFilename || 'File');
+
+const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ route, navigation }) => {
+  const { conversationId } = route.params;
+  const me = useAuth((s) => s.user)!;
+  const conversation = useChat((s) => s.conversations.find((c) => c.id === conversationId));
+  const messages = useChat((s) => s.messages[conversationId] ?? EMPTY);
+  const hasMore = useChat((s) => !!s.hasMore[conversationId]);
+  const typing = useChat((s) => s.typing);
+  const online = useChat((s) => s.online);
+  const { open, loadMessages, loadOlder, send, retry } = useChat.getState();
+
+  const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
+  const [selected, setSelected] = useState<Message | null>(null);
+  const [viewer, setViewer] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!messages.length);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const lastTypingSent = useRef(0);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const list = useRef<FlatList<Row>>(null);
+  const keyboard = useKeyboardOffset(); // keeps the composer right above the keyboard
+
+  // Join the room while the chat is on screen
+  useFocusEffect(useCallback(() => {
+    open(conversationId);
+    loadMessages(conversationId).catch((e) => Alert.alert("Couldn't load messages", errorMessage(e))).finally(() => setLoading(false));
+    return () => open(null);
+  }, [conversationId, open, loadMessages]));
+
+  // Tell the server we've read up to the newest message from someone else
+  const latestFromOthers = useMemo(() => [...messages].reverse().find((m) => m.senderId !== me.id && !m.id.startsWith('temp-')), [messages, me.id]);
+  useEffect(() => {
+    if (latestFromOthers) socket.read(conversationId, latestFromOthers.id);
+  }, [latestFromOthers, conversationId]);
+
+  const otherId = conversation && !conversation.isGroup ? conversation.members.find((id) => id !== me.id) : undefined;
+  const typers = typingNames(typing, conversationId).filter(Boolean);
+  const status = typers.length
+    ? conversation?.isGroup ? `${typers.length > 1 ? `${typers.length} people are` : `${typers[0]} is`} typing…` : 'typing…'
+    : conversation?.isGroup ? `${conversation.members.length} members` : otherId && online.includes(otherId) ? 'Online' : 'Offline';
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <Pressable onPress={() => navigation.navigate('ChatInfo', { conversationId })} style={styles.headerTitle} accessibilityLabel="Chat info">
+          <Avatar uri={conversation?.avatar} name={conversation?.name} size={36} online={!!otherId && online.includes(otherId)} />
+          <View style={styles.headerText}>
+            <Text style={styles.headerName} numberOfLines={1}>{conversation?.name || 'Chat'}</Text>
+            <Text style={[styles.headerStatus, typers.length > 0 && { color: colors.primary700 }]} numberOfLines={1}>{status}</Text>
+          </View>
+        </Pressable>
+      ),
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <Pressable onPress={() => navigation.navigate('AddExpense', { conversationId })} hitSlop={8} accessibilityLabel="Add expense">
+            <ReceiptText size={22} color={colors.primary700} />
+          </Pressable>
+          <Pressable onPress={() => navigation.navigate('ChatInfo', { conversationId })} hitSlop={8} accessibilityLabel="Chat info">
+            <Info size={22} color={colors.primary700} />
+          </Pressable>
+        </View>
+      ),
+    });
+  }, [navigation, conversation, conversationId, status, typers.length, otherId, online]);
+
+  // Newest first for the inverted list, with a day label above each day's first message
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      out.push({ kind: 'message', message: m });
+      const older = messages[i - 1];
+      if (!older || new Date(older.timestamp).toDateString() !== new Date(m.timestamp).toDateString()) {
+        out.push({ kind: 'day', label: dayLabel(m.timestamp), key: `day-${m.timestamp}` });
+      }
+    }
+    return out;
+  }, [messages]);
+
+  const onChangeText = (value: string) => {
+    setText(value);
+    const now = Date.now();
+    if (now - lastTypingSent.current > TYPING_REPEAT_MS) {
+      socket.typing(conversationId, true);
+      lastTypingSent.current = now;
+    }
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => { socket.typing(conversationId, false); lastTypingSent.current = 0; }, 2000);
+  };
+
+  const submit = async () => {
+    const value = text.trim();
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    socket.typing(conversationId, false);
+    lastTypingSent.current = 0;
+    if (editing) {
+      const original = editing;
+      setEditing(null);
+      setText('');
+      if (!value || value === original.text) return;
+      try {
+        await chatApi.editMessage(original.id, value);
+      } catch (e) {
+        Alert.alert("Couldn't edit message", errorMessage(e));
+      }
+      return;
+    }
+    if (!value) return;
+    send(conversationId, value, { id: me.id, username: me.username }, replyTo);
+    setText('');
+    setReplyTo(null);
+  };
+
+  const react = (message: Message, emoji: string) => {
+    chatApi.react(message.id, emoji).catch((e) => Alert.alert("Couldn't react", errorMessage(e)));
+  };
+
+  const remove = (message: Message) => {
+    Alert.alert('Delete message?', 'It will be deleted for everyone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive',
+        onPress: () => chatApi.deleteMessage(message.id).catch((e) => Alert.alert("Couldn't delete", errorMessage(e))),
+      },
+    ]);
+  };
+
+  const jumpTo = (messageId: string) => {
+    const index = rows.findIndex((r) => r.kind === 'message' && r.message.id === messageId);
+    if (index >= 0) list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  };
+
+  const renderRow = ({ item }: { item: Row }) => {
+    if (item.kind === 'day') return <Text style={styles.day}>{item.label}</Text>;
+    const m = item.message;
+    return (
+      <MessageBubble
+        message={m}
+        mine={m.senderId === me.id}
+        showSender={!!conversation?.isGroup}
+        currentUserId={me.id}
+        onLongPress={() => setSelected(m)}
+        onReact={(emoji) => react(m, emoji)}
+        onRetry={() => retry(conversationId, m.id)}
+        onOpenImage={() => setViewer(mediaUrl(m.mediaUrl) || null)}
+        onOpenExpense={(expenseId) => navigation.navigate('ExpenseDetail', { expenseId })}
+        onJumpToReply={jumpTo}
+      />
+    );
+  };
+
+  const loadMore = async () => {
+    if (!hasMore || loadingOlder) return;
+    setLoadingOlder(true);
+    await loadOlder(conversationId).catch(() => undefined);
+    setLoadingOlder(false);
+  };
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <View ref={keyboard.ref} style={[styles.flex, { paddingBottom: keyboard.offset }]}>
+        {loading ? (
+          <View style={styles.center}><ActivityIndicator color={colors.primary700} /></View>
+        ) : (
+          <FlatList
+            ref={list}
+            data={rows}
+            inverted
+            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.message.id)}
+            renderItem={renderRow}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.3}
+            onScrollToIndexFailed={() => undefined}
+            ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ margin: space(3) }} color={colors.primary700} /> : null}
+            ListEmptyComponent={<Text style={[styles.day, styles.flipped]}>No messages yet. Say hello.</Text>}
+            contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
+          />
+        )}
+
+        {(replyTo || editing) && (
+          <View style={styles.banner}>
+            <View style={styles.flex}>
+              <Text style={styles.bannerTitle}>{editing ? 'Editing message' : `Replying to ${replyTo?.senderName || 'message'}`}</Text>
+              {!editing && <Text style={styles.bannerText} numberOfLines={1}>{replyTo?.text}</Text>}
+            </View>
+            <Pressable onPress={() => { setReplyTo(null); if (editing) { setEditing(null); setText(''); } }} hitSlop={10} accessibilityLabel="Cancel">
+              <X size={18} color={colors.muted500} />
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.composer}>
+          <TextInput
+            value={text}
+            onChangeText={onChangeText}
+            placeholder="Message"
+            placeholderTextColor={colors.muted400}
+            multiline
+            maxLength={5000}
+            style={styles.input}
+            accessibilityLabel="Message"
+          />
+          <Pressable
+            onPress={submit}
+            disabled={!text.trim() && !editing}
+            style={[styles.send, !text.trim() && !editing && styles.sendOff]}
+            accessibilityLabel={editing ? 'Save' : 'Send'}
+          >
+            <SendHorizontal size={20} color={colors.white} />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Long-press menu */}
+      <Modal visible={!!selected} transparent animationType="fade" onRequestClose={() => setSelected(null)}>
+        <Pressable style={styles.backdrop} onPress={() => setSelected(null)}>
+          {selected && (
+            <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.quickReactions}>
+                {QUICK_REACTIONS.map((emoji) => (
+                  <Pressable key={emoji} onPress={() => { react(selected, emoji); setSelected(null); }} style={styles.quickReaction} accessibilityLabel={`React ${emoji}`}>
+                    <Text style={styles.quickReactionText}>{emoji}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <SheetAction icon={CornerUpLeft} label="Reply" onPress={() => {
+                setEditing(null);
+                setReplyTo({ id: selected.id, text: preview(selected), senderId: selected.senderId, senderName: selected.senderId === me.id ? 'yourself' : selected.senderName });
+                setSelected(null);
+              }} />
+              {!!selected.text && <SheetAction icon={Copy} label="Copy text" onPress={() => { Clipboard.setString(selected.text); setSelected(null); }} />}
+              {selected.senderId === me.id && !!selected.text && (
+                <SheetAction icon={Pencil} label="Edit" onPress={() => { setReplyTo(null); setEditing(selected); setText(selected.text); setSelected(null); }} />
+              )}
+              {selected.senderId === me.id && (
+                <SheetAction icon={Trash2} label="Delete for everyone" danger onPress={() => { const m = selected; setSelected(null); remove(m); }} />
+              )}
+            </Pressable>
+          )}
+        </Pressable>
+      </Modal>
+
+      {/* Photo viewer */}
+      <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
+        <Pressable style={styles.viewer} onPress={() => setViewer(null)} accessibilityLabel="Close photo">
+          {viewer && <Image source={{ uri: viewer }} style={styles.viewerImage} resizeMode="contain" />}
+        </Pressable>
+      </Modal>
+    </SafeAreaView>
+  );
+};
+
+const SheetAction: React.FC<{ icon: React.ComponentType<{ size?: number; color?: string }>; label: string; onPress: () => void; danger?: boolean }> = ({ icon: Icon, label, onPress, danger }) => (
+  <Pressable onPress={onPress} style={({ pressed }) => [styles.action, pressed && { backgroundColor: colors.muted50 }]}>
+    <Icon size={20} color={danger ? colors.danger600 : colors.primary700} />
+    <Text style={[styles.actionText, danger && { color: colors.danger600 }]}>{label}</Text>
+  </Pressable>
+);
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  listContent: { paddingVertical: space(3) },
+  flipped: { transform: [{ scaleY: -1 }] },
+  day: { alignSelf: 'center', marginVertical: space(2), paddingHorizontal: space(3), paddingVertical: 3, borderRadius: radius.full, backgroundColor: colors.muted100, fontSize: 12, color: colors.muted600, overflow: 'hidden' },
+  headerTitle: { flexDirection: 'row', alignItems: 'center', gap: space(2.5), maxWidth: 230 },
+  headerText: { flexShrink: 1 },
+  headerName: { fontSize: 16, fontWeight: '600', color: colors.muted900 },
+  headerStatus: { fontSize: 12, color: colors.muted500 },
+  headerActions: { flexDirection: 'row', gap: space(5), alignItems: 'center' },
+  banner: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginHorizontal: space(3), marginBottom: space(2), padding: space(2.5), borderLeftWidth: 4, borderLeftColor: colors.primary600, backgroundColor: colors.primary50, borderRadius: radius.md },
+  bannerTitle: { fontSize: 12, fontWeight: '700', color: colors.primary700 },
+  bannerText: { fontSize: 14, color: colors.muted600 },
+  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: space(2), paddingHorizontal: space(3), paddingVertical: space(2), backgroundColor: colors.white, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.muted200 },
+  input: { flex: 1, minHeight: 44, maxHeight: 140, paddingHorizontal: space(4), paddingTop: 11, paddingBottom: 11, borderRadius: 22, backgroundColor: colors.muted100, fontSize: 16, color: colors.muted900 },
+  send: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary700, alignItems: 'center', justifyContent: 'center' },
+  sendOff: { backgroundColor: colors.muted300 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: colors.white, borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: space(8), paddingTop: space(3) },
+  quickReactions: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: space(4), paddingBottom: space(3), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.muted200 },
+  quickReaction: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.muted50 },
+  quickReactionText: { fontSize: 24 },
+  action: { flexDirection: 'row', alignItems: 'center', gap: space(4), paddingHorizontal: space(6), paddingVertical: space(4) },
+  actionText: { fontSize: 16, color: colors.muted900 },
+  viewer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', alignItems: 'center', justifyContent: 'center' },
+  viewerImage: { width: '100%', height: '80%' },
+});
+
+export default ChatScreen;

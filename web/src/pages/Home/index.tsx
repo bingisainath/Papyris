@@ -31,6 +31,7 @@ import { mediaService } from '../../services/media.service';
 import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
+import ConnectionBanner from '../../components/molecules/ConnectionBanner';
 import { ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
@@ -265,7 +266,9 @@ const Home: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-muted-50 overflow-hidden">
+    <div className="flex flex-col h-screen bg-muted-50 overflow-hidden">
+      <ConnectionBanner />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Sidebar */}
       <div className="w-64 flex-shrink-0 hidden md:block">
         <Sidebar
@@ -396,6 +399,7 @@ const Home: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

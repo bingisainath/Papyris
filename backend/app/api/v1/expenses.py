@@ -145,6 +145,21 @@ async def list_currencies():
     return _ok([{"code": c, "symbol": s, "name": n, "decimals": d} for c, (d, s, n) in CURRENCIES.items()])
 
 
+@router.get("/expenses/conversations")
+async def conversations_with_expenses(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ids of your chats that have expenses (the Expenses tab shows these plus groups)."""
+    from app.models.conversation_member import ConversationMember
+    ids = (await db.execute(
+        select(Expense.conversation_id).distinct()
+        .join(ConversationMember, ConversationMember.conversation_id == Expense.conversation_id)
+        .where(ConversationMember.user_id == current_user.id, Expense.deleted_at.is_(None))
+    )).scalars().all()
+    return _ok([str(i) for i in ids])
+
+
 @router.get("/conversations/{conversation_id}/expenses")
 async def list_expenses(
     conversation_id: uuid.UUID,

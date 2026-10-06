@@ -34,3 +34,7 @@ Thumbs.db
 
 # Uploaded media (local storage)
 uploads/
+
+# Firebase service account: a server secret, never commit it
+*firebase*adminsdk*.json
+firebase-service-account*.json

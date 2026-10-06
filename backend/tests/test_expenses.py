@@ -221,3 +221,14 @@ async def test_admin_only_model_management(client, make_user, db):
     body = {**{k: opus[k] for k in ("provider", "model_id", "label", "description", "sort_order")}, "enabled": True, "is_default": True}
     await client.put(f"/api/v1/admin/ai/models/{opus['id']}", json=body, headers=admin.headers)
     await client.put("/api/v1/admin/ai/scan-limit", json={"receipt_scans_per_month": 50}, headers=admin.headers)
+
+
+async def test_conversations_with_expenses(client, trio, make_user, make_dm):
+    a, b, c, group = await trio()
+    dm = await make_dm(a, b)
+    empty_dm = await make_dm(a, c)
+    await add(client, a, dm, "10", splits=[{"user_id": a.id}, {"user_id": b.id}])
+    ids = (await client.get("/api/v1/expenses/conversations", headers=a.headers)).json()["data"]
+    assert dm in ids and empty_dm not in ids and group not in ids
+    outsider = await make_user()
+    assert (await client.get("/api/v1/expenses/conversations", headers=outsider.headers)).json()["data"] == []

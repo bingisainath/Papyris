@@ -13,8 +13,10 @@ from app.models.expense import (
     ConversationSettings, Expense, ExpenseEvent, ExpensePayer, ExpenseShare, Settlement,
 )
 from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, StoreDiscountRule
+from app.models.device import DeviceToken
 
 __all__ = [
+    "DeviceToken",
     "User",
     "UserStatus",
     "Gender",

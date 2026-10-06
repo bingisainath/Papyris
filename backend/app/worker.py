@@ -16,6 +16,9 @@ from app.models.message_receipt import MessageReceipt
 from app.models.conversation_member import ConversationMember
 from sqlalchemy import select, update
 
+from app.config.settings import settings
+from app.services import media_storage, push
+
 logger = logging.getLogger("app.worker")
 
 
@@ -70,6 +73,26 @@ class MessageWorker:
             except Exception:
                 logger.exception("Error in consume loop")
                 await asyncio.sleep(1)
+
+    async def notify(self, db, message: Message, data: dict, recipient_ids: list) -> None:
+        """Push "Alice: see you at 8" (DM) or "Flat 4B / Alice: ..." (group) to the other members' phones."""
+        if not push.enabled() or not recipient_ids:
+            return
+        conversation = await db.get(Conversation, message.conversation_id)
+        sender = data.get("senderName") or "Someone"
+        if settings.PUSH_SHOW_MESSAGE_TEXT:
+            preview = media_storage.preview_text(message.message_type.value, message.text, message.media_filename)
+        else:
+            preview = "New message"
+        if conversation is not None and conversation.kind == "group":
+            title, body = conversation.title or "Group", f"{sender}: {preview}"
+        else:
+            title, body = sender, preview
+        await push.send_to_users(db, recipient_ids, title, body, {
+            "type": "message",
+            "conversationId": str(message.conversation_id),
+            "messageId": str(message.id),
+        })
 
     async def process_message(self, msg_id: str, fields: dict):
         """Process a single message from the stream"""
@@ -168,6 +191,12 @@ class MessageWorker:
                 
                 logger.debug("Saved message %s (%d receipts)", message_id, len(members))
                 await self.streams.ack_message(msg_id)
+
+                # Phones get a notification; a failure here never affects the saved message
+                try:
+                    await self.notify(db, message, data, [m.user_id for m in members])
+                except Exception:
+                    logger.exception("Push notification for %s failed", message_id)
                 
             except Exception:
                 await db.rollback()

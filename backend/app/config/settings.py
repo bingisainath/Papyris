@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     FROM_NAME: str = "Papyris"
     FRONTEND_URL: str = "http://localhost:3000"  # used in password-reset links
 
+    # Push notifications (Firebase Cloud Messaging). Path to the service-account JSON downloaded
+    # from Firebase console > Project settings > Service accounts. Empty = no push notifications.
+    FIREBASE_SERVICE_ACCOUNT_FILE: str = ""
+    PUSH_SHOW_MESSAGE_TEXT: bool = True  # False: notifications only say "New message"
+
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds
     WS_MAX_CONNECTIONS_PER_USER: int = 5

@@ -1,9 +1,10 @@
 // src/components/expenses/ExpensesPage.tsx
 // The Expenses tab: pick a chat, see balances, settle up, browse and add expenses.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Avatar } from '../atoms';
+import { expenseService } from '../../services/expense.service';
 import AddExpenseSheet from './AddExpenseSheet';
 import ChatExpenses from './ChatExpenses';
 import ExpenseDetail from './ExpenseDetail';
@@ -24,15 +25,26 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('chat') || undefined;
   const selected = conversations.find((c) => c.id === selectedId);
+  // Groups by default; a direct chat shows up once it has expenses (or with "Show all chats")
+  const [withExpenses, setWithExpenses] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    expenseService.conversationsWithExpenses().then((ids) => setWithExpenses(new Set(ids))).catch(() => undefined);
+  }, [conversations]);
+  const listed = useMemo(
+    () => conversations.filter((c) => showAll || c.isGroup || withExpenses.has(c.id) || c.id === selectedId),
+    [conversations, showAll, withExpenses, selectedId],
+  );
+  const hidden = conversations.length - listed.length;
   const [openExpense, setOpenExpense] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   // Desktop: open the first chat so the page isn't empty
   useEffect(() => {
-    if (!selectedId && conversations.length && window.matchMedia('(min-width: 768px)').matches) {
-      setParams({ chat: conversations[0].id }, { replace: true });
+    if (!selectedId && listed.length && window.matchMedia('(min-width: 768px)').matches) {
+      setParams({ chat: listed[0].id }, { replace: true });
     }
-  }, [selectedId, conversations, setParams]);
+  }, [selectedId, listed, setParams]);
 
   return (
     <div className="flex h-full">
@@ -42,7 +54,7 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
           <p className="text-sm text-muted-500">Split bills in any chat. Scan a receipt or add it by hand.</p>
         </div>
         <ul>
-          {conversations.map((c) => (
+          {listed.map((c) => (
             <li key={c.id}>
               <button
                 type="button"
@@ -57,7 +69,14 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
               </button>
             </li>
           ))}
-          {conversations.length === 0 && <li className="px-4 py-6 text-sm text-muted-500">Start a chat to share expenses.</li>}
+          {listed.length === 0 && <li className="px-4 py-6 text-sm text-muted-500">Create a group to share expenses.</li>}
+          {(hidden > 0 || showAll) && (
+            <li className="px-4 py-3">
+              <button type="button" onClick={() => setShowAll((v) => !v)} className="text-sm text-primary-700 hover:underline">
+                {showAll ? 'Show groups only' : `Show all chats (${hidden} direct)`}
+              </button>
+            </li>
+          )}
         </ul>
       </aside>
 
