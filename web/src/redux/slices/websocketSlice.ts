@@ -5,6 +5,8 @@ import type { RootState } from '../store';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
+const EMPTY_TYPING: Record<string, string[]> = {};
+const EMPTY_NAMES: Record<string, string> = {};
 
 interface WebSocketState {
   isConnected: boolean;
@@ -12,6 +14,7 @@ interface WebSocketState {
   error: string | null;
   onlineUsers: string[];
   typingUsers: Record<string, string[]>; // conversationId -> userIds[]
+  typingNames: Record<string, string>; // userId -> display name (from typing events)
 }
 
 const initialState: WebSocketState = {
@@ -19,7 +22,8 @@ const initialState: WebSocketState = {
   isConnecting: false,
   error: null,
   onlineUsers: [],
-  typingUsers: {}
+  typingUsers: {},
+  typingNames: {}
 };
 
 const websocketSlice = createSlice({
@@ -60,8 +64,12 @@ const websocketSlice = createSlice({
     },
 
     // Typing indicators
-    setTyping: (state, action: PayloadAction<{ conversationId: string; userId: string; isTyping: boolean }>) => {
-      const { conversationId, userId, isTyping } = action.payload;
+    setTyping: (
+      state,
+      action: PayloadAction<{ conversationId: string; userId: string; isTyping: boolean; userName?: string | null }>
+    ) => {
+      const { conversationId, userId, isTyping, userName } = action.payload;
+      if (userName) state.typingNames[userId] = userName;
 
       if (!state.typingUsers[conversationId]) {
         state.typingUsers[conversationId] = [];
@@ -111,5 +119,7 @@ export const selectWebSocketError = (state: RootState) => state.websocket?.error
 export const selectOnlineUsers = (state: RootState) => state.websocket?.onlineUsers ?? EMPTY;
 export const selectTypingUsers = (conversationId: string) => (state: RootState) =>
   state.websocket?.typingUsers[conversationId] ?? EMPTY;
+export const selectAllTypingUsers = (state: RootState) => state.websocket?.typingUsers ?? EMPTY_TYPING;
+export const selectTypingNames = (state: RootState) => state.websocket?.typingNames ?? EMPTY_NAMES;
 
 export default websocketSlice.reducer;

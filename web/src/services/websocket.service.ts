@@ -35,7 +35,7 @@ export interface OutgoingMedia {
 
 export interface WebSocketEvent {
   type: 'message' | 'typing' | 'read' | 'joined' | 'left' | 'online' | 'offline' | 'presence'
-    | 'conversation_created' | 'conversation_updated' | 'conversation_removed'
+    | 'conversation_created' | 'conversation_updated' | 'conversation_removed' | 'conversation_pinned'
     | 'message_updated' | 'reactions_updated' | 'error';
   roomId?: string;
   userId?: string;
@@ -67,6 +67,9 @@ export interface WebSocketEvent {
   removedBy?: string;
   removedByName?: string;
   left?: boolean;
+  pinned?: boolean;
+  pinnedAt?: string | null;
+  userName?: string | null;
   messageType?: 'text' | 'image' | 'video' | 'file' | 'system';
   replyTo?: {
     id: string; text: string; senderId: string;

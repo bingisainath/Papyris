@@ -11,7 +11,7 @@ import {
 } from '../../../hooks/useWebSocket';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
-import { selectIsConnected } from '../../../redux/slices/websocketSlice';
+import { selectIsConnected, selectTypingNames } from '../../../redux/slices/websocketSlice';
 import { fetchMessages, fetchOlderMessages } from '../../../redux/actions/chatActions';
 import { messagePreview, resolveMediaUrl } from '../../../utils/media';
 import { applyMessageUpdate, clearUnreadCount } from '../../../redux/slices/chatSlice';
@@ -89,6 +89,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // ✅ WebSocket: Typing indicators
   const { isTyping, typingUsers, startTyping, stopTyping } = useTypingIndicator(conversationId);
+
+  const typingNames = useSelector(selectTypingNames);
+  const typingText = !isGroup
+    ? `${conversationName} is typing`
+    : typingUsers.length > 1
+      ? `${typingUsers.length} people are typing`
+      : `${typingNames[typingUsers[0]] || 'Someone'} is typing`;
 
   // ✅ WebSocket: Read receipts
   const { markAsRead } = useReadReceipt(conversationId);
@@ -327,7 +334,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           {/* Status */}
           {isTyping ? (
             <p className="text-sm text-primary-600 font-medium">
-              Typing...
+              {isGroup ? typingText : 'Typing...'}
             </p>
           ) : (
             <p className="text-sm text-muted-500">
@@ -427,7 +434,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {/* Typing Indicator */}
       {isTyping && (
         <div className="px-6 py-2 text-sm text-muted-500">
-          {isGroup && typingUsers.length > 1 ? 'Several people are typing' : isGroup ? 'Someone is typing' : `${conversationName} is typing`}
+          {typingText}
           <span className="inline-flex gap-1 ml-2">
             <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
             <span className="w-2 h-2 bg-muted-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>

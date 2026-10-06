@@ -2,7 +2,9 @@
 import React, { useState, useMemo } from 'react';
 import { Input, Button, Typography, Loading } from '../../atoms';
 import Icon from '../../atoms/Icon';
+import { useSelector } from 'react-redux';
 import { ChatListItem } from '../../molecules';
+import { selectAllTypingUsers, selectTypingNames } from '../../../redux/slices/websocketSlice';
 
 interface Conversation {
   id: string;
@@ -21,6 +23,7 @@ interface ChatListProps {
   conversations: Conversation[];
   activeConversationId?: string;
   onSelectConversation: (id: string) => void;
+  onTogglePin?: (id: string) => void;
   onNewChat?: () => void;
   onNewGroup?: () => void;
   isLoading?: boolean;
@@ -31,12 +34,23 @@ const ChatList: React.FC<ChatListProps> = ({
   conversations,
   activeConversationId,
   onSelectConversation,
+  onTogglePin,
   onNewChat,
   onNewGroup,
   isLoading = false,
   className = ''
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const typingUsers = useSelector(selectAllTypingUsers);
+  const typingNames = useSelector(selectTypingNames);
+
+  // "typing..." for DMs; who is typing for groups
+  const typingLabel = (conversation: Conversation) => {
+    const ids = typingUsers[conversation.id] || [];
+    if (!ids.length || !conversation.isGroup) return undefined;
+    if (ids.length > 1) return `${ids.length} people are typing...`;
+    return `${typingNames[ids[0]] || 'Someone'} is typing...`;
+  };
   const [filter, setFilter] = useState<'all' | 'direct' | 'groups'>('all');
 
   // Filter and search conversations
@@ -244,7 +258,10 @@ const ChatList: React.FC<ChatListProps> = ({
               unreadCount={conversation.unreadCount || 0}
               isOnline={conversation.isOnline}
               isActive={conversation.id === activeConversationId}
+              isTyping={(typingUsers[conversation.id] || []).length > 0}
+              typingText={typingLabel(conversation)}
               onClick={() => onSelectConversation(conversation.id)}
+              onTogglePin={onTogglePin ? () => onTogglePin(conversation.id) : undefined}
             />
           ))
         )}

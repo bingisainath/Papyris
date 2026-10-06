@@ -2,10 +2,13 @@
 
 import { AppDispatch, RootState } from '../store';
 import { chatService } from '../../services/chat.service';
+import { parseApiError } from '../../utils/apiError';
+import { toast } from 'react-toastify';
 import {
   setConversations,
   setMessages,
   prependMessages,
+  setPinned,
   setLoading,
   setMessagesLoading,
   setError,
@@ -245,5 +248,27 @@ export const fetchUsers = async (search?: string) => {
   } catch (error) {
     console.error('Failed to fetch users:', error);
     return [];
+  }
+};
+/**
+ * Pin or unpin a conversation for the current user (optimistic; max 3 pinned)
+ */
+export const togglePinConversation = (conversationId: string) => async (
+  dispatch: AppDispatch,
+  getState: () => RootState
+) => {
+  const conversation = getState().chat.conversations.find(c => c.id === conversationId);
+  if (!conversation) return;
+
+  const previous = conversation.pinnedAt ?? null;
+  const pin = !conversation.isPinned;
+  dispatch(setPinned({ conversationId, pinnedAt: pin ? new Date().toISOString() : null }));
+
+  try {
+    const response = await chatService.pinConversation(conversationId, pin);
+    dispatch(setPinned({ conversationId, pinnedAt: response.data?.pinnedAt ?? null }));
+  } catch (error) {
+    dispatch(setPinned({ conversationId, pinnedAt: previous }));
+    toast.error(parseApiError(error));
   }
 };

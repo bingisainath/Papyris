@@ -14,6 +14,9 @@ import { useDebounce } from '../../../hooks/useDebounce';
 import { parseApiError } from '../../../utils/apiError';
 import { mediaTypeOf, validateFile } from '../../../utils/media';
 import { CONVERSATION_UPDATED_EVENT, NAVIGATE_EVENT } from '../../../utils/events';
+import { useDispatch, useSelector } from 'react-redux';
+import type { AppDispatch, RootState } from '../../../redux/store';
+import { togglePinConversation } from '../../../redux/actions/chatActions';
 
 interface ConversationInfoPanelProps {
   conversationId: string;
@@ -39,6 +42,10 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const dispatch = useDispatch<AppDispatch>();
+  const isPinned = useSelector((state: RootState) =>
+    !!state.chat.conversations.find(c => c.id === conversationId)?.isPinned
+  );
 
   // Parents pass a new onClose every render; keep it out of load's dependencies
   // so the panel only refetches when it opens or the conversation changes.
@@ -388,6 +395,15 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
                 </ul>
               </section>
             )}
+
+            <div className="px-6 pt-4">
+              <button
+                onClick={() => dispatch(togglePinConversation(conversationId))}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
+              >
+                <Icon name="pin" size={16} /> {isPinned ? 'Unpin chat' : 'Pin chat'}
+              </button>
+            </div>
 
             {isGroup && (
               <div className="px-6 py-4">

@@ -16,7 +16,9 @@ interface ChatListItemProps {
   isTyping?: boolean;
   isPinned?: boolean;
   isGroup?: boolean;
+  typingText?: string; // e.g. "Alice is typing…" (defaults to "typing...")
   onClick?: () => void;
+  onTogglePin?: () => void;
   className?: string;
 }
 
@@ -32,7 +34,9 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
   isTyping = false,
   isPinned = false,
   isGroup = false,
+  typingText,
   onClick,
+  onTogglePin,
   className = ''
 }) => {
   
@@ -55,13 +59,6 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
         ${className}
       `}
     >
-      {/* Pin indicator */}
-      {isPinned && (
-        <div className="absolute top-2 right-2 text-primary-600">
-          <Icon name="attach" size={14} className="rotate-45" />
-        </div>
-      )}
-
       {/* Avatar with status */}
       <Avatar
         src={avatar}
@@ -105,7 +102,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
                   <span className="w-1.5 h-1.5 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                   <span className="w-1.5 h-1.5 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                 </div>
-                <span className="text-xs text-primary-600 font-medium">typing...</span>
+                <span className="text-xs text-primary-600 font-medium truncate">{typingText || 'typing...'}</span>
               </div>
             ) : (
               <Typography
@@ -121,6 +118,23 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
           {/* {unreadCount > 0 && !isTyping && (
             <Badge count={unreadCount} variant="primary" size="sm" />
           )} */}
+
+          {/* Pin: always shown when pinned; on hover (or focus), a button to pin/unpin */}
+          {onTogglePin ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+              className={`flex-shrink-0 p-1 -my-1 rounded-md transition-opacity hover:bg-primary-100 ${
+                isPinned ? 'text-primary-600' : 'text-muted-400 opacity-0 group-hover:opacity-100 focus:opacity-100'
+              }`}
+              title={isPinned ? 'Unpin chat' : 'Pin chat'}
+              aria-label={isPinned ? 'Unpin chat' : 'Pin chat'}
+            >
+              <Icon name="pin" size={14} />
+            </button>
+          ) : isPinned && (
+            <Icon name="pin" size={14} className="flex-shrink-0 text-primary-600" />
+          )}
 
           {/* ✅ Unread count badge */}
           {unreadCount > 0 && (

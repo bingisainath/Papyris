@@ -19,6 +19,7 @@ import {
   removeMessage,
   applyMessageUpdate,
   setReactions,
+  setPinned,
   markMessagesRead,
   syncOnlineStatus,
   setActiveConversation,
@@ -45,6 +46,30 @@ export { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT };
 
 // clientId -> object URL of a local attachment preview, revoked once the server echoes the message
 const pendingPreviews = new Map<string, string>();
+
+// Clients repeat "typing" every few seconds while typing; if that stops (closed tab,
+// lost connection) the indicator clears itself.
+const TYPING_TIMEOUT_MS = 6000;
+const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function setTypingWithExpiry(
+  dispatch: AppDispatch,
+  conversationId: string,
+  userId: string,
+  isTyping: boolean,
+  userName?: string | null
+) {
+  const key = `${conversationId}:${userId}`;
+  clearTimeout(typingTimers.get(key));
+  typingTimers.delete(key);
+  dispatch(setTyping({ conversationId, userId, isTyping, userName }));
+  if (isTyping) {
+    typingTimers.set(key, setTimeout(() => {
+      typingTimers.delete(key);
+      dispatch(setTyping({ conversationId, userId, isTyping: false }));
+    }, TYPING_TIMEOUT_MS));
+  }
+}
 
 const newClientId = () =>
   `temp-${typeof crypto !== 'undefined' && crypto.randomUUID
@@ -287,6 +312,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       const roomId = data.roomId;
       const isOwn = data.senderId === localStorage.getItem('userId');
 
+      // Sending a message means they stopped typing
+      if (data.senderId) setTypingWithExpiry(dispatch, roomId, data.senderId, false);
+
       // Desktop notification for messages from others (skipped if this chat is in view)
       if (!isOwn && data.messageType !== 'system') {
         dispatch((_: AppDispatch, getState: () => RootState) => {
@@ -322,11 +350,13 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // Typing indicator
   wsService.on('typing', (data) => {
     if (data.roomId && data.userId) {
-      dispatch(setTyping({
-        conversationId: data.roomId,
-        userId: data.userId,
-        isTyping: data.isTyping || false
-      }));
+      setTypingWithExpiry(dispatch, data.roomId, data.userId, !!data.isTyping, data.userName);
+    }
+  });
+
+  wsService.on('conversation_pinned', (data) => {
+    if (data.conversationId) {
+      dispatch(setPinned({ conversationId: data.conversationId, pinnedAt: data.pinned ? data.pinnedAt || new Date().toISOString() : null }));
     }
   });
 

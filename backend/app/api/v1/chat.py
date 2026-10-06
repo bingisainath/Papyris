@@ -114,7 +114,7 @@ async def get_conversations(
             }
 
         response_data = []
-        for conv, _member in rows:
+        for conv, my_membership in rows:
             other_user = None
             if conv.kind == "dm":
                 other_id = next((uid for uid in member_ids[conv.id] if uid != str(current_user.id)), None)
@@ -131,7 +131,8 @@ async def get_conversations(
                 "isOnline": False,  # Will be updated by frontend based on online users
                 "isGroup": conv.kind == "group",
                 "members": member_ids[conv.id],
-                "isPinned": False,
+                "isPinned": my_membership.pinned_at is not None,
+                "pinnedAt": my_membership.pinned_at.isoformat() if my_membership.pinned_at else None,
                 "isTyping": False,
             })
 

@@ -8,7 +8,7 @@ type IconName =
   // New - Navigation
   | 'home' | 'chat' | 'expense' | 'settings' | 'logout'
   // New - Actions
-  | 'edit' | 'delete' | 'close' | 'back' | 'forward' | 'more'
+  | 'edit' | 'delete' | 'close' | 'back' | 'forward' | 'more' | 'pin'
   // New - Expense specific
   | 'split' | 'settle' | 'receipt' | 'wallet' | 'coins'
   // New - Status
@@ -163,6 +163,12 @@ const Icon: React.FC<IconProps> = ({
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth}>
         <polyline points="3 6 5 6 21 6"></polyline>
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      </svg>
+    ),
+    pin: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" y1="17" x2="12" y2="22"></line>
+        <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"></path>
       </svg>
     ),
     close: (

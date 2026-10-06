@@ -6,6 +6,8 @@ import Icon from '../../atoms/Icon';
 import EmojiPicker from '../EmojiPicker';
 import { ACCEPTED_FILE_TYPES, formatFileSize, mediaTypeOf, validateFile } from '../../../utils/media';
 
+const TYPING_REPEAT_MS = 2500;
+
 interface MessageInputProps {
   placeholder?: string;
   onSend: (message: string, file?: File) => void;
@@ -47,6 +49,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingSentAt = useRef(0);
 
   // Free the preview's object URL when it changes or the input unmounts
   useEffect(() => {
@@ -108,9 +111,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
       // Handle typing indicator
       if (onTyping) {
-        if (!isTyping) {
+        // Repeat "typing" while the user keeps typing; receivers clear it if it stops arriving
+        const now = Date.now();
+        if (!isTyping || now - lastTypingSentAt.current > TYPING_REPEAT_MS) {
           setIsTyping(true);
           onTyping(true);
+          lastTypingSentAt.current = now;
         }
 
         // Clear existing timeout

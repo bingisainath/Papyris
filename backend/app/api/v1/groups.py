@@ -5,12 +5,13 @@ Conversation details and group management: rename, photo, description,
 add/remove members, roles and leaving.
 """
 
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
@@ -37,6 +38,13 @@ class AddMembersRequest(BaseModel):
 
 class UpdateMemberRequest(BaseModel):
     role: MemberRole
+
+
+class PinRequest(BaseModel):
+    pinned: bool
+
+
+MAX_PINNED_CONVERSATIONS = 3
 
 
 async def _load(db: AsyncSession, conversation_id: UUID, user: User) -> tuple[Conversation, ConversationMember]:
@@ -121,6 +129,44 @@ async def get_conversation(
             "members": members,
         },
     }
+
+
+@router.put("/{conversation_id}/pin")
+async def pin_conversation(
+    conversation_id: UUID,
+    payload: PinRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pin a conversation to the top of your own chat list (or unpin it). Max 3 pinned."""
+    _conversation, me = await _load(db, conversation_id, current_user)
+
+    if payload.pinned and me.pinned_at is None:
+        pinned_count = (await db.execute(
+            select(func.count(ConversationMember.id)).where(
+                ConversationMember.user_id == current_user.id,
+                ConversationMember.pinned_at.is_not(None),
+            )
+        )).scalar_one()
+        if pinned_count >= MAX_PINNED_CONVERSATIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You can pin up to {MAX_PINNED_CONVERSATIONS} chats. Unpin one first.",
+            )
+        me.pinned_at = datetime.now(timezone.utc)
+    elif not payload.pinned:
+        me.pinned_at = None
+    await db.commit()
+
+    event = {
+        "type": "conversation_pinned",
+        "conversationId": str(conversation_id),
+        "pinned": me.pinned_at is not None,
+        "pinnedAt": me.pinned_at.isoformat() if me.pinned_at else None,
+    }
+    # Only this user's devices: pins are personal
+    await publish_users([str(current_user.id)], event)
+    return {"success": True, "message": "Pinned" if event["pinned"] else "Unpinned", "data": event}
 
 
 @router.patch("/{conversation_id}")

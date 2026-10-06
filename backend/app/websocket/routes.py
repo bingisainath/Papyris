@@ -310,21 +310,28 @@ async def ws_chat(ws: WebSocket):
 
             # TYPING INDICATOR
             if event_type == "typing" and room_id:
-                is_typing = data.get("isTyping", False)
+                is_typing = bool(data.get("isTyping", False))
 
                 async with async_session_maker() as db:
                     is_member = await _check_membership(db, user_id, room_id)
                     if not is_member:
                         continue
+                    others = [
+                        uid for uid in await MessageService.member_ids(db, uuid.UUID(room_id))
+                        if uid != user_id_str
+                    ]
+                    typist = await db.get(User, user_id)
 
                 payload = {
                     "type": "typing",
                     "roomId": room_id,
                     "userId": user_id_str,
+                    "userName": (typist.name or typist.username) if typist else None,
                     "isTyping": is_typing
                 }
 
-                await publish_room(room_id, payload)
+                # Every member (not just those with the chat open) so chat lists can show it
+                await publish_users(others, payload)
                 print(f"⌨️  [WS:{user_id_str[:8]}] Typing: {is_typing} in {room_id[:8]}")
                 continue
 

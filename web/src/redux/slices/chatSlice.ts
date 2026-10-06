@@ -54,6 +54,7 @@ interface Conversation {
   isOnline?: boolean;
   isTyping?: boolean;
   isPinned?: boolean;
+  pinnedAt?: string | null;
   isGroup?: boolean;
   members?: string[];
 }
@@ -254,6 +255,14 @@ const chatSlice = createSlice({
       const { conversationId, messageId, reactions } = action.payload;
       const message = (state.messages[conversationId] || []).find(m => m.id === messageId);
       if (message) message.reactions = reactions;
+    },
+
+    setPinned: (state, action: PayloadAction<{ conversationId: string; pinnedAt: string | null }>) => {
+      const conversation = state.conversations.find(c => c.id === action.payload.conversationId);
+      if (conversation) {
+        conversation.isPinned = !!action.payload.pinnedAt;
+        conversation.pinnedAt = action.payload.pinnedAt;
+      }
     },
 
     removeMessage: (state, action: PayloadAction<{ conversationId: string; messageId: string }>) => {
@@ -457,6 +466,7 @@ export const {
   prependMessages,
   upsertMessage,
   removeMessage,
+  setPinned,
   applyMessageUpdate,
   setReactions,
   markMessagesRead,

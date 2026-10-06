@@ -19,6 +19,7 @@ import {
   fetchMessages,
   createDirectConversation,
   createGroupConversation,
+  togglePinConversation,
 } from '../../redux/actions/chatActions';
 import type { AppDispatch, RootState } from '../../redux/store';
 import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
@@ -116,11 +117,13 @@ const Home: React.FC = () => {
   const currentUserId = localStorage.getItem('userId') || '';
 
   const sortedConversations = useMemo(() => {
-    return [...conversations].sort((a, b) => {
-      const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
-      const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
-      return timeB - timeA; // Most recent first
-    });
+    const time = (value?: string | null) => (value ? new Date(value).getTime() : 0);
+    // Pinned chats first (most recently pinned on top), then by latest message
+    return [...conversations].sort((a, b) =>
+      Number(!!b.isPinned) - Number(!!a.isPinned) ||
+      time(b.pinnedAt) - time(a.pinnedAt) ||
+      time(b.lastMessageTime) - time(a.lastMessageTime)
+    );
   }, [conversations]);
 
   const otherUserId = activeConversation ? getOtherUserId(activeConversation) : null;
@@ -330,6 +333,7 @@ const Home: React.FC = () => {
                 conversations={sortedConversations}
                 activeConversationId={activeConversationId}
                 onSelectConversation={handleSelectConversation}
+                onTogglePin={(id) => dispatch(togglePinConversation(id))}
                 onNewChat={() => setShowSearchUserModal(true)}
                 onNewGroup={() => setShowCreateGroupModal(true)}
                 isLoading={isLoading}

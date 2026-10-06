@@ -7,6 +7,7 @@ import reducer, {
   prependMessages,
   setConversations,
   setMessages,
+  setPinned,
   syncOnlineStatus,
   upsertMessage,
 } from './chatSlice';
@@ -116,5 +117,15 @@ describe('conversation list', () => {
     expect(state.conversations[0].isOnline).toBe(true);
     state = reducer(state, syncOnlineStatus({ onlineUserIds: ['me'], currentUserId: 'me' }));
     expect(state.conversations[0].isOnline).toBe(false);
+  });
+});
+
+describe('pinning', () => {
+  it('sets and clears pin state', () => {
+    let state = reducer(undefined, setConversations([{ id: 'c', name: 'C', members: [], isGroup: false }]));
+    state = reducer(state, setPinned({ conversationId: 'c', pinnedAt: '2026-01-01T00:00:00Z' }));
+    expect(state.conversations[0]).toMatchObject({ isPinned: true, pinnedAt: '2026-01-01T00:00:00Z' });
+    state = reducer(state, setPinned({ conversationId: 'c', pinnedAt: null }));
+    expect(state.conversations[0].isPinned).toBe(false);
   });
 });

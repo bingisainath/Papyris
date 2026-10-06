@@ -191,6 +191,18 @@ class ChatService {
   }
 
   /**
+   * Pin a conversation to the top of your list (max 3), or unpin it
+   */
+  async pinConversation(conversationId: string, pinned: boolean) {
+    const response = await axios.put(
+      `${API_URL}/conversations/${conversationId}/pin`,
+      { pinned },
+      { headers: getAuthHeader() }
+    );
+    return response.data;
+  }
+
+  /**
    * Edit the text of your own message
    */
   async editMessage(messageId: string, text: string) {
