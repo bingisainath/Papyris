@@ -9,6 +9,7 @@ import {
   sendTyping as sendTypingAction,
   markAsRead as markAsReadAction
 } from '../redux/actions/websocketActions';
+import type { SendOptions } from '../redux/actions/websocketActions';
 import {
   selectIsConnected,
   selectIsConnecting,
@@ -118,14 +119,15 @@ export const useSendMessage = () => {
     conversationId: string,
     text: string,
     file?: File,
-    replyTo?: ReplyPreview | null
+    replyTo?: ReplyPreview | null,
+    options?: SendOptions,
   ) => {
     if (!isConnected) {
       console.error('❌ Cannot send message: WebSocket not connected');
       return;
     }
 
-    dispatch(sendMessageAction(conversationId, text, currentUserId, file, replyTo));
+    dispatch(sendMessageAction(conversationId, text, currentUserId, file, replyTo, options));
   }, [isConnected, currentUserId, dispatch]);
 
   return { sendMessage, isConnected };

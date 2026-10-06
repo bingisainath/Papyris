@@ -1,8 +1,11 @@
 // src/components/organisms/MediaViewer/index.tsx
-// Full-screen image viewer for a conversation's photos.
+// Full-screen viewer for a conversation's photos and videos (swipe or arrow keys to move).
 
 import React, { useEffect, useRef } from 'react';
+import { Download, Forward } from 'lucide-react';
+import { toast } from 'react-toastify';
 import Icon from '../../atoms/Icon';
+import { downloadMedia } from '../../../utils/media';
 import { formatMessageTime } from '../../../utils/dateFormat';
 
 export interface ViewerImage {
@@ -11,6 +14,7 @@ export interface ViewerImage {
   filename?: string;
   senderName?: string;
   timestamp: string;
+  type?: 'image' | 'video';
 }
 
 interface MediaViewerProps {
@@ -18,9 +22,10 @@ interface MediaViewerProps {
   index: number;
   onIndexChange: (index: number) => void;
   onClose: () => void;
+  onForward?: (id: string) => void;
 }
 
-const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange, onClose }) => {
+const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange, onClose, onForward }) => {
   const image = images[index];
   const swipeStartX = useRef<number | null>(null);
   const hasPrev = index > 0;
@@ -49,7 +54,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange,
   return (
     <div
       role="dialog"
-      aria-label="Image viewer"
+      aria-label="Media viewer"
       className="fixed inset-0 z-[60] flex flex-col bg-black/90 animate-fade-in select-none"
     >
       {/* Top bar */}
@@ -61,17 +66,20 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange,
             {images.length > 1 && ` · ${index + 1} of ${images.length}`}
           </p>
         </div>
-        <a
-          href={image.url}
-          download={image.filename || 'photo'}
+        {onForward && (
+          <button onClick={() => onForward(image.id)} className="p-2 rounded-lg hover:bg-white/10" title="Forward" aria-label="Forward">
+            <Forward className="w-5 h-5" />
+          </button>
+        )}
+        <button
+          onClick={() => downloadMedia(image.url, image.filename || (image.type === 'video' ? 'video.mp4' : 'photo.jpg'))
+            .catch(() => toast.error("Couldn't download it. Try again"))}
           className="p-2 rounded-lg hover:bg-white/10"
           title="Download"
           aria-label="Download"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-        </a>
+          <Download className="w-5 h-5" />
+        </button>
         <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10" title="Close" aria-label="Close">
           <Icon name="close" size={22} className="text-white" />
         </button>
@@ -81,16 +89,20 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange,
       <div
         className="relative flex-1 min-h-0 flex items-center justify-center px-4 pb-6"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        onPointerDown={(e) => { swipeStartX.current = e.clientX; }}
+        onPointerDown={(e) => { swipeStartX.current = (e.target as HTMLElement).tagName === 'VIDEO' ? null : e.clientX; }} // video controls need drags
         onPointerUp={onPointerUp}
       >
-        <img
-          key={image.id}
-          src={image.url}
-          alt={image.filename || 'Photo'}
-          draggable={false}
-          className="max-w-full max-h-full object-contain rounded-lg shadow-elevated animate-fade-in"
-        />
+        {image.type === 'video' ? (
+          <video key={image.id} src={image.url} controls autoPlay playsInline className="max-w-full max-h-full rounded-lg bg-black" />
+        ) : (
+          <img
+            key={image.id}
+            src={image.url}
+            alt={image.filename || 'Photo'}
+            draggable={false}
+            className="max-w-full max-h-full object-contain rounded-lg shadow-elevated animate-fade-in"
+          />
+        )}
 
         {hasPrev && (
           <button

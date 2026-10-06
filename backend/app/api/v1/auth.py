@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
-import os
 
 from app.db.session import get_db
 from app.schemas.user import UserCreate, UserLogin, UserResponse, UserUpdate
@@ -16,6 +15,7 @@ from uuid import UUID
 from app.schemas.response import APIResponse
 from app.services.auth_service import AuthService
 from app.services.email_service import email_service
+from app.config.settings import settings
 from app.utils.deps import get_current_user
 from app.models.user import User
 
@@ -182,7 +182,7 @@ async def forgot_password(
         
         if success and user:
             # Build reset link
-            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            frontend_url = settings.FRONTEND_URL
             reset_link = f"{frontend_url}/reset-password?token={user.reset_token}"
             
             # Never log the link or token: anyone reading logs could reset the password.

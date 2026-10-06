@@ -2,6 +2,8 @@
 import React, { useRef, useState } from 'react';
 import { Avatar } from '../../atoms';
 import Icon from '../../atoms/Icon';
+import { Download, Forward, RotateCw, X } from 'lucide-react';
+import VoiceNotePlayer from '../VoiceNotePlayer';
 import { formatMessageTime } from '../../../utils/dateFormat';
 import { formatFileSize, mediaBoxStyle } from '../../../utils/media';
 import type { Reaction, ReplyPreview } from '../../../redux/slices/chatSlice';
@@ -20,13 +22,19 @@ interface MessageBubbleProps {
   senderAvatar?: string; // For group chats
   senderColor?: string; // For group chat user identification
   mediaUrl?: string;
-  mediaType?: 'image' | 'video' | 'file';
+  mediaType?: 'image' | 'video' | 'audio' | 'file';
+  mediaDuration?: number;
   mediaFilename?: string;
   mediaSize?: number;
   mediaThumbnail?: string;
   mediaWidth?: number;
   mediaHeight?: number;
   uploadProgress?: number; // 0-100 while the attachment uploads
+  uploadFailed?: boolean;
+  onCancelUpload?: () => void;
+  onRetryUpload?: () => void;
+  onForward?: () => void;
+  onDownload?: () => void;
   isGroup?: boolean;
   isDeleted?: boolean;
   editedAt?: string | null;
@@ -59,7 +67,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   mediaThumbnail,
   mediaWidth,
   mediaHeight,
+  mediaDuration,
   uploadProgress,
+  uploadFailed,
+  onCancelUpload,
+  onRetryUpload,
+  onForward,
+  onDownload,
   isGroup = false,
   isDeleted = false,
   editedAt,
@@ -89,7 +103,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   // Pending/failed messages don't exist on the server yet, so they can't be acted on
   const canAct = !isDeleted && !id.startsWith('temp-');
-  const hasActions = canAct && !!(onReply || onReact || onEdit || onDelete);
+  const hasActions = canAct && !!(onReply || onReact || onEdit || onDelete || onForward || onDownload);
 
   // Mouse users get the action bar on hover; touch users toggle it with a tap.
   // (Touch also fires emulated mouse events, so filter by pointer type.)
@@ -209,6 +223,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                       className={box ? 'rounded-lg bg-black object-contain' : 'rounded-lg max-w-full sm:max-w-xs max-h-64 bg-black'}
                     />
                   )}
+                  {mediaType === 'audio' && (
+                    <VoiceNotePlayer src={mediaUrl} duration={mediaDuration} isSent={isSent} onError={onMediaError} />
+                  )}
                   {mediaType === 'file' && (
                     <a
                       href={mediaUrl}
@@ -223,6 +240,20 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                         {mediaSize ? <span className="text-[11px] opacity-70">{formatFileSize(mediaSize)}</span> : null}
                       </span>
                     </a>
+                  )}
+
+                  {/* Uploading: percentage and a cancel button */}
+                  {uploadProgress !== undefined && onCancelUpload && (
+                    <button
+                      type="button"
+                      onClick={onCancelUpload}
+                      className="absolute top-1.5 right-1.5 flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-black/60 text-white text-[11px]"
+                      title="Cancel upload"
+                      aria-label="Cancel upload"
+                    >
+                      {uploadProgress >= 99 ? 'Processing' : `${uploadProgress}%`}
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   )}
 
                   {/* Upload progress */}
@@ -261,6 +292,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             )}
           </div>
         </div>
+
+        {/* Upload failed: try again or drop it */}
+        {uploadFailed && (
+          <div className="flex items-center gap-2 mt-1 text-xs">
+            <span className="text-accent-600">Not sent</span>
+            <button type="button" onClick={onRetryUpload} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary-50 text-primary-700 hover:bg-primary-100">
+              <RotateCw className="w-3 h-3" /> Retry
+            </button>
+            <button type="button" onClick={onCancelUpload} className="px-2 py-0.5 rounded-md text-muted-600 hover:bg-muted-100">Remove</button>
+          </div>
+        )}
 
         {/* Reactions */}
         {reactions.length > 0 && !isDeleted && (
@@ -310,6 +352,28 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 title="Reply"
               >
                 <Icon name="forward" size={16} className="text-muted-500 rotate-180" />
+              </button>
+            )}
+            {onForward && (
+              <button
+                type="button"
+                onClick={() => { onForward(); setShowActions(false); }}
+                className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
+                title="Forward"
+                aria-label="Forward"
+              >
+                <Forward className="w-4 h-4 text-muted-500" />
+              </button>
+            )}
+            {onDownload && mediaUrl && (
+              <button
+                type="button"
+                onClick={() => { onDownload(); setShowActions(false); }}
+                className="p-1.5 hover:bg-muted-100 rounded-full transition-colors"
+                title="Download"
+                aria-label="Download"
+              >
+                <Download className="w-4 h-4 text-muted-500" />
               </button>
             )}
             {isSent && onEdit && (

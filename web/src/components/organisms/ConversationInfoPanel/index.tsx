@@ -18,6 +18,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
 import { togglePinConversation } from '../../../redux/actions/chatActions';
 import { ChatExpenseSettings } from '../../expenses/ExpenseSettingsSections';
+import SharedMedia, { SharedMediaRow } from '../SharedMedia';
 
 interface ConversationInfoPanelProps {
   conversationId: string;
@@ -39,6 +40,7 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
   const [descriptionDraft, setDescriptionDraft] = useState('');
 
   const [addingMembers, setAddingMembers] = useState(false);
+  const [showShared, setShowShared] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
@@ -84,6 +86,7 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
       setEditingName(false);
       setEditingDescription(false);
       setAddingMembers(false);
+      setShowShared(false);
       setSearch('');
     }
   }, [isOpen]);
@@ -331,6 +334,9 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
               )}
             </section>
 
+            {/* Photos, videos, files, voice notes and links shared here */}
+            <SharedMediaRow conversationId={conversationId} onOpen={() => setShowShared(true)} />
+
             {/* Expenses: currency, simplify debts, receipt model */}
             <section className="px-6 py-4 border-b border-muted-100">
               <ChatExpenseSettings
@@ -449,6 +455,9 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
               </div>
             )}
           </div>
+        )}
+        {showShared && (
+          <SharedMedia conversationId={conversationId} currentUserId={me?.id} onBack={() => setShowShared(false)} />
         )}
       </aside>
     </div>

@@ -1,11 +1,12 @@
 # backend/app/services/email_service.py
 
-import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
 import logging
+
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +14,18 @@ class EmailService:
     """Service for sending emails"""
     
     def __init__(self):
-        self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.smtp_user = os.getenv("SMTP_USER")
-        self.smtp_password = os.getenv("SMTP_PASSWORD")
-        self.from_email = os.getenv("FROM_EMAIL", self.smtp_user)
-        self.from_name = os.getenv("FROM_NAME", "Papyris")
-        self.environment = os.getenv("ENV", "local")
+        # Read from app settings, which load backend/.env (os.getenv would miss values in .env)
+        self.smtp_host = settings.SMTP_HOST
+        self.smtp_port = settings.SMTP_PORT
+        self.smtp_user = settings.SMTP_USER
+        self.smtp_password = settings.SMTP_PASSWORD
+        self.from_email = settings.FROM_EMAIL or settings.SMTP_USER
+        self.from_name = settings.FROM_NAME
+        self.environment = settings.ENV
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.smtp_user and self.smtp_password)
         
     def send_email(
         self,
@@ -28,13 +34,14 @@ class EmailService:
         html_content: str,
         text_content: Optional[str] = None
     ) -> bool:
-        """Send an email (dev mode prints to console, prod sends real email)"""
-        
-        # In development, just print to console
-        if self.environment == "local" or self.environment == "development":
-            # Local development only: show the email (e.g. the password-reset link) in the log
+        """Send an email over SMTP, or (no SMTP configured, not production) write it to the log."""
+        if not self.configured:
+            if self.environment == "production":
+                logger.error("Email not sent: SMTP_USER / SMTP_PASSWORD are not configured (%s)", subject)
+                return False
+            # Local development only: show the email (sign-up code, reset link) in the log
             logger.warning(
-                "EMAIL NOT SENT (local mode)\nTo: %s\nSubject: %s\n\n%s",
+                "EMAIL NOT SENT (no SMTP configured)\nTo: %s\nSubject: %s\n\n%s",
                 to_email, subject, text_content or "(no text content)",
             )
             return True

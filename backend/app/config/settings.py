@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB - images and documents
     MAX_VIDEO_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
     UPLOAD_DIR: str = "uploads"  # relative paths resolve against the backend/ directory
+    # Encrypts uploaded files on disk: 32 random bytes, base64. Generate with
+    #   python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+    # Never change or lose it once files exist (they can't be read without it).
+    # Empty = derived from JWT_SECRET_KEY (then never change that either).
+    MEDIA_ENCRYPTION_KEY: str = ""
     
     # Receipt scanning. Keys live only here on the server, never in the app.
     ANTHROPIC_API_KEY: str = ""
@@ -49,6 +54,16 @@ class Settings(BaseSettings):
     RECEIPT_SCANS_PER_MONTH: int = 50  # per person on the app's key; admins can change it in the app
     RECEIPT_AI_TIMEOUT_SECONDS: int = 120
     RECEIPT_MAX_IMAGES: int = 4
+
+    # Email (sign-up codes, password resets). With SMTP_USER and SMTP_PASSWORD set, emails are
+    # really sent; without them (local development) they are written to the backend log instead.
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    FROM_EMAIL: str = ""  # defaults to SMTP_USER
+    FROM_NAME: str = "Papyris"
+    FRONTEND_URL: str = "http://localhost:3000"  # used in password-reset links
 
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds

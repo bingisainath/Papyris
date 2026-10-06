@@ -69,3 +69,35 @@ async def test_resend_does_not_reveal_accounts(client):
     assert r.status_code == 200
     r = await client.post("/api/v1/auth/verify-email", json={"identifier": "nobody-here@example.com", "code": "123456"})
     assert r.status_code == 400
+
+
+def test_email_goes_out_over_smtp_when_configured(monkeypatch):
+    from app.services import email_service as module
+
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port):
+            sent.append(("connect", host, port))
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+        def starttls(self):
+            sent.append(("tls",))
+        def login(self, user, password):
+            sent.append(("login", user))
+        def send_message(self, msg):
+            sent.append(("send", msg["To"], msg["Subject"]))
+
+    monkeypatch.setattr(module.smtplib, "SMTP", FakeSMTP)
+    service = module.EmailService()
+    service.smtp_user, service.smtp_password, service.from_email = "papyris@gmail.com", "app-password", "papyris@gmail.com"
+    assert service.send_verification_code("new@example.com", "new", "123456")
+    assert ("login", "papyris@gmail.com") in sent
+    assert ("send", "new@example.com", "123456 is your Papyris code") in sent
+
+    unconfigured = module.EmailService()
+    unconfigured.smtp_user = unconfigured.smtp_password = ""
+    unconfigured.environment = "production"
+    assert unconfigured.send_verification_code("new@example.com", "new", "123456") is False

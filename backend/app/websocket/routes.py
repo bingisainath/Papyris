@@ -213,6 +213,8 @@ async def ws_chat(ws: WebSocket):
                     media_width = media_height = None
 
                 # Optional poster frame for videos (an uploaded image)
+                duration = data.get("mediaDuration")
+                media_duration = int(duration) if isinstance(duration, (int, float)) and media_type in ("audio", "video") and 0 < duration <= 36000 else None
                 media_thumbnail = data.get("mediaThumbnail") or None
                 if media_thumbnail and (media_type != "video" or not media_storage.is_stored_image_url(media_thumbnail)):
                     media_thumbnail = None
@@ -278,6 +280,7 @@ async def ws_chat(ws: WebSocket):
                     "mediaThumbnail": media_thumbnail,
                     "mediaWidth": media_width,
                     "mediaHeight": media_height,
+                    "mediaDuration": media_duration,
                     "replyToId": reply_to["id"] if reply_to else None,
                     "timestamp": timestamp,
                 })
@@ -297,6 +300,7 @@ async def ws_chat(ws: WebSocket):
                     "mediaThumbnail": media_storage.sign_url(media_thumbnail),
                     "mediaWidth": media_width,
                     "mediaHeight": media_height,
+                    "mediaDuration": media_duration,
                     "mediaSize": media_size,
                     "mediaFilename": media_filename,
                     "replyTo": reply_to,

@@ -13,7 +13,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
 import { selectIsConnected, selectTypingNames } from '../../../redux/slices/websocketSlice';
 import { fetchMessages, fetchOlderMessages } from '../../../redux/actions/chatActions';
-import { messagePreview, resolveMediaUrl } from '../../../utils/media';
+import { downloadMedia, messagePreview, resolveMediaUrl } from '../../../utils/media';
 import { applyMessageUpdate, clearUnreadCount } from '../../../redux/slices/chatSlice';
 import type { Message, ReplyPreview } from '../../../redux/slices/chatSlice';
 import { chatService } from '../../../services/chat.service';
@@ -27,6 +27,10 @@ import { UserPlus } from 'lucide-react';
 import AddExpenseSheet from '../../expenses/AddExpenseSheet';
 import ExpenseCard from '../../expenses/ExpenseCard';
 import ExpenseDetail from '../../expenses/ExpenseDetail';
+import ForwardDialog from '../ForwardDialog';
+import AlbumGrid, { groupAlbums } from '../../molecules/AlbumGrid';
+import type { OutgoingAttachment } from '../../molecules/MessageInput';
+import { cancelUpload, forwardMessage, retryUpload } from '../../../redux/actions/websocketActions';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -63,6 +67,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [showInfo, setShowInfo] = useState(false);
   const [infoAddMembers, setInfoAddMembers] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [forwarding, setForwarding] = useState<Message | null>(null);
   const lastMediaRefresh = useRef(0);
 
   // Expenses: ?receipt=<id> opens a receipt to review, ?expense=<id> opens an expense
@@ -180,7 +185,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   // Handle send message (or save an edit)
-  const handleSendMessage = async (text: string, file?: File) => {
+  const handleSendMessage = async (text: string, attachments?: OutgoingAttachment[]) => {
     if (editingMessage) {
       const original = editingMessage;
       setEditingMessage(null);
@@ -203,14 +208,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       return;
     }
 
-    if (!text.trim() && !file) return;
+    if (!text.trim() && !attachments?.length) return;
 
     // Stop typing indicator
     stopTyping();
 
-    // Uploads the attachment (if any), then sends via WebSocket
-    sendMessage(conversationId, text, file, replyingTo);
+    if (attachments?.length) {
+      // One message per photo/file, each with its own caption (the reply goes on the first)
+      attachments.forEach((a, i) => {
+        sendMessage(conversationId, a.caption, a.file, i === 0 ? replyingTo : null, { quality: a.quality });
+      });
+    } else {
+      sendMessage(conversationId, text, undefined, replyingTo);
+    }
     setReplyingTo(null);
+  };
+
+  const handleSendVoice = (file: File, seconds: number) => {
+    stopTyping();
+    sendMessage(conversationId, '', file, replyingTo, { quality: 'original', duration: seconds });
+    setReplyingTo(null);
+  };
+
+  const handleDownload = (message: Message) => {
+    if (!message.mediaUrl) return;
+    downloadMedia(message.mediaUrl, message.mediaFilename || 'download')
+      .catch(() => toast.error("Couldn't download it. Try again"));
   };
 
   const handleReply = (message: Message) => {
@@ -247,6 +270,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       toast.error(`Couldn't delete message: ${parseApiError(error)}`);
     }
   };
+
+  // Single messages and photo albums, in display order
+  const chatItems = useMemo(() => groupAlbums(messages), [messages]);
 
   // Photos in this chat, for the full-screen viewer
   const viewerImages: ViewerImage[] = useMemo(
@@ -296,6 +322,62 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       stopTyping();
     }
   };
+
+  const renderMessage = (message: Message) => message.messageType === 'system' && message.expenseId ? (
+              <div key={message.id} data-message-id={message.id}>
+                <ExpenseCard
+                  expenseId={message.expenseId}
+                  text={message.text}
+                  timestamp={message.timestamp}
+                  currentUserId={currentUserId}
+                  onOpen={(id) => setSearchParams({ expense: id })}
+                />
+              </div>
+            ) : message.messageType === 'system' ? (
+              <div key={message.id} data-message-id={message.id} className="flex justify-center">
+                <span className="px-3 py-1 text-xs text-muted-600 bg-muted-100 rounded-full text-center">
+                  {message.text}
+                </span>
+              </div>
+            ) : (
+              <MessageBubble
+                key={message.id}
+                id={message.id}
+                text={message.text}
+                timestamp={message.timestamp}
+                isSent={message.senderId === currentUserId}
+                senderName={message.senderName}
+                senderAvatar={message.senderAvatar}
+                status={message.status}
+                mediaUrl={resolveMediaUrl(message.mediaUrl)}
+                mediaType={message.mediaType}
+                mediaFilename={message.mediaFilename}
+                mediaSize={message.mediaSize}
+                mediaThumbnail={resolveMediaUrl(message.mediaThumbnail)}
+                mediaWidth={message.mediaWidth}
+                mediaHeight={message.mediaHeight}
+                uploadProgress={message.uploadProgress}
+                isGroup={isGroup}
+                isDeleted={message.isDeleted}
+                editedAt={message.editedAt}
+                replyTo={message.replyTo}
+                reactions={message.reactions}
+                currentUserId={currentUserId}
+                onReply={() => handleReply(message)}
+                onReact={(emoji) => handleReact(message, emoji)}
+                onEdit={() => handleEdit(message)}
+                onDelete={() => handleDelete(message)}
+                onJumpToMessage={jumpToMessage}
+                onOpenImage={() => openImage(message.id)}
+                onMediaError={message.id.startsWith('temp-') ? undefined : refreshExpiredMedia}
+                mediaDuration={message.mediaDuration}
+                uploadFailed={message.uploadFailed}
+                onCancelUpload={message.id.startsWith('temp-') ? () => dispatch(cancelUpload(conversationId, message.id)) : undefined}
+                onRetryUpload={() => dispatch(retryUpload(message.id))}
+                onForward={() => setForwarding(message)}
+                onDownload={message.mediaUrl ? () => handleDownload(message) : undefined}
+              />
+            );
 
   if (!isConnected) {
     return (
@@ -412,55 +494,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           </div>
         ) : (
           <>
-            {messages.map((message) => message.messageType === 'system' && message.expenseId ? (
-              <div key={message.id} data-message-id={message.id}>
-                <ExpenseCard
-                  expenseId={message.expenseId}
-                  text={message.text}
-                  timestamp={message.timestamp}
-                  currentUserId={currentUserId}
-                  onOpen={(id) => setSearchParams({ expense: id })}
-                />
-              </div>
-            ) : message.messageType === 'system' ? (
-              <div key={message.id} data-message-id={message.id} className="flex justify-center">
-                <span className="px-3 py-1 text-xs text-muted-600 bg-muted-100 rounded-full text-center">
-                  {message.text}
-                </span>
-              </div>
-            ) : (
-              <MessageBubble
-                key={message.id}
-                id={message.id}
-                text={message.text}
-                timestamp={message.timestamp}
-                isSent={message.senderId === currentUserId}
-                senderName={message.senderName}
-                senderAvatar={message.senderAvatar}
-                status={message.status}
-                mediaUrl={resolveMediaUrl(message.mediaUrl)}
-                mediaType={message.mediaType}
-                mediaFilename={message.mediaFilename}
-                mediaSize={message.mediaSize}
-                mediaThumbnail={resolveMediaUrl(message.mediaThumbnail)}
-                mediaWidth={message.mediaWidth}
-                mediaHeight={message.mediaHeight}
-                uploadProgress={message.uploadProgress}
+            {chatItems.map((item) => item.kind === 'album' ? (
+              <AlbumGrid
+                key={item.messages[0].id}
+                messages={item.messages}
+                isSent={item.messages[0].senderId === currentUserId}
                 isGroup={isGroup}
-                isDeleted={message.isDeleted}
-                editedAt={message.editedAt}
-                replyTo={message.replyTo}
-                reactions={message.reactions}
-                currentUserId={currentUserId}
-                onReply={() => handleReply(message)}
-                onReact={(emoji) => handleReact(message, emoji)}
-                onEdit={() => handleEdit(message)}
-                onDelete={() => handleDelete(message)}
-                onJumpToMessage={jumpToMessage}
-                onOpenImage={() => openImage(message.id)}
-                onMediaError={message.id.startsWith('temp-') ? undefined : refreshExpiredMedia}
+                onOpen={openImage}
+                onMediaError={refreshExpiredMedia}
               />
-            ))}
+            ) : renderMessage(item.message))}
             <div ref={messagesEndRef} />
           </>
         )}
@@ -482,6 +525,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-3 mobile-nav-safe">
         <MessageInput
           onSend={handleSendMessage}
+          onSendVoice={handleSendVoice}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
           editingText={editingMessage ? editingMessage.text : null}
@@ -497,6 +541,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {viewerIndex !== null && (
         <MediaViewer
           images={viewerImages}
+          onForward={(id) => {
+            const target = messages.find(m => m.id === id);
+            if (target) setForwarding(target);
+          }}
           index={Math.min(viewerIndex, viewerImages.length - 1)}
           onIndexChange={setViewerIndex}
           onClose={() => setViewerIndex(null)}
@@ -509,6 +557,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           currentUserId={currentUserId}
           receiptId={openReceiptId || undefined}
           onClose={() => { setAddingExpense(false); if (openReceiptId) closeExpenseView(); }}
+        />
+      )}
+      {forwarding && (
+        <ForwardDialog
+          message={forwarding}
+          onSend={(ids) => dispatch(forwardMessage(forwarding, ids))}
+          onClose={() => setForwarding(null)}
         />
       )}
       {openExpenseId && (

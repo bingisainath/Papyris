@@ -34,6 +34,11 @@ ALLOWED_TYPES: dict[str, tuple[str, str]] = {
     "video/mp4": ("video", ".mp4"),
     "video/webm": ("video", ".webm"),
     "video/quicktime": ("video", ".mov"),
+    # Voice notes (recorded in the browser: webm/opus in Chrome/Firefox, mp4/aac in Safari)
+    "audio/webm": ("audio", ".weba"),
+    "audio/ogg": ("audio", ".ogg"),
+    "audio/mp4": ("audio", ".m4a"),
+    "audio/mpeg": ("audio", ".mp3"),
     "application/pdf": ("file", ".pdf"),
     "application/msword": ("file", ".doc"),
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ("file", ".docx"),
@@ -41,7 +46,7 @@ ALLOWED_TYPES: dict[str, tuple[str, str]] = {
 
 EXTENSION_MIME = {ext: mime for mime, (_, ext) in ALLOWED_TYPES.items()}
 
-MEDIA_TYPES = {"image", "video", "file"}
+MEDIA_TYPES = {"image", "video", "audio", "file"}
 
 _KEY_RE = re.compile(r"^\d{4}/\d{2}/[0-9a-f]{32}\.[a-z0-9]{2,5}$")
 
@@ -81,6 +86,15 @@ def is_stored_media_url(url: str) -> bool:
         return False
     path = path_for_key(key)
     return path is not None and path.is_file()
+
+
+def read_bytes(url: str) -> bytes | None:
+    """The original bytes of a stored file (decrypted), or None if it isn't ours."""
+    from app.services import media_crypto
+    path = path_for_key(key_from_url(url or "") or "")
+    if path is None or not path.is_file():
+        return None
+    return media_crypto.read_all(path)
 
 
 def is_stored_image_url(url: str) -> bool:
@@ -133,8 +147,14 @@ def content_matches(mime: str, head: bytes) -> bool:
         return head[:4] == b"RIFF" and head[8:12] == b"WEBP"
     if mime in ("video/mp4", "video/quicktime"):
         return head[4:8] == b"ftyp"
-    if mime == "video/webm":
+    if mime in ("video/webm", "audio/webm"):
         return head.startswith(b"\x1a\x45\xdf\xa3")
+    if mime == "audio/ogg":
+        return head.startswith(b"OggS")
+    if mime == "audio/mp4":
+        return head[4:8] == b"ftyp"
+    if mime == "audio/mpeg":
+        return head.startswith(b"ID3") or head[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")
     if mime == "application/pdf":
         return head.startswith(b"%PDF")
     if mime == "application/msword":
@@ -152,6 +172,8 @@ def preview_text(message_type: str | None, text: str | None, filename: str | Non
         return "Photo"
     if message_type == "video":
         return "Video"
+    if message_type == "audio":
+        return "Voice message"
     if message_type == "file":
         return filename if filename else "File"
     return ""

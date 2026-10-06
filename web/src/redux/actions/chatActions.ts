@@ -90,6 +90,7 @@ const toMessage = (msg: any) => ({
   mediaThumbnail: msg.media_thumbnail || undefined,
   mediaWidth: msg.media_width || undefined,
   mediaHeight: msg.media_height || undefined,
+  mediaDuration: msg.media_duration || undefined,
   messageType: msg.message_type,
   expenseId: msg.expense_id || null,
   isDeleted: !!msg.is_deleted,

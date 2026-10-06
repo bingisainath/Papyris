@@ -95,6 +95,7 @@ async def delete_message(
     message.media_thumbnail = None
     message.media_filename = None
     message.media_size = None
+    message.media_duration = None
     message.updated_at = datetime.now(timezone.utc)
     await db.execute(delete(MessageReaction).where(MessageReaction.message_id == message.id))
     await db.commit()

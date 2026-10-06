@@ -28,7 +28,6 @@ import { NAVIGATE_EVENT } from '../../utils/events';
 import { getNotificationStatus, setNotificationsEnabled } from '../../utils/notifications';
 import type { NotificationStatus } from '../../utils/notifications';
 import { mediaService } from '../../services/media.service';
-import { mediaTypeOf, validateFile } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
@@ -46,8 +45,7 @@ const Home: React.FC = () => {
   const params = useParams();
 
   // Auth
-  const { user: currentUser, isAuthenticated, logout: authLogout, updateProfile } = useAuth();
-  const [savingProfile, setSavingProfile] = useState(false);
+  const { user: currentUser, isAuthenticated, logout: authLogout } = useAuth();
 
   // Redux state
   const conversations = useSelector((state: RootState) => state.chat?.conversations ?? EMPTY);
@@ -245,35 +243,6 @@ const Home: React.FC = () => {
     navigate(`/chat/${id}`);
   };
 
-  const handleUpdateProfile = async (data: {
-    name: string;
-    username?: string;
-    bio?: string;
-    avatar?: File;
-  }) => {
-    setSavingProfile(true);
-    try {
-      let avatar: string | undefined;
-      if (data.avatar) {
-        const error = validateFile(data.avatar) || (mediaTypeOf(data.avatar) !== 'image' ? 'Please choose an image.' : null);
-        if (error) throw new Error(error);
-        avatar = (await mediaService.upload(data.avatar)).url;
-      }
-      await updateProfile({
-        name: data.name,
-        username: data.username,
-        bio: data.bio ?? '',
-        avatar,
-      });
-      toast.success('Profile updated');
-      dispatch(fetchConversations()); // our name/photo shows in chats
-    } catch (error) {
-      toast.error(`Couldn't update profile: ${parseApiError(error)}`);
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
   const handleLogout = () => {
     authLogout();
     navigate('/login');
@@ -411,30 +380,12 @@ const Home: React.FC = () => {
         isLoading={creatingConversation}
       />
 
-      {/* Profile Modal */}
-      {showProfileModal && (
-        <ProfileModal
-          isOpen={showProfileModal}
-          onClose={() => setShowProfileModal(false)}
-          user={{
-            id: currentUser.id,
-            name: currentUser.name || currentUser.username || currentUser.email.split('@')[0],
-            username: currentUser.username || currentUser.email,
-            email: currentUser.email,
-            avatar: currentUser.avatar,
-            bio: currentUser.bio || '',
-            joinedDate: new Date(currentUser.created_at).toLocaleDateString()
-          }}
-          stats={{
-            totalChats: conversations.filter(c => !c.isGroup).length,
-            totalGroups: conversations.filter(c => c.isGroup).length,
-            totalExpenses: 0,
-            totalSettled: 0
-          }}
-          onUpdateProfile={handleUpdateProfile}
-          isLoading={savingProfile}
-        />
-      )}
+      {/* Profile */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        onChanged={() => dispatch(fetchConversations())} // our name/photo shows in chats
+      />
 
       {/* ✅ NEW: Loading overlay */}
       {creatingConversation && (

@@ -26,7 +26,13 @@ async def test_upload_and_serve_signed(client, make_user):
     data = r.json()["data"]
     assert data["mediaType"] == "image" and "sig=" not in data["url"]
     served = await client.get(data["signedUrl"])
-    assert served.status_code == 200 and served.content == png_bytes()
+    assert served.status_code == 200
+    # Re-saved without metadata, so not byte-identical, but the same picture
+    from PIL import Image
+    import io
+    with Image.open(io.BytesIO(served.content)) as img:
+        assert img.format == "PNG" and img.size == (4, 3)
+    assert (data["width"], data["height"]) == (4, 3)
 
 
 async def test_unsigned_or_tampered_links_refused(client, make_user):
@@ -61,7 +67,7 @@ async def test_upload_size_limit(client, make_user, monkeypatch, upload_dir):
     monkeypatch.setattr(settings, "MAX_UPLOAD_SIZE", 100)
     r = await upload(client, user, png_bytes(64, 64))
     assert r.status_code == 413
-    assert not any(upload_dir.rglob("*.png"))  # partial file removed
+    assert not any(p.is_file() for p in upload_dir.rglob("*"))  # partial file removed
 
 
 async def test_range_request(client, make_user):
@@ -83,3 +89,13 @@ async def test_avatar_is_returned_signed(client, make_user):
     url = (await upload(client, user)).json()["data"]["url"]
     r = await client.patch("/api/v1/auth/me", json={"avatar": url}, headers=user.headers)
     assert "sig=" in r.json()["data"]["avatar"]
+
+
+async def test_download_uses_original_name(client, make_user):
+    user = await make_user()
+    signed = (await upload(client, user)).json()["data"]["signedUrl"]
+    r = await client.get(signed + "&download=1&name=Holiday%20photo%20%E2%9C%93.png")
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == "attachment; filename*=UTF-8''Holiday%20photo%20%E2%9C%93.png"
+    r = await client.get(signed + "&download=1&name=..%2F..%2Fetc%2Fpasswd")
+    assert "passwd" in r.headers["content-disposition"] and "/" not in r.headers["content-disposition"].split("''")[1]

@@ -5,7 +5,7 @@ import { resolveMediaUrl } from '../../../utils/media';
 interface AvatarProps {
   src?: string | null;
   alt?: string;
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
   online?: boolean;
   className?: string;
   showRing?: boolean; // Purple ring for active/selected state
@@ -27,7 +27,7 @@ const Avatar: React.FC<AvatarProps> = ({
   const photo = !failed ? resolveMediaUrl(src) : null;
 
   const textSizes: Record<string, string> = {
-    xs: 'text-[10px]', sm: 'text-xs', md: 'text-sm', lg: 'text-base', xl: 'text-xl', '2xl': 'text-2xl',
+    xs: 'text-[10px]', sm: 'text-xs', md: 'text-sm', lg: 'text-base', xl: 'text-xl', '2xl': 'text-2xl', '3xl': 'text-3xl',
   };
 
   const sizes: Record<string, string> = {
@@ -36,7 +36,8 @@ const Avatar: React.FC<AvatarProps> = ({
     md: 'w-10 h-10',
     lg: 'w-12 h-12',
     xl: 'w-16 h-16',
-    '2xl': 'w-20 h-20'
+    '2xl': 'w-20 h-20',
+    '3xl': 'w-28 h-28'
   };
 
   return (

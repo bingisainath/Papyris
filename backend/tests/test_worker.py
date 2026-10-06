@@ -57,3 +57,20 @@ async def test_worker_skips_duplicates(db, make_user, make_dm):
         await worker.process_message(f"{i}-0", {"data": json.dumps(payload)})
     rows = (await db.execute(select(Message).where(Message.conversation_id == uuid.UUID(dm)))).scalars().all()
     assert len(rows) == 1 and worker.streams.acked == ["0-0", "1-0"]
+
+
+async def test_worker_saves_voice_note_duration(db, make_user, make_dm):
+    a, b = await make_user(), await make_user()
+    dm = await make_dm(a, b)
+    worker = MessageWorker.__new__(MessageWorker)
+    worker.streams = FakeStreams()
+    message_id = str(uuid.uuid4())
+    payload = {
+        "messageId": message_id, "conversationId": dm, "senderId": a.id, "text": "",
+        "mediaType": "audio", "mediaUrl": "/api/v1/media/2026/10/" + "c" * 32 + ".weba",
+        "mediaFilename": "voice-note.weba", "mediaDuration": 12,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    await worker.process_message("1-0", {"data": json.dumps(payload)})
+    saved = await db.get(Message, uuid.UUID(message_id))
+    assert saved.message_type == MessageType.AUDIO and saved.media_duration == 12

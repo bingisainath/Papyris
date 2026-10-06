@@ -36,3 +36,15 @@ async def test_without_search_only_contacts(client, make_user, make_dm):
     ids = {u["id"] for u in await _search(client, me)}
     assert friend.id in ids
     assert stranger.id not in ids
+
+
+async def test_profile_username_rules_and_readable_errors(client, make_user):
+    me, other = await make_user(), await make_user()
+    r = await client.patch("/api/v1/auth/me", json={"username": "Bad Name!"}, headers=me.headers)
+    assert r.status_code == 422 and "lowercase letters" in r.json()["message"]
+    r = await client.patch("/api/v1/auth/me", json={"username": other.username}, headers=me.headers)
+    assert r.status_code == 409 and r.json()["message"] == "Username is already taken"
+    r = await client.patch("/api/v1/auth/me", json={"username": "New.Name_1", "bio": "Hi"}, headers=me.headers)
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["username"] == "new.name_1" and data["bio"] == "Hi" and data["email_verified"] is True

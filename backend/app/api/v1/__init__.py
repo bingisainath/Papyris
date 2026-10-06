@@ -10,6 +10,7 @@ from app.api.v1.groups import router as groups_router
 from app.api.v1.expenses import router as expenses_router
 from app.api.v1.receipts import router as receipts_router
 from app.api.v1.ai_settings import router as ai_settings_router
+from app.api.v1.shared_media import router as shared_media_router
 
 api_router = APIRouter()
 
@@ -36,3 +37,6 @@ api_router.include_router(receipts_router)
 
 # AI model choice, own keys, store discounts, app admin
 api_router.include_router(ai_settings_router)
+
+# Media, links and docs shared in a chat
+api_router.include_router(shared_media_router)
