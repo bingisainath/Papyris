@@ -2,8 +2,9 @@
 
 .auth-container {
   background-color: #fff;
-  border-radius: 50px;
-  box-shadow: 0 5px 15px rgba(112, 0, 137, 0.452);
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   position: relative;
   overflow: hidden;
   width: 768px;
@@ -61,7 +62,7 @@
   height: 100%;
   overflow: hidden;
   transition: all 0.6s ease-in-out;
-  border-radius: 50px 0 0 50px;
+  border-radius: 0;
   z-index: 1000;
 }
 
@@ -109,13 +110,12 @@
 
 .auth-container.active .toggle-container {
   transform: translateX(-100%);
-  border-radius: 0 50px 50px 0;
+  border-radius: 0;
 }
 
 .toggle {
-  background-color: blueviolet;
+  background-color: #543f7d;
   height: 100%;
-  background: linear-gradient(to right, #a159e0, #671f89, #611087);
   color: #fff;
   position: relative;
   left: -100%;

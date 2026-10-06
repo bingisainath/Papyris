@@ -141,10 +141,10 @@ async def prepare_scan(db: AsyncSession, receipt: Receipt, user: User) -> str:
 def _read_images(urls: list[str]) -> list[tuple[str, str]]:
     images = []
     for url in urls:
-        path = media_storage.path_for_key(media_storage.key_from_url(url) or "")
-        if path is None or not path.exists():
+        data = media_storage.read_bytes(url)  # decrypted
+        if data is None:
             raise ExtractionError("A receipt photo is missing. Upload it again")
-        images.append(prepare(path.read_bytes()))
+        images.append(prepare(data))
     return images
 
 
@@ -375,7 +375,7 @@ async def _add_store_rule(db: AsyncSession, receipt: Receipt) -> None:
     adjustment = ReceiptAdjustment(
         position=len(receipt.adjustments),
         kind="store_discount",
-        label=f"{rule.store_name} {Decimal(rule.percent).normalize():f}% (your discount, not on the receipt)",
+        label=f"{rule.store_name} discount",  # the rate is shown and adjustable separately
         amount_minor=0,
         percent=Decimal(rule.percent),
         scope="bill",

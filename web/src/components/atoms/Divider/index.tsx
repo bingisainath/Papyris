@@ -27,7 +27,7 @@ const Divider: React.FC<DividerProps> = ({
   const variants: Record<string, string> = {
     solid: 'border-muted-200',
     dashed: 'border-muted-200 border-dashed',
-    gradient: 'border-none h-px bg-gradient-to-r from-transparent via-primary-300 to-transparent'
+    gradient: 'border-none h-px bg-muted-200'
   };
 
   // Divider with text
@@ -45,7 +45,7 @@ const Divider: React.FC<DividerProps> = ({
   if (orientation === 'vertical') {
     return (
       <div className={`${spacings[spacing]} ${className}`}>
-        <div className={`w-px h-full ${variant === 'gradient' ? 'bg-gradient-to-b from-transparent via-primary-300 to-transparent' : `border-l ${variants[variant]}`}`} />
+        <div className={`w-px h-full ${variant === 'gradient' ? 'bg-muted-200' : `border-l ${variants[variant]}`}`} />
       </div>
     );
   }

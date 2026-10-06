@@ -30,7 +30,7 @@ const ForgotPassword: React.FC = () => {
     // Success state
     if (submitted) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-muted-50 via-primary-50/20 to-secondary-50/30 p-4">
+            <div className="min-h-screen flex items-center justify-center bg-muted-50 p-4">
                 <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-elevated p-8 w-full max-w-md text-center animate-scale-in">
                     <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-success-100 flex items-center justify-center">
                         <CheckCircle className="w-10 h-10 text-success-600" />
@@ -58,7 +58,7 @@ const ForgotPassword: React.FC = () => {
 
     // Forgot Password Form
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-muted-50 via-primary-50/20 to-secondary-50/30 p-4">
+        <div className="min-h-screen flex items-center justify-center bg-muted-50 p-4">
             <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-elevated p-8 w-full max-w-md animate-scale-in">
                 {/* Logo */}
                 <div className="flex items-center justify-center gap-3 mb-8">
@@ -115,7 +115,7 @@ const ForgotPassword: React.FC = () => {
                         className="w-full py-3 bg-gradient-primary text-white rounded-xl font-semibold 
                      shadow-card hover:shadow-elevated transition-all 
                      disabled:opacity-60 disabled:cursor-not-allowed 
-                     hover:scale-[1.02] active:scale-[0.98]
+                     active:scale-[0.98]
                      flex items-center justify-center gap-2"
                     >
                         {loading ? (

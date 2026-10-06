@@ -1,351 +1,313 @@
-// src/components/organisms/ProfileModal.tsx
-import React, { useState } from 'react';
-import { Avatar, Button, Input, Textarea, Typography, Divider } from '../../atoms';
-import Icon from '../../atoms/Icon';
+// src/components/organisms/ProfileModal/index.tsx
+// Your profile, edited like in messaging apps: tap the photo to change it, tap a field to edit it.
+// Each field saves on its own, so a problem with one (e.g. a taken username) never loses the others.
+
+import React, { useEffect, useRef, useState } from 'react';
+import { toast } from 'react-toastify';
+import { AtSign, BadgeCheck, CalendarDays, Camera, Check, Image as ImageIcon, Info, Mail, Pencil, Trash2, User as UserIcon, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { Avatar } from '../../atoms';
+import { useAuth } from '../../../app/AuthProvider';
+import { mediaService } from '../../../services/media.service';
+import { parseApiError } from '../../../utils/apiError';
+import { mediaTypeOf, resolveMediaUrl, validateFile } from '../../../utils/media';
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  user: {
-    id: string;
-    name: string;
-    username?: string;
-    email?: string;
-    avatar?: string;
-    bio?: string;
-    phone?: string;
-    joinedDate?: string;
-  };
-  stats?: {
-    totalChats: number;
-    totalGroups: number;
-    totalExpenses: number;
-    totalSettled: number;
-  };
-  onUpdateProfile?: (data: {
-    name: string;
-    username?: string;
-    bio?: string;
-    avatar?: File;
-  }) => void;
-  isEditing?: boolean;
-  isLoading?: boolean;
+  onChanged?: () => void; // e.g. refresh chats, where your name and photo appear
 }
 
-const ProfileModal: React.FC<ProfileModalProps> = ({
-  isOpen,
-  onClose,
-  user,
-  stats,
-  onUpdateProfile,
-  isEditing: initialEditing = false,
-  isLoading = false
-}) => {
-  const [isEditing, setIsEditing] = useState(initialEditing);
-  const [name, setName] = useState(user.name);
-  const [username, setUsername] = useState(user.username || '');
-  const [bio, setBio] = useState(user.bio || '');
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string>(user.avatar || '');
+const USERNAME_RE = /^[a-z0-9._]{3,30}$/;
 
-  const [errors, setErrors] = useState<{ name?: string; username?: string }>({});
+const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onChanged }) => {
+  const { user, updateProfile } = useAuth();
+  const [photoMenu, setPhotoMenu] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [viewPhoto, setViewPhoto] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  // Define handlers BEFORE early return
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAvatarFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (viewPhoto) setViewPhoto(false);
+      else if (photoMenu) setPhotoMenu(false);
+      else onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose, photoMenu, viewPhoto]);
+
+  if (!isOpen || !user) return null;
+
+  const save = async (patch: Parameters<typeof updateProfile>[0], done: string) => {
+    await updateProfile(patch);
+    toast.success(done);
+    onChanged?.();
   };
 
-  const handleSave = () => {
-    const newErrors: typeof errors = {};
-
-    if (!name.trim()) {
-      newErrors.name = 'Name is required';
-    } else if (name.length < 2) {
-      newErrors.name = 'Name must be at least 2 characters';
-    }
-
-    if (username && username.length < 3) {
-      newErrors.username = 'Username must be at least 3 characters';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+  const uploadPhoto = async (file: File | undefined) => {
+    setPhotoMenu(false);
+    if (!file) return;
+    const problem = validateFile(file) || (mediaTypeOf(file) !== 'image' ? 'Choose an image' : null);
+    if (problem) {
+      toast.error(problem);
       return;
     }
-
-    if (onUpdateProfile) {
-      onUpdateProfile({
-        name: name.trim(),
-        username: username.trim() || undefined,
-        bio: bio.trim() || undefined,
-        avatar: avatarFile || undefined
-      });
+    setPhotoBusy(true);
+    try {
+      const uploaded = await mediaService.upload(file);
+      await save({ avatar: uploaded.url }, 'Profile photo updated');
+    } catch (error) {
+      toast.error(`Couldn't update the photo: ${parseApiError(error)}`);
+    } finally {
+      setPhotoBusy(false);
     }
-
-    setIsEditing(false);
   };
 
-  const handleCancel = () => {
-    setName(user.name);
-    setUsername(user.username || '');
-    setBio(user.bio || '');
-    setAvatarPreview(user.avatar || '');
-    setAvatarFile(null);
-    setErrors({});
-    setIsEditing(false);
+  const removePhoto = async () => {
+    setPhotoMenu(false);
+    setPhotoBusy(true);
+    try {
+      await save({ avatar: '' }, 'Profile photo removed');
+    } catch (error) {
+      toast.error(parseApiError(error));
+    } finally {
+      setPhotoBusy(false);
+    }
   };
 
-  // NOW do the early return AFTER all hooks
-  if (!isOpen) return null;
+  const displayName = user.name || user.username;
+  const joined = user.created_at ? new Date(user.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-elevated max-w-lg w-full max-h-[90vh] flex flex-col animate-scale-in">
-        {/* Header */}
-        <div className="relative px-6 pt-6 pb-20">
-          {/* Background gradient */}
-          <div className="absolute inset-0 h-32 bg-gradient-to-br from-primary-600 to-secondary-400 rounded-t-2xl" />
-          
-          {/* Close button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<Icon name="close" size={20} />}
-            onClick={onClose}
-            disabled={isLoading}
-            className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm text-white hover:bg-white/30 z-10"
-          />
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label="Profile"
+        className="w-full sm:max-w-md h-[100dvh] sm:h-auto sm:max-h-[90vh] flex flex-col bg-white sm:rounded-2xl shadow-elevated overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-muted-200">
+          <h2 className="text-lg font-semibold text-muted-900">Profile</h2>
+          <button type="button" onClick={onClose} className="p-2 -mr-2 rounded-lg hover:bg-muted-100" aria-label="Close">
+            <X className="w-5 h-5 text-muted-600" />
+          </button>
+        </div>
 
-          {/* Avatar */}
-          <div className="relative flex justify-center mt-8">
-            <div className="relative group">
-              <Avatar
-                src={avatarPreview}
-                alt={name}
-                size="2xl"
-                className="ring-4 ring-white shadow-elevated"
-              />
-              {isEditing && (
-                <label className="absolute bottom-0 right-0 w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-primary-700 transition-colors shadow-card ring-4 ring-white">
-                  <Icon name="edit" size={18} className="text-white" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAvatarChange}
-                    className="hidden"
-                    disabled={isLoading}
-                  />
-                </label>
+        <div className="flex-1 overflow-y-auto">
+          {/* Photo */}
+          <div className="flex flex-col items-center px-6 pt-8 pb-6 bg-muted-50 border-b border-muted-200">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => user.avatar && setViewPhoto(true)}
+                className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                aria-label={user.avatar ? 'View profile photo' : 'Profile photo'}
+              >
+                <Avatar src={user.avatar} alt={displayName} size="3xl" />
+              </button>
+              {photoBusy && (
+                <span className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
+                  <span className="w-7 h-7 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                </span>
               )}
+              <button
+                type="button"
+                onClick={() => setPhotoMenu((open) => !open)}
+                disabled={photoBusy}
+                aria-label="Change profile photo"
+                aria-expanded={photoMenu}
+                className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-primary-700 hover:bg-primary-800 text-white flex items-center justify-center ring-4 ring-muted-50 disabled:opacity-60"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
+              {photoMenu && (
+                <div role="menu" className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-10 w-48 py-1 bg-white border border-muted-200 rounded-xl shadow-elevated">
+                  <MenuItem icon={ImageIcon} label={user.avatar ? 'Upload new photo' : 'Upload photo'} onClick={() => fileRef.current?.click()} />
+                  {user.avatar && <MenuItem icon={Trash2} label="Remove photo" danger onClick={removePhoto} />}
+                </div>
+              )}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                hidden
+                onChange={(e) => { uploadPhoto(e.target.files?.[0]); e.target.value = ''; }}
+              />
             </div>
+            <p className="mt-4 text-xl font-semibold text-muted-900">{displayName}</p>
+            <p className="text-sm text-muted-500">@{user.username}</p>
+          </div>
+
+          {/* Editable fields */}
+          <div className="divide-y divide-muted-100">
+            <EditableField
+              icon={UserIcon}
+              label="Name"
+              help="Shown to people you chat with."
+              value={user.name || ''}
+              placeholder="Add your name"
+              maxLength={100}
+              validate={(v) => (v.trim().length < 2 ? 'Enter at least 2 characters' : null)}
+              onSave={(name) => save({ name }, 'Name updated')}
+            />
+            <EditableField
+              icon={Info}
+              label="About"
+              help="A short line about you, like a status."
+              value={user.bio || ''}
+              placeholder="Hey there! I'm using Papyris."
+              maxLength={140}
+              multiline
+              onSave={(bio) => save({ bio }, 'About updated')}
+            />
+            <EditableField
+              icon={AtSign}
+              label="Username"
+              help="People can find you by it. Lowercase letters, numbers, dots and underscores."
+              value={user.username}
+              prefix="@"
+              maxLength={30}
+              normalize={(v) => v.trim().toLowerCase()}
+              validate={(v) => (USERNAME_RE.test(v) ? null : 'Use 3-30 lowercase letters, numbers, dots or underscores')}
+              onSave={(username) => save({ username }, 'Username updated')}
+            />
+          </div>
+
+          {/* Account details (not editable here) */}
+          <div className="mt-2 border-t border-muted-200 divide-y divide-muted-100">
+            <InfoRow icon={Mail} label="Email" value={user.email}>
+              {user.email_verified !== false && (
+                <span className="inline-flex items-center gap-1 text-xs text-success-700">
+                  <BadgeCheck className="w-3.5 h-3.5" /> Verified
+                </span>
+              )}
+            </InfoRow>
+            {joined && <InfoRow icon={CalendarDays} label="Joined" value={joined} />}
           </div>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-6">
-          {isEditing ? (
-            <>
-              {/* Edit mode */}
-              <Input
-                label="Name"
-                placeholder="Your name"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  setErrors(prev => ({ ...prev, name: undefined }));
-                }}
-                error={errors.name}
-                required
-                disabled={isLoading}
-              />
-
-              <Input
-                label="Username"
-                placeholder="username"
-                value={username}
-                onChange={(e) => {
-                  setUsername(e.target.value);
-                  setErrors(prev => ({ ...prev, username: undefined }));
-                }}
-                error={errors.username}
-                leftIcon={<span className="text-muted-500">@</span>}
-                disabled={isLoading}
-              />
-
-              <Textarea
-                label="Bio"
-                placeholder="Tell us about yourself..."
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                rows={4}
-                maxLength={200}
-                showCount
-                disabled={isLoading}
-              />
-            </>
-          ) : (
-            <>
-              {/* View mode */}
-              <div className="text-center">
-                <Typography variant="h4" weight="bold" className="text-muted-900 mb-1">
-                  {user.name}
-                </Typography>
-                {user.username && (
-                  <Typography variant="body1" className="text-muted-500 mb-3">
-                    @{user.username}
-                  </Typography>
-                )}
-                {user.bio && (
-                  <Typography variant="body2" className="text-muted-600">
-                    {user.bio}
-                  </Typography>
-                )}
-              </div>
-
-              <Divider />
-
-              {/* User info */}
-              <div className="space-y-3">
-                {user.email && (
-                  <div className="flex items-center gap-3 p-3 bg-muted-50 rounded-xl">
-                    <Icon name="message" size={20} className="text-muted-500" />
-                    <div className="flex-1 min-w-0">
-                      <Typography variant="caption" className="text-muted-500">
-                        Email
-                      </Typography>
-                      <Typography variant="body2" className="text-muted-900 truncate">
-                        {user.email}
-                      </Typography>
-                    </div>
-                  </div>
-                )}
-
-                {user.phone && (
-                  <div className="flex items-center gap-3 p-3 bg-muted-50 rounded-xl">
-                    <Icon name="phone" size={20} className="text-muted-500" />
-                    <div className="flex-1 min-w-0">
-                      <Typography variant="caption" className="text-muted-500">
-                        Phone
-                      </Typography>
-                      <Typography variant="body2" className="text-muted-900">
-                        {user.phone}
-                      </Typography>
-                    </div>
-                  </div>
-                )}
-
-                {user.joinedDate && (
-                  <div className="flex items-center gap-3 p-3 bg-muted-50 rounded-xl">
-                    <Icon name="clock" size={20} className="text-muted-500" />
-                    <div className="flex-1 min-w-0">
-                      <Typography variant="caption" className="text-muted-500">
-                        Joined
-                      </Typography>
-                      <Typography variant="body2" className="text-muted-900">
-                        {user.joinedDate}
-                      </Typography>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Stats */}
-              {stats && (
-                <>
-                  <Divider />
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="text-center p-4 bg-gradient-to-br from-primary-50 to-secondary-50 rounded-xl">
-                      <Typography variant="h5" weight="bold" className="text-primary-700 mb-1">
-                        {stats.totalChats}
-                      </Typography>
-                      <Typography variant="caption" className="text-primary-600">
-                        Direct Chats
-                      </Typography>
-                    </div>
-
-                    <div className="text-center p-4 bg-gradient-to-br from-secondary-50 to-primary-50 rounded-xl">
-                      <Typography variant="h5" weight="bold" className="text-secondary-600 mb-1">
-                        {stats.totalGroups}
-                      </Typography>
-                      <Typography variant="caption" className="text-secondary-500">
-                        Groups
-                      </Typography>
-                    </div>
-
-                    <div className="text-center p-4 bg-accent-50 rounded-xl">
-                      <Typography variant="h5" weight="bold" className="text-accent-600 mb-1">
-                        {stats.totalExpenses}
-                      </Typography>
-                      <Typography variant="caption" className="text-accent-500">
-                        Total Expenses
-                      </Typography>
-                    </div>
-
-                    <div className="text-center p-4 bg-success-50 rounded-xl">
-                      <Typography variant="h5" weight="bold" className="text-success-600 mb-1">
-                        ${stats.totalSettled}
-                      </Typography>
-                      <Typography variant="caption" className="text-success-500">
-                        Settled
-                      </Typography>
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center gap-3 px-6 py-4 border-t border-muted-200">
-          {isEditing ? (
-            <>
-              <Button
-                variant="ghost"
-                size="md"
-                onClick={handleCancel}
-                disabled={isLoading}
-                fullWidth
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                onClick={handleSave}
-                loading={isLoading}
-                disabled={isLoading}
-                fullWidth
-              >
-                Save Changes
-              </Button>
-            </>
-          ) : (
-            <>
-              {onUpdateProfile && (
-                <Button
-                  variant="primary"
-                  size="md"
-                  icon={<Icon name="edit" size={18} />}
-                  onClick={() => setIsEditing(true)}
-                  disabled={isLoading}
-                  fullWidth
-                >
-                  Edit Profile
-                </Button>
-              )}
-            </>
-          )}
-        </div>
       </div>
+
+      {viewPhoto && user.avatar && (
+        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={(e) => { e.stopPropagation(); setViewPhoto(false); }}>
+          <img src={resolveMediaUrl(user.avatar)} alt={displayName} className="max-w-[min(90vw,32rem)] max-h-[80vh] rounded-lg object-contain" />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MenuItem: React.FC<{ icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }> = ({ icon: Icon, label, onClick, danger }) => (
+  <button
+    type="button"
+    role="menuitem"
+    onClick={onClick}
+    className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-muted-50 ${danger ? 'text-accent-600' : 'text-muted-800'}`}
+  >
+    <Icon className="w-4 h-4" /> {label}
+  </button>
+);
+
+const InfoRow: React.FC<{ icon: LucideIcon; label: string; value: string; children?: React.ReactNode }> = ({ icon: Icon, label, value, children }) => (
+  <div className="flex items-start gap-4 px-6 py-4">
+    <Icon className="w-5 h-5 mt-0.5 text-primary-700 flex-shrink-0" strokeWidth={1.75} />
+    <div className="min-w-0 flex-1">
+      <p className="text-xs text-muted-500">{label}</p>
+      <p className="text-sm text-muted-900 truncate">{value}</p>
+      {children}
+    </div>
+  </div>
+);
+
+/** A profile field shown as text; the pencil turns it into an input with Save/Cancel. */
+const EditableField: React.FC<{
+  icon: LucideIcon;
+  label: string;
+  help: string;
+  value: string;
+  placeholder?: string;
+  maxLength: number;
+  multiline?: boolean;
+  prefix?: string;
+  normalize?: (value: string) => string;
+  validate?: (value: string) => string | null;
+  onSave: (value: string) => Promise<void>;
+}> = ({ icon: Icon, label, help, value, placeholder, maxLength, multiline, prefix, normalize, validate, onSave }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
+
+  const cancel = () => { setEditing(false); setDraft(value); setError(null); };
+
+  const submit = async () => {
+    const next = normalize ? normalize(draft) : draft.trim();
+    if (next === value) { cancel(); return; }
+    const problem = validate?.(next) || null;
+    if (problem) { setError(problem); return; }
+    setSaving(true);
+    try {
+      await onSave(next);
+      setEditing(false);
+      setError(null);
+    } catch (err) {
+      setError(parseApiError(err)); // e.g. "Username is already taken": stay in edit mode
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputProps = {
+    value: draft,
+    autoFocus: true,
+    maxLength,
+    placeholder,
+    disabled: saving,
+    'aria-label': label,
+    'aria-invalid': !!error,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setDraft(e.target.value); setError(null); },
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
+      if (e.key === 'Enter' && (!multiline || !e.shiftKey)) { e.preventDefault(); submit(); }
+    },
+    className: 'flex-1 min-w-0 bg-transparent outline-none text-sm text-muted-900 placeholder:text-muted-400 resize-none',
+  };
+
+  return (
+    <div className="flex items-start gap-4 px-6 py-4">
+      <Icon className="w-5 h-5 mt-0.5 text-primary-700 flex-shrink-0" strokeWidth={1.75} />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-muted-500">{label}</p>
+        {editing ? (
+          <>
+            <div className={`mt-1 flex items-start gap-1 px-3 py-2 rounded-lg border bg-white ${error ? 'border-accent-500' : 'border-primary-500 ring-2 ring-primary-100'}`}>
+              {prefix && <span className="text-sm text-muted-400">{prefix}</span>}
+              {multiline ? <textarea rows={2} {...inputProps} /> : <input {...inputProps} />}
+              <span className="text-[11px] text-muted-400 tabular-nums self-end">{maxLength - draft.length}</span>
+            </div>
+            {error ? <p className="mt-1 text-xs text-accent-600">{error}</p> : <p className="mt-1 text-xs text-muted-500">{help}</p>}
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={submit} disabled={saving} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-primary-700 hover:bg-primary-800 text-white disabled:opacity-60">
+                <Check className="w-4 h-4" /> {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" onClick={cancel} disabled={saving} className="px-3 py-1.5 text-sm rounded-lg text-muted-700 hover:bg-muted-100">Cancel</button>
+            </div>
+          </>
+        ) : (
+          <p className={`text-sm break-words ${value ? 'text-muted-900' : 'text-muted-400'}`}>
+            {value ? `${prefix || ''}${value}` : placeholder}
+          </p>
+        )}
+      </div>
+      {!editing && (
+        <button type="button" onClick={() => setEditing(true)} className="p-2 -mr-2 rounded-lg text-primary-700 hover:bg-primary-50" aria-label={`Edit ${label.toLowerCase()}`}>
+          <Pencil className="w-4 h-4" />
+        </button>
+      )}
     </div>
   );
 };

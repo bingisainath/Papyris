@@ -27,11 +27,12 @@ import {
   updateConversationLastMessage,
   incrementUnreadCount,
 } from '../slices/chatSlice';
-import type { ReplyPreview } from '../slices/chatSlice';
+import type { Message, ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
-import { captureVideoPoster, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
+import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
+import type { UploadQuality } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
 import { fetchConversations, fetchMessages } from './chatActions';
@@ -135,19 +136,37 @@ export const leaveConversation = (conversationId: string) => (dispatch: AppDispa
   wsService.leaveConversation(conversationId);
 };
 
+/** What the composer can send with a message. */
+export interface SendOptions {
+  quality?: UploadQuality; // photos/videos: standard (default) or hd; original = as a document
+  duration?: number; // voice notes: seconds recorded
+}
+
+// Uploads in progress or failed, by clientId, so they can be cancelled or retried
+const uploads = new Map<string, {
+  conversationId: string;
+  text: string;
+  file: File;
+  replyTo?: ReplyPreview | null;
+  options: SendOptions;
+  controller?: AbortController;
+}>();
+
 /**
  * Send a message, optionally with an attachment.
  *
  * The message is shown immediately with a temporary id (its clientId). The
  * server echoes the clientId back, which is how the optimistic copy is replaced.
  * Attachments are uploaded to the Papyris server first, then sent by URL.
+ * An upload can be cancelled while running and retried if it fails.
  */
 export const sendMessage = (
   conversationId: string,
   text: string,
   currentUserId: string,
   file?: File,
-  replyTo?: ReplyPreview | null
+  replyTo?: ReplyPreview | null,
+  options: SendOptions = {},
 ) => async (dispatch: AppDispatch) => {
   if (!wsService.isConnected()) {
     console.error('❌ Cannot send message: WebSocket not connected');
@@ -159,6 +178,7 @@ export const sendMessage = (
   const avatar = localStorage.getItem('userAvatar') || undefined;
 
   const clientId = newClientId();
+  const asDocument = options.quality === 'original' && file && mediaTypeOf(file) !== 'audio';
   const previewUrl = file ? URL.createObjectURL(file) : undefined;
 
   dispatch(addMessage({
@@ -174,61 +194,128 @@ export const sendMessage = (
       timestamp: new Date().toISOString(),
       status: 'sending',
       mediaUrl: previewUrl,
-      mediaType: file ? mediaTypeOf(file) : undefined,
+      mediaType: file ? (asDocument ? 'file' : mediaTypeOf(file)) : undefined,
       mediaSize: file?.size,
       mediaFilename: file?.name,
+      mediaDuration: options.duration,
       uploadProgress: file ? 0 : undefined,
       replyTo: replyTo || null,
     }
   }));
 
-  let media: OutgoingMedia | undefined;
-  if (file) {
-    // Size (to reserve space in the bubble) and, for videos, a poster frame; both best-effort
-    const dimensionsPromise = measureMedia(file).then(dims => {
-      if (dims) {
-        dispatch(updateMessage({
-          conversationId,
-          messageId: clientId,
-          updates: { mediaWidth: dims.width, mediaHeight: dims.height },
-        }));
-      }
-      return dims;
-    });
-    const posterPromise = mediaTypeOf(file) === 'video'
-      ? captureVideoPoster(file)
-          .then(poster => (poster ? mediaService.upload(poster) : null))
-          .catch(() => null)
-      : Promise.resolve(null);
-
-    try {
-      const uploaded = await mediaService.upload(file, (percent) => {
-        dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: percent } }));
-      });
-      const [dims, poster] = await Promise.all([dimensionsPromise, posterPromise]);
-      media = {
-        mediaUrl: uploaded.url,
-        mediaType: uploaded.mediaType,
-        mediaSize: uploaded.size,
-        mediaFilename: uploaded.filename,
-        mediaThumbnail: poster?.url,
-        mediaWidth: dims?.width,
-        mediaHeight: dims?.height,
-      };
-    } catch (error) {
-      // Nothing was sent, so don't leave a bubble behind
-      dispatch(removeMessage({ conversationId, messageId: clientId }));
-      URL.revokeObjectURL(previewUrl!);
-      toast.error(`Couldn't send ${file.name}: ${parseApiError(error)}`);
-      return;
+  if (!file) {
+    if (!wsService.sendMessage(conversationId, clientId, text, undefined, replyTo?.id)) {
+      dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
+      toast.error('Message not sent: connection lost.');
     }
-    pendingPreviews.set(clientId, previewUrl!);
+    return;
   }
 
+  pendingPreviews.set(clientId, previewUrl!);
+  uploads.set(clientId, { conversationId, text, file, replyTo, options });
+  await dispatch(uploadAndSend(clientId));
+};
+
+const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
+  const job = uploads.get(clientId);
+  if (!job) return;
+  const { conversationId, text, file, replyTo, options } = job;
+  const quality = options.quality || 'standard';
+  const kind = quality === 'original' && mediaTypeOf(file) !== 'audio' ? 'file' : mediaTypeOf(file);
+  const controller = new AbortController();
+  job.controller = controller;
+
+  dispatch(updateMessage({
+    conversationId,
+    messageId: clientId,
+    updates: { status: 'sending', uploadFailed: undefined, uploadProgress: 0 },
+  }));
+
+  // Size (to reserve space in the bubble) and, for videos, a poster frame; both best-effort
+  const dimensionsPromise = kind === 'image' || kind === 'video'
+    ? measureMedia(file).then(dims => {
+        if (dims) {
+          dispatch(updateMessage({ conversationId, messageId: clientId, updates: { mediaWidth: dims.width, mediaHeight: dims.height } }));
+        }
+        return dims;
+      })
+    : Promise.resolve(null);
+  const posterPromise = kind === 'video'
+    ? captureVideoPoster(file)
+        .then(poster => (poster ? mediaService.upload(poster, undefined, { signal: controller.signal }) : null))
+        .catch(() => null)
+    : Promise.resolve(null);
+
+  let media: OutgoingMedia;
+  try {
+    const toUpload = kind === 'image' ? await compressImage(file, quality) : file;
+    const uploaded = await mediaService.upload(toUpload, (percent) => {
+      // Past 100% the server is still compressing a video; keep the bar just short of full
+      dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: Math.min(percent, 99) } }));
+    }, { signal: controller.signal, quality });
+    const [dims, poster] = await Promise.all([dimensionsPromise, posterPromise]);
+    media = {
+      mediaUrl: uploaded.url,
+      mediaType: kind,
+      mediaSize: uploaded.size,
+      mediaFilename: uploaded.filename,
+      mediaThumbnail: poster?.url,
+      mediaWidth: uploaded.width || dims?.width,
+      mediaHeight: uploaded.height || dims?.height,
+      mediaDuration: options.duration,
+    };
+  } catch (error) {
+    if (controller.signal.aborted) return; // cancelled: cancelUpload already removed it
+    // Keep the bubble with Retry / Remove instead of losing what the person picked
+    dispatch(updateMessage({
+      conversationId,
+      messageId: clientId,
+      updates: { status: 'failed', uploadFailed: true, uploadProgress: undefined },
+    }));
+    toast.error(`Couldn't send ${file.name}: ${parseApiError(error)}`);
+    return;
+  }
+
+  uploads.delete(clientId);
   if (!wsService.sendMessage(conversationId, clientId, text, media, replyTo?.id)) {
     dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
     toast.error('Message not sent: connection lost.');
   }
+};
+
+/** Stop an upload that is running (or drop a failed one) and remove its bubble. */
+export const cancelUpload = (conversationId: string, clientId: string) => (dispatch: AppDispatch) => {
+  uploads.get(clientId)?.controller?.abort();
+  uploads.delete(clientId);
+  const preview = pendingPreviews.get(clientId);
+  if (preview) URL.revokeObjectURL(preview);
+  pendingPreviews.delete(clientId);
+  dispatch(removeMessage({ conversationId, messageId: clientId }));
+};
+
+/** Try a failed upload again with the same file, caption and settings. */
+export const retryUpload = (clientId: string) => (dispatch: AppDispatch) => dispatch(uploadAndSend(clientId));
+
+/** Send copies of a message (text and/or media) to other chats, like WhatsApp's Forward. */
+export const forwardMessage = (message: Message, conversationIds: string[]) => () => {
+  const media: OutgoingMedia | undefined = message.mediaUrl && message.mediaType
+    ? {
+        mediaUrl: message.mediaUrl, // the server drops the signature and checks it's one of ours
+        mediaType: message.mediaType,
+        mediaSize: message.mediaSize,
+        mediaFilename: message.mediaFilename,
+        mediaThumbnail: message.mediaThumbnail,
+        mediaWidth: message.mediaWidth,
+        mediaHeight: message.mediaHeight,
+        mediaDuration: message.mediaDuration,
+      }
+    : undefined;
+  let sent = 0;
+  for (const conversationId of conversationIds) {
+    if (wsService.sendMessage(conversationId, newClientId(), message.text || '', media)) sent += 1;
+  }
+  if (sent) toast.success(sent === 1 ? 'Message forwarded' : `Forwarded to ${sent} chats`);
+  else toast.error('Not connected. Please try again.');
 };
 
 /**
@@ -288,7 +375,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         mediaThumbnail: data.mediaThumbnail || undefined,
         mediaWidth: data.mediaWidth || undefined,
         mediaHeight: data.mediaHeight || undefined,
+        mediaDuration: data.mediaDuration || undefined,
         uploadProgress: undefined,
+        uploadFailed: undefined,
         messageType: data.messageType,
         expenseId: data.expenseId || null,
         replyTo: data.replyTo || null,

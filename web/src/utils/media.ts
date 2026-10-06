@@ -8,12 +8,14 @@ const MB = 1024 * 1024;
 export const MAX_SIZE: Record<MediaType, number> = {
   image: 10 * MB,
   video: 50 * MB,
+  audio: 10 * MB,
   file: 10 * MB,
 };
 
 export const ACCEPTED_FILE_TYPES = [
   'image/jpeg', 'image/png', 'image/gif', 'image/webp',
   'video/mp4', 'video/webm', 'video/quicktime',
+  'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg',
   'application/pdf', 'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ].join(',');
@@ -21,6 +23,7 @@ export const ACCEPTED_FILE_TYPES = [
 export const mediaTypeOf = (file: File): MediaType => {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
+  if (file.type.startsWith('audio/')) return 'audio';
   return 'file';
 };
 
@@ -56,9 +59,10 @@ export const messagePreview = (
   filename?: string | null
 ): string => {
   if (text) return text;
-  if (mediaType === 'image') return '📷 Photo';
-  if (mediaType === 'video') return '🎥 Video';
-  if (mediaType === 'file') return filename ? `📎 ${filename}` : '📎 File';
+  if (mediaType === 'image') return 'Photo';
+  if (mediaType === 'video') return 'Video';
+  if (mediaType === 'audio') return 'Voice message';
+  if (mediaType === 'file') return filename || 'File';
   return '';
 };
 
@@ -153,3 +157,67 @@ export function mediaBoxStyle(
     maxWidth: '100%',
   };
 }
+
+/** Upload quality: standard = shrink photos/videos, hd = keep high resolution, original = send as a document. */
+export type UploadQuality = 'standard' | 'hd' | 'original';
+
+const replaceExtension = (name: string, type: string) =>
+  `${name.replace(/\.[^.]+$/, '') || 'photo'}.${type === 'image/png' ? 'png' : 'jpg'}`;
+
+/**
+ * Shrink a photo before upload, like messaging apps do: 1600 px (HD: 4096 px), JPEG.
+ * Also drops location/camera metadata (the server strips it again either way).
+ * Returns the original file if it can't be decoded, is a GIF, or wouldn't get smaller.
+ */
+export async function compressImage(file: File, quality: UploadQuality): Promise<File> {
+  if (quality === 'original' || file.type === 'image/gif' || typeof createImageBitmap === 'undefined') return file;
+  const maxEdge = quality === 'hd' ? 4096 : 1600;
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file); // browsers apply the photo's rotation by default
+  } catch {
+    return file;
+  }
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return file;
+  // Small PNGs (screenshots, drawings) stay PNG; everything else becomes JPEG
+  const type = file.type === 'image/png' && file.size < 1.5 * MB ? 'image/png' : 'image/jpeg';
+  if (type === 'image/jpeg') {
+    context.fillStyle = '#ffffff'; // transparent areas become white, not black
+    context.fillRect(0, 0, width, height);
+  }
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close?.();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality === 'hd' ? 0.92 : 0.82));
+  if (!blob || (scale === 1 && blob.size >= file.size)) return file;
+  return new File([blob], replaceExtension(file.name, type), { type, lastModified: Date.now() });
+}
+
+/**
+ * Save a media file to the device under its own name. The server sends it as an attachment
+ * (?download=1&name=...), so the browser downloads it directly: no CORS, no copy in memory.
+ */
+export async function downloadMedia(url: string, filename: string): Promise<void> {
+  const target = new URL(resolveMediaUrl(url)!, window.location.href);
+  target.searchParams.set('download', '1');
+  target.searchParams.set('name', filename);
+  const link = document.createElement('a');
+  link.href = target.toString();
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+/** 75 -> "1:15" */
+export const formatDuration = (seconds?: number | null): string => {
+  if (!seconds || !Number.isFinite(seconds)) return '0:00';
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+};

@@ -4,7 +4,7 @@ User Model
 """
 import uuid
 import enum
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Enum as SQLEnum
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -60,6 +60,13 @@ class User(Base):
     is_app_admin = Column(Boolean, default=False, server_default="false", nullable=False)
     status = Column(SQLEnum(UserStatus, name="user_status_enum"), default=UserStatus.ACTIVE)
     
+    # Email verification: a 6-digit code is emailed after sign-up (only its hash is stored)
+    email_verified = Column(Boolean, default=False, server_default="false", nullable=False)
+    email_code_hash = Column(String(64), nullable=True)
+    email_code_expires = Column(DateTime(timezone=True), nullable=True)
+    email_code_sent_at = Column(DateTime(timezone=True), nullable=True)
+    email_code_attempts = Column(Integer, default=0, server_default="0", nullable=False)
+
     # Password Reset Fields
     reset_token = Column(String(255), nullable=True, index=True)
     reset_token_expires = Column(DateTime(timezone=True), nullable=True)

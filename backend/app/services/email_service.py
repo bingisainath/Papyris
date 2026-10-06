@@ -1,11 +1,12 @@
 # backend/app/services/email_service.py
 
-import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
 import logging
+
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +14,18 @@ class EmailService:
     """Service for sending emails"""
     
     def __init__(self):
-        self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.smtp_user = os.getenv("SMTP_USER")
-        self.smtp_password = os.getenv("SMTP_PASSWORD")
-        self.from_email = os.getenv("FROM_EMAIL", self.smtp_user)
-        self.from_name = os.getenv("FROM_NAME", "Papyris")
-        self.environment = os.getenv("ENV", "local")
+        # Read from app settings, which load backend/.env (os.getenv would miss values in .env)
+        self.smtp_host = settings.SMTP_HOST
+        self.smtp_port = settings.SMTP_PORT
+        self.smtp_user = settings.SMTP_USER
+        self.smtp_password = settings.SMTP_PASSWORD
+        self.from_email = settings.FROM_EMAIL or settings.SMTP_USER
+        self.from_name = settings.FROM_NAME
+        self.environment = settings.ENV
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.smtp_user and self.smtp_password)
         
     def send_email(
         self,
@@ -28,13 +34,14 @@ class EmailService:
         html_content: str,
         text_content: Optional[str] = None
     ) -> bool:
-        """Send an email (dev mode prints to console, prod sends real email)"""
-        
-        # In development, just print to console
-        if self.environment == "local" or self.environment == "development":
-            # Local development only: show the email (e.g. the password-reset link) in the log
+        """Send an email over SMTP, or (no SMTP configured, not production) write it to the log."""
+        if not self.configured:
+            if self.environment == "production":
+                logger.error("Email not sent: SMTP_USER / SMTP_PASSWORD are not configured (%s)", subject)
+                return False
+            # Local development only: show the email (sign-up code, reset link) in the log
             logger.warning(
-                "EMAIL NOT SENT (local mode)\nTo: %s\nSubject: %s\n\n%s",
+                "EMAIL NOT SENT (no SMTP configured)\nTo: %s\nSubject: %s\n\n%s",
                 to_email, subject, text_content or "(no text content)",
             )
             return True
@@ -209,4 +216,25 @@ class EmailService:
 
 
 # Create singleton instance
+    def send_verification_code(self, to_email: str, username: str, code: str) -> bool:
+        """The 6-digit code that confirms a new account's email address."""
+        subject = f"{code} is your Papyris code"
+        text_content = (
+            f"Hi {username},\n\nYour Papyris verification code is {code}.\n"
+            "It expires in 10 minutes. If you didn't create an account, you can ignore this email."
+        )
+        html_content = f"""
+        <!DOCTYPE html>
+        <html><body style="margin:0;padding:24px;background:#f6f6f8;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b">
+          <div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:32px">
+            <h1 style="margin:0 0 16px;font-size:20px;color:#543f7d">Papyris</h1>
+            <p style="margin:0 0 16px">Hi {username}, use this code to finish creating your account:</p>
+            <p style="margin:0 0 16px;font-size:32px;font-weight:700;letter-spacing:8px;color:#1e293b">{code}</p>
+            <p style="margin:0;color:#64748b;font-size:14px">It expires in 10 minutes. If you didn't create an account, you can ignore this email.</p>
+          </div>
+        </body></html>
+        """
+        return self.send_email(to_email, subject, html_content, text_content)
+
+
 email_service = EmailService()

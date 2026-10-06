@@ -253,20 +253,18 @@ export const expenseService = {
   adminScanLimit: (receipt_scans_per_month: number) => data<AdminAI>(api.put(`${V1}/admin/ai/scan-limit`, { receipt_scans_per_month })),
 };
 
-export const CATEGORIES: { id: string; label: string; icon: string }[] = [
-  { id: 'groceries', label: 'Groceries', icon: '🛒' },
-  { id: 'food', label: 'Eating out', icon: '🍽️' },
-  { id: 'drinks', label: 'Drinks', icon: '🍻' },
-  { id: 'transport', label: 'Transport', icon: '🚕' },
-  { id: 'travel', label: 'Travel', icon: '✈️' },
-  { id: 'rent', label: 'Rent', icon: '🏠' },
-  { id: 'utilities', label: 'Bills', icon: '💡' },
-  { id: 'household', label: 'Household', icon: '🧽' },
-  { id: 'entertainment', label: 'Fun', icon: '🎬' },
-  { id: 'shopping', label: 'Shopping', icon: '🛍️' },
-  { id: 'health', label: 'Health', icon: '💊' },
-  { id: 'gifts', label: 'Gifts', icon: '🎁' },
-  { id: 'other', label: 'Other', icon: '📝' },
+export const CATEGORIES: { id: string; label: string }[] = [
+  { id: 'groceries', label: 'Groceries' },
+  { id: 'food', label: 'Eating out' },
+  { id: 'drinks', label: 'Drinks' },
+  { id: 'transport', label: 'Transport' },
+  { id: 'travel', label: 'Travel' },
+  { id: 'rent', label: 'Rent' },
+  { id: 'utilities', label: 'Bills' },
+  { id: 'household', label: 'Household' },
+  { id: 'entertainment', label: 'Fun' },
+  { id: 'shopping', label: 'Shopping' },
+  { id: 'health', label: 'Health' },
+  { id: 'gifts', label: 'Gifts' },
+  { id: 'other', label: 'Other' },
 ];
-
-export const categoryIcon = (id: string) => CATEGORIES.find(c => c.id === id)?.icon || '📝';

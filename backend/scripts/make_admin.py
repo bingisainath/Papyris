@@ -1,8 +1,8 @@
 """
 Make a user an app admin (can choose which AI models are offered and the monthly scan limit).
 
-    python scripts/make_admin.py <username>          # grant
-    python scripts/make_admin.py <username> --revoke # take it away
+    python scripts/make_admin.py <username or email>          # grant
+    python scripts/make_admin.py <username or email> --revoke # take it away
 
 Only someone with access to the server and its database can run this.
 """
@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import func, or_, select  # noqa: E402
 
 from app.db.session import async_session_maker, engine  # noqa: E402
 from app.models import User  # noqa: E402
@@ -21,10 +21,13 @@ from app.models import User  # noqa: E402
 
 async def main(username: str, grant: bool) -> int:
     async with async_session_maker() as db:
-        user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
+        user = (await db.execute(select(User).where(or_(
+            User.username == username, func.lower(User.email) == username.lower()
+        )))).scalar_one_or_none()
         if user is None:
-            print(f"No user called {username!r}")
+            print(f"No user with the username or email {username!r} (use the username you log in with)")
             return 1
+        username = user.username
         user.is_app_admin = grant
         await db.commit()
         print(f"{username} is {'now' if grant else 'no longer'} an app admin")

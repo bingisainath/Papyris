@@ -21,7 +21,7 @@ export interface Message {
   mediaType?: MediaType;
 }
 
-export type MediaType = 'image' | 'video' | 'file';
+export type MediaType = 'image' | 'video' | 'audio' | 'file';
 
 export interface OutgoingMedia {
   mediaUrl: string;
@@ -31,6 +31,7 @@ export interface OutgoingMedia {
   mediaThumbnail?: string;
   mediaWidth?: number;
   mediaHeight?: number;
+  mediaDuration?: number; // seconds, voice notes and videos
 }
 
 export interface WebSocketEvent {
@@ -53,6 +54,7 @@ export interface WebSocketEvent {
   mediaThumbnail?: string | null;
   mediaWidth?: number | null;
   mediaHeight?: number | null;
+  mediaDuration?: number | null;
   timestamp?: string;
   status?: string;
   isTyping?: boolean;

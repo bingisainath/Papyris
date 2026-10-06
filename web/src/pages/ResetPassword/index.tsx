@@ -83,7 +83,7 @@ const ResetPassword: React.FC = () => {
   // Loading state
   if (verifying) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-muted-50 via-primary-50/20 to-secondary-50/30">
+      <div className="min-h-screen flex items-center justify-center bg-muted-50">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4" />
           <p className="text-muted-600 font-medium">Verifying reset link...</p>
@@ -95,7 +95,7 @@ const ResetPassword: React.FC = () => {
   // Invalid token
   if (!tokenValid) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-muted-50 via-primary-50/20 to-secondary-50/30 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-muted-50 p-4">
         <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-elevated p-8 w-full max-w-md text-center">
           <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-accent-100 flex items-center justify-center">
             <AlertCircle className="w-10 h-10 text-accent-600" />
@@ -105,7 +105,7 @@ const ResetPassword: React.FC = () => {
           <div className="flex flex-col gap-3">
             <Link
               to="/forgot-password"
-              className="py-3 bg-gradient-primary text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all hover:scale-[1.02]"
+              className="py-3 bg-gradient-primary text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all"
             >
               Request New Link
             </Link>
@@ -124,7 +124,7 @@ const ResetPassword: React.FC = () => {
   // Success state
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-muted-50 via-primary-50/20 to-secondary-50/30 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-muted-50 p-4">
         <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-elevated p-8 w-full max-w-md text-center">
           <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-success-100 flex items-center justify-center">
             <CheckCircle className="w-10 h-10 text-success-600" />
@@ -134,7 +134,7 @@ const ResetPassword: React.FC = () => {
           <p className="text-sm text-muted-500 mb-6">Redirecting to login page...</p>
           <Link
             to="/login"
-            className="inline-block py-3 px-6 bg-gradient-primary text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all hover:scale-[1.02]"
+            className="inline-block py-3 px-6 bg-gradient-primary text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all"
           >
             Go to Login
           </Link>
@@ -145,7 +145,7 @@ const ResetPassword: React.FC = () => {
 
   // Reset form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-muted-50 via-primary-50/20 to-secondary-50/30 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-muted-50 p-4">
       <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-elevated p-8 w-full max-w-md">
         <div className="flex items-center justify-center gap-3 mb-8">
           <div className="w-12 h-12 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-card">
@@ -238,7 +238,7 @@ const ResetPassword: React.FC = () => {
             className="w-full py-3 bg-gradient-primary text-white rounded-xl font-semibold 
                      shadow-card hover:shadow-elevated transition-all 
                      disabled:opacity-60 disabled:cursor-not-allowed 
-                     hover:scale-[1.02] active:scale-[0.98]
+                     active:scale-[0.98]
                      flex items-center justify-center gap-2"
           >
             {loading ? (

@@ -2,6 +2,7 @@
 // Small pieces shared by the expense screens.
 
 import React, { useCallback, useEffect, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { Avatar } from '../atoms';
 import { chatService } from '../../services/chat.service';
 import type { ConversationMemberInfo } from '../../services/chat.service';
@@ -158,7 +159,7 @@ export const Segmented = <T extends string>({
   onChange,
 }: {
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; icon?: LucideIcon }[];
   onChange: (value: T) => void;
 }) => (
   <div className="inline-flex p-0.5 bg-muted-100 rounded-lg" role="tablist">
@@ -169,10 +170,11 @@ export const Segmented = <T extends string>({
         role="tab"
         aria-selected={value === o.value}
         onClick={() => onChange(o.value)}
-        className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
           value === o.value ? 'bg-white text-primary-700 font-semibold shadow-sm' : 'text-muted-600 hover:text-muted-900'
         }`}
       >
+        {o.icon && <o.icon className="w-4 h-4" strokeWidth={1.75} aria-hidden />}
         {o.label}
       </button>
     ))}

@@ -210,7 +210,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-muted-200">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-600 to-secondary-400 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center">
               <Icon name="users" size={22} className="text-white" />
             </div>
             <div>
@@ -238,7 +238,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               {/* Avatar upload */}
               <div className="flex flex-col items-center">
                 <div className="relative group">
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center overflow-hidden border-4 border-white shadow-card">
+                  <div className="w-24 h-24 rounded-full bg-primary-100 flex items-center justify-center overflow-hidden border-4 border-white shadow-card">
                     {avatarPreview ? (
                       <img src={avatarPreview} alt="Group avatar" className="w-full h-full object-cover" />
                     ) : (

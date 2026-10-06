@@ -9,7 +9,7 @@ import { toast } from "react-toastify";
 
 const AuthenticationPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { login, register, resendCode } = useAuth();
 
   const [isActive, setIsActive] = useState<boolean>(false);
   // const navigate = useNavigate();
@@ -46,7 +46,12 @@ const AuthenticationPage: React.FC = () => {
       toast.success("Logged in successfully");
       navigate("/", { replace: true });
     } catch (err: any) {
-      console.error("Login error caught:", err);
+      if (err.code === "email_not_verified") {
+        // Signed up but never entered the code: send a fresh one and ask for it
+        resendCode(err.email).catch(() => undefined);
+        navigate("/verify-email", { state: { email: err.email, justSent: true } });
+        return;
+      }
       toast.error(err.message || "Login failed");
       setLoginError(err.message || "Invalid credentials");
       // Make sure we're NOT navigating here
@@ -74,8 +79,8 @@ const AuthenticationPage: React.FC = () => {
         registerPassword
       );
 
-      toast.success("Registered successfully");
-      setIsActive(false);
+      // A 6-digit code is on its way: ask for it before the first sign-in
+      navigate("/verify-email", { state: { email: lowerCaseEmail, justSent: true } });
 
     } catch (err: any) {
       toast.error(err.message || "Register failed");

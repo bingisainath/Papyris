@@ -60,6 +60,7 @@ class Message(Base):
     # Pixel size of images/videos, so clients can reserve space before loading
     media_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     media_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    media_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds (voice notes, videos)
     
     reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

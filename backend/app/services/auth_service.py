@@ -4,6 +4,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
 import secrets
 import re
 
@@ -127,12 +129,76 @@ class AuthService:
         ✅ UPDATED: Login with username OR email
         """
         user = await AuthService.authenticate_user(db, identifier, password)
+        if not user.email_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "message": "Verify your email to continue. Enter the code we sent you",
+                    "code": "email_not_verified",
+                    "data": {"email": user.email},
+                },
+            )
 
         # Update last login
         user.last_login = datetime.now(timezone.utc)
         await db.commit()
 
         return AuthService.issue_tokens(user)
+
+    # -----------------------------
+    # Email verification codes
+    # -----------------------------
+    CODE_TTL = timedelta(minutes=10)
+    CODE_MAX_ATTEMPTS = 5
+    CODE_RESEND_SECONDS = 60
+
+    @staticmethod
+    def _code_hash(user: User, code: str) -> str:
+        key = settings.JWT_SECRET_KEY.encode()
+        return hmac.new(key, f"{user.id}:{code}".encode(), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def new_email_code(user: User) -> str:
+        """Create a fresh 6-digit code for the user (caller commits and emails it)."""
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        now = datetime.now(timezone.utc)
+        user.email_code_hash = AuthService._code_hash(user, code)
+        user.email_code_expires = now + AuthService.CODE_TTL
+        user.email_code_sent_at = now
+        user.email_code_attempts = 0
+        return code
+
+    @staticmethod
+    def resend_wait_seconds(user: User) -> int:
+        if not user.email_code_sent_at:
+            return 0
+        elapsed = (datetime.now(timezone.utc) - user.email_code_sent_at).total_seconds()
+        return max(0, int(AuthService.CODE_RESEND_SECONDS - elapsed))
+
+    @staticmethod
+    async def verify_email_code(db: AsyncSession, identifier: str, code: str) -> User:
+        invalid = HTTPException(status_code=400, detail="That code isn't right. Check the email and try again")
+        user = await AuthService.get_user_by_identifier(db, identifier)
+        if user is None:
+            raise invalid
+        if user.email_verified:
+            return user
+        now = datetime.now(timezone.utc)
+        if not user.email_code_hash or not user.email_code_expires or user.email_code_expires < now:
+            raise HTTPException(status_code=400, detail="This code has expired. Send a new one")
+        if user.email_code_attempts >= AuthService.CODE_MAX_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many wrong codes. Send a new one")
+        if not hmac.compare_digest(user.email_code_hash, AuthService._code_hash(user, code.strip())):
+            user.email_code_attempts += 1
+            await db.commit()
+            raise invalid
+        user.email_verified = True
+        user.email_code_hash = None
+        user.email_code_expires = None
+        user.email_code_attempts = 0
+        user.last_login = now
+        await db.commit()
+        return user
 
     @staticmethod
     def issue_tokens(user: User) -> Token:

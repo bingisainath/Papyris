@@ -32,6 +32,7 @@ requests==2.31.0
 anthropic>=1.11,<2
 openai>=3.24,<4
 pillow>=11
+imageio-ffmpeg>=0.5  # bundled ffmpeg: compresses videos and strips their metadata
 cryptography>=42  # encrypts people's own AI keys
 
 # Testing

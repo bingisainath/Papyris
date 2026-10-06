@@ -1,0 +1,115 @@
+# backend/app/services/media_processing.py
+
+"""
+Server-side clean-up of uploads before they are stored:
+
+- Photos: rotated upright and re-saved WITHOUT metadata, so GPS location, camera serial
+  numbers etc. never reach other people. Capped at 4096 px (the app sends 1600 px normally,
+  4096 px for HD).
+- Videos: re-encoded to H.264/AAC MP4 at most 1280 px, unless sent in HD or as a document.
+  Uses the ffmpeg bundled with the imageio-ffmpeg package (no system install needed); if it
+  isn't available the original is kept.
+"""
+
+import asyncio
+import io
+import logging
+from pathlib import Path
+
+from PIL import Image, ImageOps
+
+logger = logging.getLogger(__name__)
+
+MAX_IMAGE_EDGE = 4096
+VIDEO_MAX_EDGE = 1280
+VIDEO_TIMEOUT_SECONDS = 300
+
+try:
+    import imageio_ffmpeg
+
+    FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
+except Exception:  # package missing or no binary for this platform
+    FFMPEG = None
+
+
+def strip_jpeg_metadata(data: bytes) -> bytes:
+    """Drop EXIF/XMP/IPTC/comment segments from a JPEG without re-compressing it."""
+    if not data.startswith(b"\xff\xd8"):
+        return data
+    out = bytearray(b"\xff\xd8")
+    i = 2
+    while i + 4 <= len(data) and data[i] == 0xFF:
+        marker = data[i + 1]
+        if marker == 0xDA:  # start of scan: the rest is image data
+            out += data[i:]
+            return bytes(out)
+        length = int.from_bytes(data[i + 2 : i + 4], "big")
+        segment = data[i : i + 2 + length]
+        # APP1 (EXIF/XMP), APP13 (IPTC/Photoshop), COM (comments) can identify people or places
+        if marker not in (0xE1, 0xED, 0xFE):
+            out += segment
+        i += 2 + length
+    return data  # unusual layout: leave it to the re-encode path
+
+
+def clean_image(path: Path, mime: str, keep_original: bool = False) -> tuple[int, int] | None:
+    """
+    Strip metadata (and downscale huge images) in place. Returns (width, height).
+    keep_original: sent as a document; JPEGs keep their exact pixels (metadata still removed).
+    """
+    if mime == "image/gif":  # keep animations; GIFs carry no location data
+        with Image.open(path) as img:
+            return img.size
+    if keep_original and mime == "image/jpeg":
+        data = path.read_bytes()
+        stripped = strip_jpeg_metadata(data)
+        if stripped is not data:
+            path.write_bytes(stripped)
+            with Image.open(path) as img:
+                return img.size
+    with Image.open(path) as img:
+        img = ImageOps.exif_transpose(img)
+        img.thumbnail((MAX_IMAGE_EDGE, MAX_IMAGE_EDGE))
+        out = io.BytesIO()
+        if mime == "image/jpeg":
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            img.save(out, format="JPEG", quality=90, optimize=True)
+        elif mime == "image/png":
+            img.save(out, format="PNG", optimize=True)
+        elif mime == "image/webp":
+            img.save(out, format="WEBP", quality=90)
+        else:
+            return img.size
+        size = img.size
+    path.write_bytes(out.getvalue())  # saved without exif/xmp/icc comments
+    return size
+
+
+async def compress_video(source: Path, target: Path) -> bool:
+    """Re-encode to a small, streamable MP4. True if `target` was written and is smaller."""
+    if not FFMPEG:
+        return False
+    scale = f"scale='if(gt(iw,ih),min({VIDEO_MAX_EDGE},iw),-2)':'if(gt(iw,ih),-2,min({VIDEO_MAX_EDGE},ih))'"
+    cmd = [
+        FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+        "-map_metadata", "-1",  # drop location and other metadata
+        "-vf", scale, "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(target),
+    ]
+    process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=VIDEO_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        process.kill()
+        logger.warning("Video compression timed out; keeping the original")
+        target.unlink(missing_ok=True)
+        return False
+    if process.returncode != 0 or not target.exists():
+        logger.warning("Video compression failed: %s", (stderr or b"")[-300:].decode(errors="replace"))
+        target.unlink(missing_ok=True)
+        return False
+    if target.stat().st_size >= source.stat().st_size:
+        target.unlink(missing_ok=True)  # already small; keep the original
+        return False
+    return True

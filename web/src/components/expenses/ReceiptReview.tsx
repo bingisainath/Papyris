@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { CATEGORIES, expenseService } from '../../services/expense.service';
+import CategoryIcon from './CategoryIcon';
 import type { Expense, Receipt, ReceiptAdjustment, ReceiptUpdate } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
@@ -30,6 +31,7 @@ const KIND_LABELS: Record<string, string> = {
   rounding: 'Rounding',
 };
 const DISCOUNT_KINDS = ['item_discount', 'promotion', 'store_discount', 'coupon'];
+const PERCENT_PRESETS = [10, 15, 20];
 const FLAG_LABELS: Record<string, string> = { reduced: 'Reduced', deposit: 'Deposit', bag: 'Bag', weighed: 'Weighed', voided: 'Voided', alcohol: 'Alcohol' };
 
 function toDraft(receipt: Receipt): Draft {
@@ -82,6 +84,10 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
   const [saving, setSaving] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   const [description, setDescription] = useState(initial.store_name || '');
+  const [several, setSeveral] = useState<PayerDraft[] | null>(() =>
+    initial.payers.length > 1
+      ? initial.payers.map((p) => ({ user_id: p.user_id, amount: toMajorString(p.amount_minor, initial.currency || 'EUR') }))
+      : null);
   const [category, setCategory] = useState('groceries');
 
   const currency = draft.currency;
@@ -185,7 +191,7 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
     change((d) => ({
       ...d,
       adjustments: [...d.adjustments, {
-        kind, label: KIND_LABELS[kind], amount: '', percent: null, item_indexes: [],
+        kind, label: KIND_LABELS[kind], amount: '', percent: kind === 'store_discount' ? '10' : null, item_indexes: [],
         allocation: kind === 'tip' || kind === 'service_charge' || kind === 'fee' ? 'equal' : 'proportional',
         assignee_ids: [], source: 'manual', enabled: true,
       }],
@@ -202,8 +208,12 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
     .map((a, idx) => ({ a, idx }))
     .filter(({ a }) => !(a.item_indexes.length === 1 && DISCOUNT_KINDS.includes(a.kind) && a.source === 'printed'));
 
-  const payersValue: PayerDraft[] | null = draft.payers && draft.payers.length > 1 ? draft.payers : null;
-  const singlePayer = draft.payers?.length === 1 ? draft.payers[0].user_id : server.uploaded_by || currentUserId;
+  // "Several" is its own mode: it may start with just one person ticked while amounts are typed in
+  const singlePayer = !several && draft.payers?.length === 1 ? draft.payers[0].user_id : server.uploaded_by || currentUserId;
+  const paidMinor = (several || []).reduce((sum, p) => sum + (parseMajor(p.amount, currency) || 0), 0);
+  const payersProblem = several && totals && paidMinor !== totals.computed_total_minor
+    ? `What people paid must add up to ${formatMinor(totals.computed_total_minor, currency)}`
+    : null;
 
   const save = async () => {
     setSaving(true);
@@ -230,9 +240,11 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
   };
 
   const difference = totals?.difference_minor ?? null;
-  const blocking = server.calc_error || (totals && totals.unassigned_item_indexes.length > 0)
-    ? server.calc_error || `Choose who ${totals!.unassigned_item_indexes.length === 1 ? 'the highlighted item is' : 'the highlighted items are'} for`
-    : null;
+  const blocking = server.calc_error
+    || (totals && totals.unassigned_item_indexes.length > 0
+      ? `Choose who ${totals.unassigned_item_indexes.length === 1 ? 'the highlighted item is' : 'the highlighted items are'} for`
+      : null)
+    || payersProblem;
 
   return (
     <div className="space-y-5 pb-2">
@@ -423,16 +435,19 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
         currentUserId={currentUserId}
         currency={currency}
         totalMinor={totals?.computed_total_minor ?? null}
-        value={payersValue}
+        value={several}
         singlePayer={singlePayer}
-        onChange={(value, single) => change((d) => ({ ...d, payers: value ?? [{ user_id: single, amount: '0' }] }))}
+        onChange={(value, single) => {
+          setSeveral(value);
+          change((d) => ({ ...d, payers: value ?? [{ user_id: single, amount: '0' }] }));
+        }}
       />
 
       <div className="flex flex-wrap gap-2">
         {CATEGORIES.slice(0, 6).map((c) => (
           <button key={c.id} type="button" onClick={() => setCategory(c.id)}
-            className={`px-2.5 py-1 rounded-full text-sm border ${category === c.id ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-muted-200 text-muted-600'}`}>
-            {c.icon} {c.label}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border ${category === c.id ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-muted-200 text-muted-600'}`}>
+            <CategoryIcon category={c.id} bare /> {c.label}
           </button>
         ))}
       </div>
@@ -500,7 +515,10 @@ const AdjustmentRow: React.FC<{
   onRemove: () => void;
 }> = ({ adjustment: a, serverAdjustment, currency, members, itemCount, nameOf, onChange, onRemove }) => {
   const discount = DISCOUNT_KINDS.includes(a.kind);
-  const usesPercent = a.source !== 'printed' && a.percent !== null && discount;
+  // Any percentage discount can be re-rated; changing a printed one makes it our own adjustment
+  const usesPercent = a.percent !== null && discount;
+  const setPercent = (percent: string) =>
+    onChange({ percent, enabled: true, ...(a.source === 'printed' ? { source: 'manual' as const } : {}) });
   const amountMinor = serverAdjustment?.amount_minor ?? parseMajor(a.amount || '', currency) ?? 0;
   const scopeText = a.allocation === 'equal'
     ? 'Split equally between people'
@@ -521,16 +539,13 @@ const AdjustmentRow: React.FC<{
           className="flex-1 min-w-0 px-1 py-0.5 text-sm font-medium rounded border border-transparent hover:border-muted-200 focus:border-primary-400 focus:outline-none"
         />
         {usesPercent ? (
-          <span className="flex items-center gap-1 text-sm">
-            <input value={a.percent || ''} inputMode="decimal" aria-label="Percent" onChange={(e) => onChange({ percent: e.target.value })} className="w-14 px-2 py-1 rounded-lg border border-muted-300 text-right" />%
-          </span>
+          <span className={`text-sm font-semibold tabular-nums ${a.enabled ? 'text-success-700' : 'text-muted-400 line-through'}`}>{formatMinor(amountMinor, currency)}</span>
         ) : (
           <MoneyInput value={a.amount || ''} currency={currency} allowNegative ariaLabel="Amount" className="w-24 py-1" onChange={(amount) => onChange({ amount })} />
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-muted-500">
         <span>{KIND_LABELS[a.kind] || a.kind}</span>
-        {usesPercent && <span className="tabular-nums">= {formatMinor(amountMinor, currency)}</span>}
         <span>· {scopeText}</span>
         {a.source === 'store_rule' && <span className="text-primary-600">· Your saved discount, not printed on the receipt</span>}
         {!discount && (
@@ -547,6 +562,37 @@ const AdjustmentRow: React.FC<{
         )}
         {a.source !== 'printed' && <button type="button" onClick={onRemove} className="text-accent-600 hover:underline">Remove</button>}
       </div>
+      {usesPercent && (
+        // Same store, different rate this time (e.g. colleague discount 10%, 15% or 20%)
+        <div className="flex flex-wrap items-center gap-1.5 mt-2" role="group" aria-label="Discount rate">
+          {PERCENT_PRESETS.map((preset) => {
+            const active = Number((a.percent || '').replace(',', '.')) === preset;
+            return (
+              <button
+                key={preset}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setPercent(String(preset))}
+                className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                  active ? 'border-primary-600 bg-primary-700 text-white' : 'border-muted-300 bg-white text-muted-700 hover:border-primary-400'
+                }`}
+              >
+                {preset}%
+              </button>
+            );
+          })}
+          <span className="flex items-center gap-1 text-xs text-muted-600">
+            <input
+              value={a.percent || ''}
+              inputMode="decimal"
+              aria-label="Discount percent"
+              onChange={(e) => setPercent(e.target.value)}
+              className="w-14 px-2 py-1 rounded-md border border-muted-300 text-right"
+            />
+            %
+          </span>
+        </div>
+      )}
       {a.allocation === 'assign' && (
         <div className="flex flex-wrap gap-2 mt-2">
           {members.map((m) => (

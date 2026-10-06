@@ -3,11 +3,13 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
-import { categoryIcon, expenseService } from '../../services/expense.service';
+import { expenseService } from '../../services/expense.service';
 import type { Balances, Expense } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { toMajorString } from '../../utils/money';
+import { CheckCircle2, Lock, ScrollText } from 'lucide-react';
 import { Avatar } from '../atoms';
+import CategoryIcon from './CategoryIcon';
 import { displayName, Money, MoneyInput, Sheet, useExpenseChanges } from './shared';
 
 interface Props {
@@ -71,7 +73,9 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, onOpenEx
       {/* Balances */}
       <section className="space-y-3">
         {balances.currencies.length === 0 ? (
-          <div className="p-4 rounded-xl bg-success-50 text-success-800 text-sm text-center">All settled up 🎉</div>
+          <div className="flex items-center justify-center gap-2 p-4 rounded-xl bg-success-50 text-success-800 text-sm">
+            <CheckCircle2 className="w-4 h-4" aria-hidden /> All settled up
+          </div>
         ) : balances.currencies.map((c) => (
           <div key={c.currency} className="p-4 rounded-xl border border-muted-200 space-y-2">
             <div className="flex items-baseline justify-between">
@@ -133,10 +137,12 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, onOpenEx
               return (
                 <li key={e.id}>
                   <button type="button" onClick={() => onOpenExpense(e.id)} className={`w-full flex items-center gap-3 py-2.5 text-left ${e.deleted ? 'opacity-50' : ''}`}>
-                    <span className="text-xl">{categoryIcon(e.category)}</span>
+                    <CategoryIcon category={e.category} size="sm" />
                     <span className="flex-1 min-w-0">
                       <span className={`block text-sm font-medium text-muted-900 truncate ${e.deleted ? 'line-through' : ''}`}>
-                        {e.description}{e.locked ? ' 🔒' : ''}{e.source === 'receipt' ? ' 🧾' : ''}
+                        {e.description}
+                        {e.locked && <Lock className="inline w-3.5 h-3.5 ml-1 text-muted-400" aria-label="Locked" />}
+                        {e.source === 'receipt' && <ScrollText className="inline w-3.5 h-3.5 ml-1 text-primary-500" aria-label="From a receipt" />}
                       </span>
                       <span className="block text-xs text-muted-500">
                         {payer} paid <Money minor={e.total_minor} currency={e.currency} /> · {e.spent_at && new Date(e.spent_at).toLocaleDateString()}

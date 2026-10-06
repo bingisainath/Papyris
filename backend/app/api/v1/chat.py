@@ -237,6 +237,7 @@ async def get_messages(
                 "media_thumbnail": media_storage.sign_url(msg.media_thumbnail),
                 "media_width": msg.media_width,
                 "media_height": msg.media_height,
+                "media_duration": msg.media_duration,
                 "media_size": msg.media_size,
                 "media_filename": msg.media_filename,
                 "expense_id": str(msg.expense_id) if msg.expense_id else None,

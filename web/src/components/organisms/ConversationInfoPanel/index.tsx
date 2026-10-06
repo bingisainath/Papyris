@@ -18,16 +18,18 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
 import { togglePinConversation } from '../../../redux/actions/chatActions';
 import { ChatExpenseSettings } from '../../expenses/ExpenseSettingsSections';
+import SharedMedia, { SharedMediaRow } from '../SharedMedia';
 
 interface ConversationInfoPanelProps {
   conversationId: string;
   isOpen: boolean;
   onClose: () => void;
+  startAddingMembers?: boolean; // opened from the header's "Add members" button
 }
 
 type SearchUser = { id: string; username: string; name?: string; avatar?: string };
 
-const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversationId, isOpen, onClose }) => {
+const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversationId, isOpen, onClose, startAddingMembers }) => {
   const [details, setDetails] = useState<ConversationDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,6 +40,7 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
   const [descriptionDraft, setDescriptionDraft] = useState('');
 
   const [addingMembers, setAddingMembers] = useState(false);
+  const [showShared, setShowShared] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
@@ -83,6 +86,7 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
       setEditingName(false);
       setEditingDescription(false);
       setAddingMembers(false);
+      setShowShared(false);
       setSearch('');
     }
   }, [isOpen]);
@@ -113,6 +117,25 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
+
+  const membersRef = useRef<HTMLElement>(null);
+  const handledAddMembers = useRef(false);
+
+  // Opened via "Add members": go straight to the search (admins only), once per opening
+  useEffect(() => {
+    if (!isOpen) {
+      handledAddMembers.current = false;
+      return;
+    }
+    if (!startAddingMembers || handledAddMembers.current || !details || details.id !== conversationId) return;
+    handledAddMembers.current = true;
+    if (details.my_role === 'admin') {
+      setAddingMembers(true);
+      membersRef.current?.scrollIntoView({ block: 'start' });
+    } else {
+      toast.info('Only group admins can add members');
+    }
+  }, [isOpen, startAddingMembers, details, conversationId]);
 
   if (!isOpen) return null;
 
@@ -311,6 +334,9 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
               )}
             </section>
 
+            {/* Photos, videos, files, voice notes and links shared here */}
+            <SharedMediaRow conversationId={conversationId} onOpen={() => setShowShared(true)} />
+
             {/* Expenses: currency, simplify debts, receipt model */}
             <section className="px-6 py-4 border-b border-muted-100">
               <ChatExpenseSettings
@@ -324,7 +350,7 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
 
             {/* Members */}
             {isGroup && (
-              <section className="px-6 py-4 border-b border-muted-100">
+              <section ref={membersRef} className="px-6 py-4 border-b border-muted-100">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-500">
                     {details.members.length} members
@@ -429,6 +455,9 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
               </div>
             )}
           </div>
+        )}
+        {showShared && (
+          <SharedMedia conversationId={conversationId} currentUserId={me?.id} onBack={() => setShowShared(false)} />
         )}
       </aside>
     </div>

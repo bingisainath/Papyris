@@ -27,14 +27,16 @@ export interface Message {
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   clientId?: string; // temp id of the optimistic copy this message replaces
   mediaUrl?: string;
-  mediaType?: 'image' | 'video' | 'file';
+  mediaType?: 'image' | 'video' | 'audio' | 'file';
   mediaSize?: number;
   mediaFilename?: string;
   mediaThumbnail?: string; // poster frame for videos
   mediaWidth?: number; // pixel size, used to reserve space before media loads
   mediaHeight?: number;
   uploadProgress?: number; // 0-100 while an attachment is uploading
-  messageType?: 'text' | 'image' | 'video' | 'file' | 'system';
+  uploadFailed?: boolean; // upload failed: the bubble offers Retry / Remove
+  mediaDuration?: number; // seconds (voice notes, videos)
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'file' | 'system';
   replyTo?: ReplyPreview | null;
   reactions?: Reaction[];
   isDeleted?: boolean;

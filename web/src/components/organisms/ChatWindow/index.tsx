@@ -13,7 +13,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
 import { selectIsConnected, selectTypingNames } from '../../../redux/slices/websocketSlice';
 import { fetchMessages, fetchOlderMessages } from '../../../redux/actions/chatActions';
-import { messagePreview, resolveMediaUrl } from '../../../utils/media';
+import { downloadMedia, messagePreview, resolveMediaUrl } from '../../../utils/media';
 import { applyMessageUpdate, clearUnreadCount } from '../../../redux/slices/chatSlice';
 import type { Message, ReplyPreview } from '../../../redux/slices/chatSlice';
 import { chatService } from '../../../services/chat.service';
@@ -23,9 +23,14 @@ import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { useSearchParams } from 'react-router-dom';
+import { UserPlus } from 'lucide-react';
 import AddExpenseSheet from '../../expenses/AddExpenseSheet';
 import ExpenseCard from '../../expenses/ExpenseCard';
 import ExpenseDetail from '../../expenses/ExpenseDetail';
+import ForwardDialog from '../ForwardDialog';
+import AlbumGrid, { groupAlbums } from '../../molecules/AlbumGrid';
+import type { OutgoingAttachment } from '../../molecules/MessageInput';
+import { cancelUpload, forwardMessage, retryUpload } from '../../../redux/actions/websocketActions';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -60,7 +65,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+  const [infoAddMembers, setInfoAddMembers] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [forwarding, setForwarding] = useState<Message | null>(null);
   const lastMediaRefresh = useRef(0);
 
   // Expenses: ?receipt=<id> opens a receipt to review, ?expense=<id> opens an expense
@@ -178,7 +185,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   // Handle send message (or save an edit)
-  const handleSendMessage = async (text: string, file?: File) => {
+  const handleSendMessage = async (text: string, attachments?: OutgoingAttachment[]) => {
     if (editingMessage) {
       const original = editingMessage;
       setEditingMessage(null);
@@ -201,14 +208,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       return;
     }
 
-    if (!text.trim() && !file) return;
+    if (!text.trim() && !attachments?.length) return;
 
     // Stop typing indicator
     stopTyping();
 
-    // Uploads the attachment (if any), then sends via WebSocket
-    sendMessage(conversationId, text, file, replyingTo);
+    if (attachments?.length) {
+      // One message per photo/file, each with its own caption (the reply goes on the first)
+      attachments.forEach((a, i) => {
+        sendMessage(conversationId, a.caption, a.file, i === 0 ? replyingTo : null, { quality: a.quality });
+      });
+    } else {
+      sendMessage(conversationId, text, undefined, replyingTo);
+    }
     setReplyingTo(null);
+  };
+
+  const handleSendVoice = (file: File, seconds: number) => {
+    stopTyping();
+    sendMessage(conversationId, '', file, replyingTo, { quality: 'original', duration: seconds });
+    setReplyingTo(null);
+  };
+
+  const handleDownload = (message: Message) => {
+    if (!message.mediaUrl) return;
+    downloadMedia(message.mediaUrl, message.mediaFilename || 'download')
+      .catch(() => toast.error("Couldn't download it. Try again"));
   };
 
   const handleReply = (message: Message) => {
@@ -245,6 +270,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       toast.error(`Couldn't delete message: ${parseApiError(error)}`);
     }
   };
+
+  // Single messages and photo albums, in display order
+  const chatItems = useMemo(() => groupAlbums(messages), [messages]);
 
   // Photos in this chat, for the full-screen viewer
   const viewerImages: ViewerImage[] = useMemo(
@@ -294,6 +322,62 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       stopTyping();
     }
   };
+
+  const renderMessage = (message: Message) => message.messageType === 'system' && message.expenseId ? (
+              <div key={message.id} data-message-id={message.id}>
+                <ExpenseCard
+                  expenseId={message.expenseId}
+                  text={message.text}
+                  timestamp={message.timestamp}
+                  currentUserId={currentUserId}
+                  onOpen={(id) => setSearchParams({ expense: id })}
+                />
+              </div>
+            ) : message.messageType === 'system' ? (
+              <div key={message.id} data-message-id={message.id} className="flex justify-center">
+                <span className="px-3 py-1 text-xs text-muted-600 bg-muted-100 rounded-full text-center">
+                  {message.text}
+                </span>
+              </div>
+            ) : (
+              <MessageBubble
+                key={message.id}
+                id={message.id}
+                text={message.text}
+                timestamp={message.timestamp}
+                isSent={message.senderId === currentUserId}
+                senderName={message.senderName}
+                senderAvatar={message.senderAvatar}
+                status={message.status}
+                mediaUrl={resolveMediaUrl(message.mediaUrl)}
+                mediaType={message.mediaType}
+                mediaFilename={message.mediaFilename}
+                mediaSize={message.mediaSize}
+                mediaThumbnail={resolveMediaUrl(message.mediaThumbnail)}
+                mediaWidth={message.mediaWidth}
+                mediaHeight={message.mediaHeight}
+                uploadProgress={message.uploadProgress}
+                isGroup={isGroup}
+                isDeleted={message.isDeleted}
+                editedAt={message.editedAt}
+                replyTo={message.replyTo}
+                reactions={message.reactions}
+                currentUserId={currentUserId}
+                onReply={() => handleReply(message)}
+                onReact={(emoji) => handleReact(message, emoji)}
+                onEdit={() => handleEdit(message)}
+                onDelete={() => handleDelete(message)}
+                onJumpToMessage={jumpToMessage}
+                onOpenImage={() => openImage(message.id)}
+                onMediaError={message.id.startsWith('temp-') ? undefined : refreshExpiredMedia}
+                mediaDuration={message.mediaDuration}
+                uploadFailed={message.uploadFailed}
+                onCancelUpload={message.id.startsWith('temp-') ? () => dispatch(cancelUpload(conversationId, message.id)) : undefined}
+                onRetryUpload={() => dispatch(retryUpload(message.id))}
+                onForward={() => setForwarding(message)}
+                onDownload={message.mediaUrl ? () => handleDownload(message) : undefined}
+              />
+            );
 
   if (!isConnected) {
     return (
@@ -364,6 +448,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             title={isConnected ? 'Connected' : 'Disconnected'}
           />
 
+          {isGroup && (
+            <button
+              type="button"
+              onClick={() => { setInfoAddMembers(true); setShowInfo(true); }}
+              className="p-2 hover:bg-primary-50 rounded-lg transition-colors"
+              title="Add members"
+              aria-label="Add members"
+            >
+              <UserPlus className="w-5 h-5 text-primary-700" strokeWidth={1.75} />
+            </button>
+          )}
           <button
             onClick={() => setShowInfo(true)}
             className="p-2 hover:bg-muted-100 rounded-lg transition-colors"
@@ -380,7 +475,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {/* Messages Area */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 py-4 space-y-4"
+        className="flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 pt-6 pb-4 space-y-4"
       >
         {hasMoreMessages && (
           <div className="flex justify-center">
@@ -395,59 +490,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         )}
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-muted-400">No messages yet. Say hi! 👋</p>
+            <p className="text-muted-400">No messages yet. Say hello.</p>
           </div>
         ) : (
           <>
-            {messages.map((message) => message.messageType === 'system' && message.expenseId ? (
-              <div key={message.id} data-message-id={message.id}>
-                <ExpenseCard
-                  expenseId={message.expenseId}
-                  text={message.text}
-                  timestamp={message.timestamp}
-                  currentUserId={currentUserId}
-                  onOpen={(id) => setSearchParams({ expense: id })}
-                />
-              </div>
-            ) : message.messageType === 'system' ? (
-              <div key={message.id} data-message-id={message.id} className="flex justify-center">
-                <span className="px-3 py-1 text-xs text-muted-600 bg-muted-100 rounded-full text-center">
-                  {message.text}
-                </span>
-              </div>
-            ) : (
-              <MessageBubble
-                key={message.id}
-                id={message.id}
-                text={message.text}
-                timestamp={message.timestamp}
-                isSent={message.senderId === currentUserId}
-                senderName={message.senderName}
-                senderAvatar={message.senderAvatar}
-                status={message.status}
-                mediaUrl={resolveMediaUrl(message.mediaUrl)}
-                mediaType={message.mediaType}
-                mediaFilename={message.mediaFilename}
-                mediaSize={message.mediaSize}
-                mediaThumbnail={resolveMediaUrl(message.mediaThumbnail)}
-                mediaWidth={message.mediaWidth}
-                mediaHeight={message.mediaHeight}
-                uploadProgress={message.uploadProgress}
+            {chatItems.map((item) => item.kind === 'album' ? (
+              <AlbumGrid
+                key={item.messages[0].id}
+                messages={item.messages}
+                isSent={item.messages[0].senderId === currentUserId}
                 isGroup={isGroup}
-                isDeleted={message.isDeleted}
-                editedAt={message.editedAt}
-                replyTo={message.replyTo}
-                reactions={message.reactions}
-                currentUserId={currentUserId}
-                onReply={() => handleReply(message)}
-                onReact={(emoji) => handleReact(message, emoji)}
-                onEdit={() => handleEdit(message)}
-                onDelete={() => handleDelete(message)}
-                onJumpToMessage={jumpToMessage}
-                onOpenImage={() => openImage(message.id)}
-                onMediaError={message.id.startsWith('temp-') ? undefined : refreshExpiredMedia}
+                onOpen={openImage}
+                onMediaError={refreshExpiredMedia}
               />
-            ))}
+            ) : renderMessage(item.message))}
             <div ref={messagesEndRef} />
           </>
         )}
@@ -466,9 +522,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       )}
 
       {/* Message Input */}
-      <div className="border-t border-muted-200 bg-white mobile-nav-safe">
+      <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-3 mobile-nav-safe">
         <MessageInput
           onSend={handleSendMessage}
+          onSendVoice={handleSendVoice}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
           editingText={editingMessage ? editingMessage.text : null}
@@ -484,6 +541,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {viewerIndex !== null && (
         <MediaViewer
           images={viewerImages}
+          onForward={(id) => {
+            const target = messages.find(m => m.id === id);
+            if (target) setForwarding(target);
+          }}
           index={Math.min(viewerIndex, viewerImages.length - 1)}
           onIndexChange={setViewerIndex}
           onClose={() => setViewerIndex(null)}
@@ -498,6 +559,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           onClose={() => { setAddingExpense(false); if (openReceiptId) closeExpenseView(); }}
         />
       )}
+      {forwarding && (
+        <ForwardDialog
+          message={forwarding}
+          onSend={(ids) => dispatch(forwardMessage(forwarding, ids))}
+          onClose={() => setForwarding(null)}
+        />
+      )}
       {openExpenseId && (
         <ExpenseDetail expenseId={openExpenseId} currentUserId={currentUserId} onClose={closeExpenseView} />
       )}
@@ -505,14 +573,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       <ConversationInfoPanel
         conversationId={conversationId}
         isOpen={showInfo}
-        onClose={() => setShowInfo(false)}
+        startAddingMembers={infoAddMembers}
+        onClose={() => { setShowInfo(false); setInfoAddMembers(false); }}
       />
 
       {/* Not connected warning */}
       {!isConnected && (
         <div className="px-6 py-2 bg-warning-50 border-t border-warning-200">
           <p className="text-sm text-warning-700">
-            ⚠️ Not connected. Trying to reconnect...
+            Not connected. Trying to reconnect…
           </p>
         </div>
       )}

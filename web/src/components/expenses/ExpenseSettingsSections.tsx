@@ -234,7 +234,7 @@ export const AdminAISettings: React.FC = () => {
       <div>
         <h2 className="text-lg font-semibold text-muted-900">App admin · receipt AI</h2>
         <p className="text-sm text-muted-500">
-          Server keys: Claude {data.app_keys.anthropic ? '✓ set' : '✗ not set'} · OpenAI {data.app_keys.openai ? '✓ set' : '✗ not set'}.
+          Server keys: Claude {data.app_keys.anthropic ? 'set' : 'not set'} · OpenAI {data.app_keys.openai ? 'set' : 'not set'}.
           Keys are set in the server’s environment, never here.
         </p>
       </div>

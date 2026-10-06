@@ -4,6 +4,7 @@ import Login from '../pages/Authentication';
 import Home from '../pages/Home';
 import ForgotPassword from '../pages/ForgotPassword';
 import ResetPassword from '../pages/ResetPassword';
+import VerifyEmail from '../pages/VerifyEmail';
 import { RequireAuth } from '../app/RequireAuth';
 
 export const router = createBrowserRouter([
@@ -22,6 +23,10 @@ export const router = createBrowserRouter([
   {
     path: '/reset-password',
     element: <ResetPassword />,
+  },
+  {
+    path: '/verify-email',
+    element: <VerifyEmail />,
   },
   {
     path: '/',

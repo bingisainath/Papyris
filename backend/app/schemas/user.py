@@ -1,5 +1,7 @@
 # backend/app/schemas/user.py
 
+import re
+
 from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
 from uuid import UUID
 from datetime import datetime
@@ -33,6 +35,7 @@ class UserResponse(BaseModel):
     bio: Optional[str] = None
     avatar: Optional[str] = None
     is_active: bool
+    email_verified: bool = True
     created_at: datetime
 
     class Config:
@@ -56,3 +59,14 @@ class UserUpdate(BaseModel):
     @classmethod
     def strip_text(cls, v: Optional[str]) -> Optional[str]:
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator('username')
+    @classmethod
+    def username_format(cls, v: Optional[str]) -> Optional[str]:
+        # Same shape as at sign-up: lowercase letters, numbers, dots and underscores
+        if v is None:
+            return v
+        v = v.lower()
+        if not re.fullmatch(r"[a-z0-9._]{3,30}", v):
+            raise ValueError("Use 3-30 lowercase letters, numbers, dots or underscores")
+        return v

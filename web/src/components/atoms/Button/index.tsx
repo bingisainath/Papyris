@@ -32,39 +32,33 @@ const Button: React.FC<ButtonProps> = ({
 }) => {
   const variants: Record<string, string> = {
     primary: `
-      bg-gradient-to-r from-primary-700 to-primary-600 
-      hover:from-primary-600 hover:to-primary-500
-      text-white shadow-card hover:shadow-elevated
-      active:scale-[0.98]
+      bg-primary-700
+      hover:bg-primary-800
+      text-white
     `,
     secondary: `
-      bg-gradient-to-r from-secondary-300 to-secondary-400 
-      hover:from-secondary-400 hover:to-secondary-500
-      text-white shadow-soft
-      active:scale-[0.98]
+      bg-white border border-muted-300
+      hover:bg-muted-50 hover:border-primary-300
+      text-muted-800
     `,
     ghost: `
       bg-transparent hover:bg-primary-50 
       text-primary-700 hover:text-primary-800
-      active:scale-[0.98]
     `,
     outline: `
-      bg-transparent border-2 border-primary-600 
+      bg-transparent border border-primary-600 
       hover:bg-primary-50 hover:border-primary-700
       text-primary-700 hover:text-primary-800
-      active:scale-[0.98]
     `,
     danger: `
-      bg-gradient-to-r from-accent-600 to-accent-500 
-      hover:from-accent-700 hover:to-accent-600
+      bg-accent-600 
+      hover:bg-accent-700
       text-white shadow-card hover:shadow-elevated
-      active:scale-[0.98]
     `,
     success: `
-      bg-gradient-to-r from-success-600 to-success-500 
-      hover:from-success-700 hover:to-success-600
+      bg-success-600 
+      hover:bg-success-700
       text-white shadow-card hover:shadow-elevated
-      active:scale-[0.98]
     `
   };
   

@@ -38,6 +38,7 @@ export interface UserResponse {
     name?: string;
     avatar?: string;
     bio?: string;
+    email_verified?: boolean;
   };
 }
 

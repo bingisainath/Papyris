@@ -23,11 +23,11 @@ const Badge: React.FC<BadgeProps> = ({
   if (!dot && count === 0 && !children) return null;
 
   const variants: Record<string, string> = {
-    primary: 'bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-glow',
-    success: 'bg-gradient-to-r from-success-600 to-success-500 text-white',
-    warning: 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white',
-    danger: 'bg-gradient-to-r from-red-600 to-red-500 text-white',
-    accent: 'bg-gradient-to-r from-accent-600 to-accent-500 text-white shadow-glow-accent',
+    primary: 'bg-primary-600 text-white shadow-card',
+    success: 'bg-success-600 text-white',
+    warning: 'bg-yellow-500 text-white',
+    danger: 'bg-red-600 text-white',
+    accent: 'bg-accent-600 text-white shadow-card',
     muted: 'bg-muted-200 text-muted-700'
   };
 

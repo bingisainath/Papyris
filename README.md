@@ -17,7 +17,11 @@ group can tap who each item is for.
   (messages, typing, reads, presence, group changes).
 - The API puts new messages on a **Redis stream**; the **worker** (`python -m app.worker`) saves
   them to Postgres. Events to clients go through **Redis pub/sub**.
-- Uploaded media is stored on disk in `backend/uploads/` and served through expiring signed links.
+- Uploaded media is stored on disk in `backend/uploads/`, **encrypted** (AES-256-GCM, in chunks so
+  videos can still seek), and served through expiring signed links to chat members only.
+  Photos are shrunk in the browser (1600 px, or 4096 px with HD) and always lose their location
+  and camera data on the server. Videos are compressed to 720p MP4 with the ffmpeg bundled in the
+  `imageio-ffmpeg` package (no system install). "Document" sends files at original quality.
 - **Expenses** are stored as whole cents (never floats) per currency. A receipt photo is read by an
   AI model (Claude by default) in a background task; the AI only transcribes the receipt, and
   `app/services/split_engine.py` does all the maths. Balances are always recalculated from the
@@ -83,9 +87,30 @@ Optional settings in `backend/.env`:
 
 - `LOG_LEVEL` (default `INFO`). `DEBUG` also logs every WebSocket event and worker step.
 - `SQL_ECHO=true` logs every SQL statement (very noisy).
-- Password-reset emails: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `FROM_EMAIL`, and
-  `ENV=production`. With `ENV` unset (local), emails aren't sent; they're printed in the backend
-  log so you can open the reset link.
+- Email (sign-up codes and password resets): `SMTP_USER`, `SMTP_PASSWORD`, and optionally
+  `SMTP_HOST` (default smtp.gmail.com), `SMTP_PORT` (587), `FROM_EMAIL`, `FRONTEND_URL`. With
+  SMTP set, emails are really sent. Without it, they're written to the backend log instead (look
+  for `EMAIL NOT SENT`) so you can copy the code or link while developing. For Gmail, use an
+  App Password (Google Account → Security → 2-Step Verification → App passwords).
+
+### Media encryption key
+
+Uploaded files are encrypted on disk. Set your own key in `backend/.env` (keep a copy somewhere
+safe: files can't be read without it):
+
+```bash
+python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+# MEDIA_ENCRYPTION_KEY=<the output>
+```
+
+Without it, a key is derived from `JWT_SECRET_KEY`. Files saved that way stay readable after you
+set `MEDIA_ENCRYPTION_KEY`. To encrypt files uploaded before encryption existed:
+
+```bash
+cd backend && source venv/bin/activate
+python scripts/encrypt_media.py --dry-run   # count
+python scripts/encrypt_media.py             # encrypt (safe to run again)
+```
 
 ### Receipt scanning (optional)
 
@@ -147,6 +172,9 @@ install chromium`, plus the QA users `qa_alice`, `qa_bob` and `qa_carol` with pa
 cd backend && source venv/bin/activate && python ../e2e/fake_ai_server.py   # terminal 1
 cd web && npm start                                                         # terminal 2
 python e2e/expenses_e2e.py /tmp/papyris-shots                               # terminal 3
+python e2e/media_e2e.py /tmp/papyris-shots                                  # photos, videos, voice notes
 ```
+
+The media test also needs the worker (`python -m app.worker`) running.
 
 Each run creates an "E2E Flat …" group; delete them afterwards if you like.

@@ -30,6 +30,7 @@ from app.models.receipt import StoreDiscountRule
 from app.models.user import User
 from app.services import secrets
 from app.services.receipt_ai import pipeline
+from app.services.receipt_ai.claude import is_workspace_error
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,10 @@ async def verify_key(provider: str, api_key: str) -> None:
         raise HTTPException(status_code=400, detail="That key was rejected. Check you copied all of it")
     except (anthropic.PermissionDeniedError, openai.PermissionDeniedError):
         raise HTTPException(status_code=400, detail="That key doesn't have permission to use the API")
+    except anthropic.BadRequestError as e:
+        if is_workspace_error(e):
+            raise HTTPException(status_code=400, detail="That key isn't tied to a workspace. Create a key inside a workspace in the Anthropic Console")
+        raise HTTPException(status_code=400, detail="That key couldn't be used")
     except (anthropic.APIError, openai.APIError):
         logger.warning("Couldn't verify a %s key", provider)
         raise HTTPException(status_code=502, detail="Couldn't check the key right now. Try again")

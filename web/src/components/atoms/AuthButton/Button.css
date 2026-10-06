@@ -1,5 +1,5 @@
 .auth-button {
-  background-color: #6a0dad;
+  background-color: #543f7d;
   color: #fff;
   font-size: 12px;
   padding: 10px 45px;
@@ -14,11 +14,11 @@
 }
 
 .auth-button:hover {
-  border: 1px solid white;
+  background-color: #443468;
 }
 
-.auth-button.submit:hover {
-  border: 1px solid darkblue;
+.auth-button.secondary:hover {
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 .auth-button.secondary {

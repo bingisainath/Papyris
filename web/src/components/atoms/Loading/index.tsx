@@ -69,7 +69,7 @@ const Loading: React.FC<LoadingProps> = ({
       <div
         className={`
           ${sizes[size]}
-          bg-gradient-to-r from-primary-600 to-secondary-400
+          bg-primary-600
           rounded-full
           animate-pulse
         `}

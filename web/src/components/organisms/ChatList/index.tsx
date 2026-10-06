@@ -216,7 +216,7 @@ const ChatList: React.FC<ChatListProps> = ({
               </>
             ) : (
               <>
-                <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center">
+                <div className="w-20 h-20 mb-4 rounded-full bg-primary-100 flex items-center justify-center">
                   <Icon name="message" size={32} className="text-primary-600" />
                 </div>
                 <Typography variant="h6" weight="semibold" className="text-muted-900 mb-2">
