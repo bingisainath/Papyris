@@ -25,22 +25,22 @@ const AlbumGrid: React.FC<Props> = ({ messages, isSent, isGroup, onOpen, onMedia
       {!isSent && isGroup && <Avatar src={first.senderAvatar} alt={first.senderName || 'User'} size="sm" className="mt-auto" />}
       <div className={`flex flex-col ${isSent ? 'items-end' : 'items-start'}`}>
         {!isSent && isGroup && first.senderName && <span className="mb-1 ml-1 text-xs font-semibold text-primary-700">{first.senderName}</span>}
-        <div className={`p-1 rounded-2xl ${isSent ? 'bg-primary-700 rounded-br-sm' : 'bg-white border border-muted-200 rounded-bl-sm'}`}>
-          <div className="grid grid-cols-2 gap-1 w-64 sm:w-72" role="group" aria-label={`${messages.length} photos`}>
+        <div className={`p-[3px] rounded-2xl ${isSent ? 'bg-primary-700 rounded-br-sm' : 'bg-white border border-muted-200 rounded-bl-sm'}`}>
+          <div className="relative grid grid-cols-2 gap-0.5 w-64 sm:w-72 rounded-[13px] overflow-hidden" role="group" aria-label={`${messages.length} photos`}>
             {messages.slice(0, 4).map((m, i) => (
-              <button key={m.id} type="button" onClick={() => onOpen(m.id)} className="relative aspect-square overflow-hidden rounded-xl bg-muted-100" aria-label={`Open photo ${i + 1} of ${messages.length}`}>
+              <button key={m.id} type="button" onClick={() => onOpen(m.id)} className="relative aspect-square overflow-hidden bg-muted-100" aria-label={`Open photo ${i + 1} of ${messages.length}`}>
                 <img src={resolveMediaUrl(m.mediaUrl)} alt={m.mediaFilename || 'Photo'} loading="lazy" onError={onMediaError} className="w-full h-full object-cover" />
                 {i === 3 && extra > 0 && (
                   <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-2xl font-semibold">+{extra}</span>
                 )}
               </button>
             ))}
-          </div>
-          <div className={`flex items-center justify-end gap-1 px-1.5 pt-0.5 text-[10px] ${isSent ? 'text-white/70' : 'text-muted-400'}`}>
-            {formatMessageTime(last.timestamp)}
-            {isSent && last.status && (
-              <Icon name={last.status === 'sent' ? 'check' : 'checkDouble'} size={14} className={last.status === 'read' ? 'text-secondary-300' : 'text-white/70'} />
-            )}
+            <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/45 text-white text-[10px] pointer-events-none">
+              {formatMessageTime(last.timestamp)}
+              {isSent && last.status && (
+                <Icon name={last.status === 'sent' ? 'check' : 'checkDouble'} size={14} className={last.status === 'read' ? 'text-secondary-300' : 'text-white'} />
+              )}
+            </div>
           </div>
         </div>
       </div>

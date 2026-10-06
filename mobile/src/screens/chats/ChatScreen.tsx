@@ -1,18 +1,22 @@
 // src/screens/chats/ChatScreen.tsx
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, FlatList, Modal, Platform, Pressable, StyleSheet, Text, View,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Copy, CornerUpLeft, Info, Pencil, ReceiptText, SendHorizontal, Trash2, X } from 'lucide-react-native';
+import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Pencil, ReceiptText, Trash2, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
 import MessageBubble from '../../components/MessageBubble';
+import AlbumGrid, { groupAlbums } from '../../components/AlbumGrid';
+import Composer from '../../components/Composer';
+import ForwardSheet from '../../components/ForwardSheet';
+import MediaViewer, { ViewerItem } from '../../components/MediaViewer';
+import { saveToPhone } from '../../utils/save';
 import { chatApi, Message, ReplyPreview } from '../../api/chat';
 import { errorMessage } from '../../api/client';
-import { mediaUrl } from '../../config';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
 import { typingNames, useChat } from '../../store/chat';
@@ -25,7 +29,7 @@ const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const TYPING_REPEAT_MS = 2500;
 const EMPTY: Message[] = [];
 
-type Row = { kind: 'message'; message: Message } | { kind: 'day'; label: string; key: string };
+type Row = { kind: 'message'; message: Message } | { kind: 'album'; messages: Message[] } | { kind: 'day'; label: string; key: string };
 
 const preview = (m: Message) =>
   m.text || (m.mediaType === 'image' ? 'Photo' : m.mediaType === 'video' ? 'Video' : m.mediaType === 'audio' ? 'Voice message' : m.mediaFilename || 'File');
@@ -38,13 +42,14 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   const hasMore = useChat((s) => !!s.hasMore[conversationId]);
   const typing = useChat((s) => s.typing);
   const online = useChat((s) => s.online);
-  const { open, loadMessages, loadOlder, send, retry } = useChat.getState();
+  const { open, loadMessages, loadOlder, send, retry, sendMedia, cancelUpload, retryUpload, forward } = useChat.getState();
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [selected, setSelected] = useState<Message | null>(null);
-  const [viewer, setViewer] = useState<string | null>(null);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [forwarding, setForwarding] = useState<Message | null>(null);
   const [loading, setLoading] = useState(!messages.length);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const lastTypingSent = useRef(0);
@@ -97,17 +102,41 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   // Newest first for the inverted list, with a day label above each day's first message
   const rows = useMemo<Row[]>(() => {
+    const items = groupAlbums(messages);
+    const firstOf = (item: (typeof items)[number]) => (item.kind === 'album' ? item.messages[0] : item.message);
     const out: Row[] = [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      out.push({ kind: 'message', message: m });
-      const older = messages[i - 1];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      out.push(item);
+      const m = firstOf(item);
+      const older = items[i - 1] ? firstOf(items[i - 1]) : null;
       if (!older || new Date(older.timestamp).toDateString() !== new Date(m.timestamp).toDateString()) {
         out.push({ kind: 'day', label: dayLabel(m.timestamp), key: `day-${m.timestamp}` });
       }
     }
     return out;
   }, [messages]);
+
+  // Photos and videos of this chat, for the full-screen viewer
+  const media = useMemo<ViewerItem[]>(() => messages
+    .filter((m) => (m.mediaType === 'image' || m.mediaType === 'video') && m.mediaUrl && !m.isDeleted && !m.id.startsWith('temp-'))
+    .map((m) => ({
+      id: m.id, url: m.mediaUrl!, type: m.mediaType as 'image' | 'video', filename: m.mediaFilename,
+      senderName: m.senderId === me.id ? 'You' : m.senderName, timestamp: m.timestamp,
+    })), [messages, me.id]);
+  const openMedia = (id: string) => {
+    const index = media.findIndex((x) => x.id === id);
+    if (index >= 0) setViewerIndex(index);
+  };
+
+  const save = async (m: Message) => {
+    try {
+      await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`);
+      if (Platform.OS === 'android') Alert.alert('Saving to Downloads', 'You\'ll get a notification when it\'s done.');
+    } catch {
+      Alert.alert("Couldn't save it", 'Check your connection and try again.');
+    }
+  };
 
   const onChangeText = (value: string) => {
     setText(value);
@@ -164,6 +193,9 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   const renderRow = ({ item }: { item: Row }) => {
     if (item.kind === 'day') return <Text style={styles.day}>{item.label}</Text>;
+    if (item.kind === 'album') {
+      return <AlbumGrid messages={item.messages} mine={item.messages[0].senderId === me.id} showSender={!!conversation?.isGroup} onOpen={openMedia} />;
+    }
     const m = item.message;
     return (
       <MessageBubble
@@ -174,7 +206,10 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         onLongPress={() => setSelected(m)}
         onReact={(emoji) => react(m, emoji)}
         onRetry={() => retry(conversationId, m.id)}
-        onOpenImage={() => setViewer(mediaUrl(m.mediaUrl) || null)}
+        onOpenMedia={() => openMedia(m.id)}
+        onOpenFile={() => save(m)}
+        onCancelUpload={() => cancelUpload(conversationId, m.id)}
+        onRetryUpload={() => retryUpload(m.id)}
         onOpenExpense={(expenseId) => navigation.navigate('ExpenseDetail', { expenseId })}
         onJumpToReply={jumpTo}
       />
@@ -198,7 +233,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             ref={list}
             data={rows}
             inverted
-            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.message.id)}
+            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'album' ? `album-${r.messages[0].id}` : r.message.id)}
             renderItem={renderRow}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
@@ -222,26 +257,17 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
           </View>
         )}
 
-        <View style={styles.composer}>
-          <TextInput
-            value={text}
-            onChangeText={onChangeText}
-            placeholder="Message"
-            placeholderTextColor={colors.muted400}
-            multiline
-            maxLength={5000}
-            style={styles.input}
-            accessibilityLabel="Message"
-          />
-          <Pressable
-            onPress={submit}
-            disabled={!text.trim() && !editing}
-            style={[styles.send, !text.trim() && !editing && styles.sendOff]}
-            accessibilityLabel={editing ? 'Save' : 'Send'}
-          >
-            <SendHorizontal size={20} color={colors.white} />
-          </Pressable>
-        </View>
+        <Composer
+          text={text}
+          onChangeText={onChangeText}
+          editing={!!editing}
+          onSendText={submit}
+          onSendAttachments={(attachments) => {
+            attachments.forEach((a, i) => sendMedia(conversationId, a, { id: me.id, username: me.username }, i === 0 ? replyTo : null));
+            setReplyTo(null);
+          }}
+          onSendVoice={(a) => { sendMedia(conversationId, a, { id: me.id, username: me.username }, replyTo); setReplyTo(null); }}
+        />
       </View>
 
       {/* Long-press menu */}
@@ -262,6 +288,8 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
                 setSelected(null);
               }} />
               {!!selected.text && <SheetAction icon={Copy} label="Copy text" onPress={() => { Clipboard.setString(selected.text); setSelected(null); }} />}
+              <SheetAction icon={ForwardIcon} label="Forward" onPress={() => { setForwarding(selected); setSelected(null); }} />
+              {!!selected.mediaUrl && <SheetAction icon={Download} label="Save to phone" onPress={() => { const m = selected; setSelected(null); save(m); }} />}
               {selected.senderId === me.id && !!selected.text && (
                 <SheetAction icon={Pencil} label="Edit" onPress={() => { setReplyTo(null); setEditing(selected); setText(selected.text); setSelected(null); }} />
               )}
@@ -273,12 +301,22 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         </Pressable>
       </Modal>
 
-      {/* Photo viewer */}
-      <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
-        <Pressable style={styles.viewer} onPress={() => setViewer(null)} accessibilityLabel="Close photo">
-          {viewer && <Image source={{ uri: viewer }} style={styles.viewerImage} resizeMode="contain" />}
-        </Pressable>
-      </Modal>
+      {/* Photos and videos */}
+      <MediaViewer
+        items={media}
+        index={viewerIndex}
+        onClose={() => setViewerIndex(null)}
+        onForward={(id) => { const m = messages.find((x) => x.id === id); setViewerIndex(null); if (m) setForwarding(m); }}
+      />
+
+      <ForwardSheet
+        visible={!!forwarding}
+        onClose={() => setForwarding(null)}
+        onSend={(ids) => {
+          const sent = forwarding ? forward(forwarding, ids) : 0;
+          Alert.alert(sent ? (sent === 1 ? 'Forwarded' : `Forwarded to ${sent} chats`) : 'Not connected. Try again.');
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -305,10 +343,6 @@ const styles = StyleSheet.create({
   banner: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginHorizontal: space(3), marginBottom: space(2), padding: space(2.5), borderLeftWidth: 4, borderLeftColor: colors.primary600, backgroundColor: colors.primary50, borderRadius: radius.md },
   bannerTitle: { fontSize: 12, fontWeight: '700', color: colors.primary700 },
   bannerText: { fontSize: 14, color: colors.muted600 },
-  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: space(2), paddingHorizontal: space(3), paddingVertical: space(2), backgroundColor: colors.white, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.muted200 },
-  input: { flex: 1, minHeight: 44, maxHeight: 140, paddingHorizontal: space(4), paddingTop: 11, paddingBottom: 11, borderRadius: 22, backgroundColor: colors.muted100, fontSize: 16, color: colors.muted900 },
-  send: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary700, alignItems: 'center', justifyContent: 'center' },
-  sendOff: { backgroundColor: colors.muted300 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.white, borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: space(8), paddingTop: space(3) },
   quickReactions: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: space(4), paddingBottom: space(3), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.muted200 },
@@ -316,8 +350,6 @@ const styles = StyleSheet.create({
   quickReactionText: { fontSize: 24 },
   action: { flexDirection: 'row', alignItems: 'center', gap: space(4), paddingHorizontal: space(6), paddingVertical: space(4) },
   actionText: { fontSize: 16, color: colors.muted900 },
-  viewer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', alignItems: 'center', justifyContent: 'center' },
-  viewerImage: { width: '100%', height: '80%' },
 });
 
 export default ChatScreen;

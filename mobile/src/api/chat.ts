@@ -47,6 +47,8 @@ export interface Message {
   mediaWidth?: number;
   mediaHeight?: number;
   mediaDuration?: number;
+  uploadProgress?: number; // 0-100 while this phone uploads the attachment
+  uploadFailed?: boolean; // upload failed: the bubble offers Retry / Remove
   isDeleted?: boolean;
   editedAt?: string | null;
   replyTo?: ReplyPreview | null;

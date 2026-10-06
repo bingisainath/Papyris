@@ -26,3 +26,17 @@ export function dayLabel(iso: string): string {
   if (sameDay(date, yesterday)) return 'Yesterday';
   return date.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
 }
+
+/** 75 -> "1:15" */
+export const formatDuration = (seconds?: number | null): string => {
+  if (!seconds || !Number.isFinite(seconds)) return '0:00';
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+};
+
+export const formatSize = (bytes?: number | null): string => {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};

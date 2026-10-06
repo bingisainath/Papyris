@@ -8,6 +8,18 @@ import { tokens } from '../auth/tokens';
 import { refreshAccessToken } from '../api/client';
 
 export type WsEvent = { type: string; [key: string]: any };
+
+/** Attachment fields of a chat message (same as the web app's OutgoingMedia). */
+export interface OutgoingMedia {
+  mediaUrl: string;
+  mediaType: 'image' | 'video' | 'audio' | 'file';
+  mediaSize?: number;
+  mediaFilename?: string;
+  mediaThumbnail?: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
+  mediaDuration?: number;
+}
 type Listener = (event: WsEvent) => void;
 
 const HEARTBEAT_MS = 30_000;
@@ -127,8 +139,8 @@ class Socket {
     this.send({ type: 'leave', roomId });
   }
 
-  sendMessage(roomId: string, clientId: string, text: string, replyToId?: string) {
-    return this.send({ type: 'message', roomId, clientId, text, ...(replyToId ? { replyToId } : {}) });
+  sendMessage(roomId: string, clientId: string, text: string, replyToId?: string, media?: OutgoingMedia) {
+    return this.send({ type: 'message', roomId, clientId, text, ...(replyToId ? { replyToId } : {}), ...(media || {}) });
   }
 
   typing(roomId: string, isTyping: boolean) {

@@ -142,20 +142,19 @@ export function captureVideoPoster(file: File, maxSide = 640, timeoutMs = 8000):
   });
 }
 
-/** CSS size for a media box: keeps the aspect ratio within maxWidth x maxHeight. */
-export function mediaBoxStyle(
-  width: number | undefined,
-  height: number | undefined,
-  maxWidth = 320,
-  maxHeight = 256
-): React.CSSProperties | undefined {
+/**
+ * CSS size for a photo/video in a chat bubble, taking the picture's own shape (same rules as the
+ * phone app): wide pictures are full width, tall ones full height and narrower, so there are no
+ * bars beside or below them. Only very thin or very wide pictures are cropped, to the minimums.
+ */
+export const MEDIA_BOX = { maxWidth: 300, maxHeight: 340, minWidth: 160, minHeight: 120 };
+export function mediaBoxStyle(width: number | undefined, height: number | undefined): React.CSSProperties | undefined {
   if (!width || !height) return undefined;
-  const scale = Math.min(1, maxWidth / width, maxHeight / height);
-  return {
-    width: Math.round(width * scale),
-    aspectRatio: `${width} / ${height}`,
-    maxWidth: '100%',
-  };
+  const { maxWidth, maxHeight, minWidth, minHeight } = MEDIA_BOX;
+  const ratio = width / height;
+  return ratio >= maxWidth / maxHeight
+    ? { width: maxWidth, height: Math.max(minHeight, Math.round(maxWidth / ratio)) }
+    : { width: Math.max(minWidth, Math.round(maxHeight * ratio)), height: maxHeight };
 }
 
 /** Upload quality: standard = shrink photos/videos, hd = keep high resolution, original = send as a document. */

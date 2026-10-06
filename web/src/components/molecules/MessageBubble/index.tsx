@@ -91,6 +91,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const [showActions, setShowActions] = useState(false);
   const box = mediaBoxStyle(mediaWidth, mediaHeight);
+  // Photos and videos fill the bubble with an even, thin frame; a captionless photo shows the time on the picture
+  const visual = !isDeleted && !!mediaUrl && (mediaType === 'image' || mediaType === 'video');
+  const timeOnMedia = visual && mediaType === 'image' && !text;
   const lastPointerType = useRef<string>('mouse');
 
   const statusIcons: Record<MessageStatus, React.ReactElement> = {
@@ -148,19 +151,21 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           onClick={handleBubbleClick}
           className={`
             relative
-            px-4 py-2.5
+            ${visual ? 'p-[3px]' : 'px-4 py-2.5'}
             rounded-2xl
             ${isSent
               ? 'bg-primary-700 text-white rounded-br-sm shadow-card'
-              : `bg-white border-2 border-muted-100 text-muted-900 rounded-bl-sm shadow-soft ${
-                  isGroup ? 'border-l-4' : ''
-                }`
+              : visual
+                ? 'bg-white border border-muted-200 text-muted-900 rounded-bl-sm shadow-soft'
+                : `bg-white border-2 border-muted-100 text-muted-900 rounded-bl-sm shadow-soft ${
+                    isGroup ? 'border-l-4' : ''
+                  }`
             }
             transition-all duration-200
             animate-scale-in
           `}
           style={
-            !isSent && isGroup
+            !isSent && isGroup && !visual
               ? { borderLeftColor: senderColor }
               : undefined
           }
@@ -177,7 +182,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 <button
                   type="button"
                   onClick={() => onJumpToMessage?.(replyTo.id)}
-                  className={`block w-full text-left mb-2 px-3 py-1.5 rounded-lg border-l-4 ${
+                  className={`block w-full text-left ${visual ? 'mb-[3px]' : 'mb-2'} px-3 py-1.5 rounded-lg border-l-4 ${
                     isSent ? 'bg-white/15 border-white/60' : 'bg-muted-50 border-primary-500'
                   }`}
                 >
@@ -192,12 +197,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
               {/* Media content */}
               {mediaUrl && (
-                <div className={`relative ${text ? 'mb-2' : 'mb-1'}`}>
+                <div className={`relative ${visual ? (text ? 'mb-1.5' : '') : text ? 'mb-2' : 'mb-1'}`}>
                   {mediaType === 'image' && (
                     <button
                       type="button"
                       onClick={onOpenImage}
-                      className={`block overflow-hidden rounded-lg ${box ? (isSent ? 'bg-white/10' : 'bg-muted-100') : ''}`}
+                      className={`block overflow-hidden rounded-[13px] max-w-full ${box ? (isSent ? 'bg-white/10' : 'bg-muted-100') : ''}`}
                       style={box}
                       title="View photo"
                     >
@@ -206,7 +211,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                         alt={mediaFilename || 'Shared image'}
                         loading="lazy"
                         onError={onMediaError}
-                        className={box ? 'w-full h-full object-cover' : 'rounded-lg max-w-full sm:max-w-xs max-h-64 object-cover'}
+                        className={box ? 'w-full h-full object-cover' : 'max-w-full sm:max-w-xs max-h-64 object-cover'}
                       />
                     </button>
                   )}
@@ -220,7 +225,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                       preload={mediaThumbnail ? 'none' : 'metadata'}
                       onError={onMediaError}
                       style={box}
-                      className={box ? 'rounded-lg bg-black object-contain' : 'rounded-lg max-w-full sm:max-w-xs max-h-64 bg-black'}
+                      className={box ? 'block max-w-full rounded-[13px] bg-black object-cover' : 'block rounded-[13px] max-w-full sm:max-w-xs max-h-64 bg-black'}
                     />
                   )}
                   {mediaType === 'audio' && (
@@ -258,11 +263,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
                   {/* Upload progress */}
                   {uploadProgress !== undefined && (
-                    <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/20 rounded-b-lg overflow-hidden">
+                    <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/20 rounded-b-[13px] overflow-hidden">
                       <div
                         className="h-full bg-white transition-all duration-200"
                         style={{ width: `${uploadProgress}%` }}
                       />
+                    </div>
+                  )}
+
+                  {timeOnMedia && uploadProgress === undefined && (
+                    <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/45 text-white pointer-events-none">
+                      <span className="text-[10px]">{formatMessageTime(timestamp)}</span>
+                      {isSent && status && <span className={`flex-shrink-0 ${status === 'read' ? '' : '[&_svg]:!text-white'}`}>{statusIcons[status]}</span>}
                     </div>
                   )}
                 </div>
@@ -270,7 +282,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
               {/* Text content */}
               {text && (
-                <p className={`text-sm break-words whitespace-pre-wrap ${isSent ? 'text-white' : 'text-muted-900'}`}>
+                <p className={`text-sm break-words whitespace-pre-wrap ${visual ? 'px-2' : ''} ${isSent ? 'text-white' : 'text-muted-900'}`}>
                   {text}
                 </p>
               )}
@@ -278,7 +290,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           )}
 
           {/* Timestamp and status */}
-          <div className={`flex items-center gap-1 mt-1 ${isSent ? 'justify-end' : 'justify-start'}`}>
+          <div className={`${timeOnMedia ? 'hidden' : 'flex'} items-center gap-1 ${visual ? 'mt-0.5 px-2 pb-0.5' : 'mt-1'} ${isSent ? 'justify-end' : 'justify-start'}`}>
             {editedAt && !isDeleted && (
               <span className={`text-[10px] italic ${isSent ? 'text-white/70' : 'text-muted-400'}`}>edited</span>
             )}

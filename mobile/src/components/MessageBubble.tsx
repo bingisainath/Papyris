@@ -1,11 +1,12 @@
 // src/components/MessageBubble.tsx
 import React from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, CheckCheck, Clock, FileText, Mic, Play, ReceiptText, RotateCw, XCircle } from 'lucide-react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Check, CheckCheck, Clock, Download, FileText, Play, ReceiptText, RotateCw, X, XCircle } from 'lucide-react-native';
 import { mediaUrl } from '../config';
 import type { Message } from '../api/chat';
 import { colors, radius, space } from '../theme';
-import { clockTime } from '../utils/time';
+import { clockTime, formatDuration, formatSize } from '../utils/time';
+import VoiceNote from './VoiceNote';
 import Avatar from './Avatar';
 
 interface Props {
@@ -16,13 +17,17 @@ interface Props {
   onLongPress: () => void;
   onReact: (emoji: string) => void;
   onRetry: () => void;
-  onOpenImage: () => void;
+  onOpenMedia: () => void; // photo or video viewer
+  onOpenFile: () => void;
+  onCancelUpload: () => void;
+  onRetryUpload: () => void;
   onOpenExpense: (expenseId: string) => void;
   onJumpToReply: (messageId: string) => void;
 }
 
 const MessageBubble: React.FC<Props> = ({
-  message: m, mine, showSender, currentUserId, onLongPress, onReact, onRetry, onOpenImage, onOpenExpense, onJumpToReply,
+  message: m, mine, showSender, currentUserId, onLongPress, onReact, onRetry, onOpenMedia, onOpenFile, onOpenExpense, onJumpToReply,
+  onCancelUpload, onRetryUpload,
 }) => {
   if (m.messageType === 'system') {
     if (m.expenseId) {
@@ -39,6 +44,17 @@ const MessageBubble: React.FC<Props> = ({
   const fg = mine ? colors.white : colors.muted900;
   const sub = mine ? 'rgba(255,255,255,0.75)' : colors.muted400;
   const status = mine && !m.isDeleted ? statusIcon(m.status) : null;
+  // Photos and videos fill the bubble with a thin frame; with no caption the time sits on the picture
+  const visual = !m.isDeleted && !!m.mediaUrl && (m.mediaType === 'image' || m.mediaType === 'video');
+  const timeOnMedia = visual && !m.text;
+  const box = mediaBox(m.mediaWidth, m.mediaHeight);
+  const meta = (overlay: boolean) => (
+    <View style={overlay ? styles.metaOverlay : [styles.meta, visual && styles.inset]} pointerEvents="none">
+      {m.editedAt && !m.isDeleted && <Text style={[styles.metaText, { color: overlay ? colors.white : sub }]}>edited</Text>}
+      <Text style={[styles.metaText, { color: overlay ? colors.white : sub }]}>{clockTime(m.timestamp)}</Text>
+      {status}
+    </View>
+  );
 
   return (
     <View style={[styles.row, mine ? styles.rowMine : styles.rowOther]}>
@@ -47,10 +63,10 @@ const MessageBubble: React.FC<Props> = ({
         <Pressable
           onLongPress={m.isDeleted || m.id.startsWith('temp-') ? undefined : onLongPress}
           delayLongPress={300}
-          style={[styles.bubble, mine ? styles.mine : styles.other]}
+          style={[styles.bubble, mine ? styles.mine : styles.other, visual && styles.bubbleMedia]}
           accessibilityHint="Long press for options"
         >
-          {showSender && !mine && m.senderName && <Text style={styles.sender}>{m.senderName}</Text>}
+          {showSender && !mine && m.senderName && <Text style={[styles.sender, visual && styles.senderMedia]}>{m.senderName}</Text>}
 
           {m.isDeleted ? (
             <View style={styles.inline}>
@@ -60,7 +76,7 @@ const MessageBubble: React.FC<Props> = ({
           ) : (
             <>
               {m.replyTo && (
-                <Pressable onPress={() => onJumpToReply(m.replyTo!.id)} style={[styles.quote, mine ? styles.quoteMine : styles.quoteOther]}>
+                <Pressable onPress={() => onJumpToReply(m.replyTo!.id)} style={[styles.quote, mine ? styles.quoteMine : styles.quoteOther, visual && styles.quoteMedia]}>
                   <Text style={[styles.quoteName, { color: mine ? colors.white : colors.primary700 }]} numberOfLines={1}>
                     {m.replyTo.senderId === currentUserId ? 'You' : m.replyTo.senderName || 'Message'}
                   </Text>
@@ -68,41 +84,76 @@ const MessageBubble: React.FC<Props> = ({
                 </Pressable>
               )}
 
-              {m.mediaUrl && m.mediaType === 'image' && (
-                <Pressable onPress={onOpenImage} style={styles.media} accessibilityLabel="Open photo">
-                  <Image
-                    source={{ uri: mediaUrl(m.mediaUrl) }}
-                    style={[styles.image, m.mediaWidth && m.mediaHeight ? { aspectRatio: m.mediaWidth / m.mediaHeight } : { height: 200 }]}
-                    resizeMode="cover"
-                  />
+              {m.mediaUrl && (m.mediaType === 'image' || m.mediaType === 'video') && (
+                <Pressable onPress={onOpenMedia} style={[styles.media, { width: box.width }, timeOnMedia && styles.mediaAlone]} accessibilityLabel={m.mediaType === 'video' ? 'Play video' : 'Open photo'}>
+                  {m.mediaType === 'image' || m.mediaThumbnail ? (
+                    <Image
+                      source={{ uri: mediaUrl(m.mediaType === 'video' ? m.mediaThumbnail : m.mediaUrl) }}
+                      style={[styles.image, box]}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[styles.image, styles.videoPlaceholder, box]} />
+                  )}
+                  {m.mediaType === 'video' && (
+                    <View style={styles.playOverlay} pointerEvents="none">
+                      <View style={styles.playButton}><Play size={24} color={colors.white} fill={colors.white} /></View>
+                      {!!m.mediaDuration && <Text style={styles.videoTime}>{formatDuration(m.mediaDuration)}</Text>}
+                    </View>
+                  )}
+                  {m.uploadProgress !== undefined && (
+                    <UploadBadge progress={m.uploadProgress} onCancel={onCancelUpload} />
+                  )}
+                  {timeOnMedia && meta(true)}
                 </Pressable>
               )}
-              {m.mediaUrl && m.mediaType !== 'image' && (
-                // Videos, voice notes and files open in the phone's viewer for now
-                <Pressable onPress={() => Linking.openURL(mediaUrl(m.mediaUrl)!)} style={[styles.file, mine ? styles.fileMine : styles.fileOther]}>
-                  {m.mediaType === 'video' ? <Play size={20} color={fg} /> : m.mediaType === 'audio' ? <Mic size={20} color={fg} /> : <FileText size={20} color={fg} />}
-                  <Text style={[styles.fileName, { color: fg }]} numberOfLines={1}>
-                    {m.mediaType === 'video' ? 'Video' : m.mediaType === 'audio' ? 'Voice message' : m.mediaFilename || 'File'}
-                  </Text>
+              {m.mediaUrl && m.mediaType === 'audio' && (
+                <View>
+                  <VoiceNote uri={mediaUrl(m.mediaUrl)!} duration={m.mediaDuration} mine={mine} />
+                  {m.uploadProgress !== undefined && <UploadBadge progress={m.uploadProgress} onCancel={onCancelUpload} inline />}
+                </View>
+              )}
+              {m.mediaUrl && m.mediaType === 'file' && (
+                <Pressable onPress={onOpenFile} disabled={m.uploadProgress !== undefined} style={[styles.file, mine ? styles.fileMine : styles.fileOther]}
+                  accessibilityLabel={`Save ${m.mediaFilename || 'file'}`}>
+                  <FileText size={22} color={fg} />
+                  <View style={{ flexShrink: 1 }}>
+                    <Text style={[styles.fileName, { color: fg }]} numberOfLines={1}>{m.mediaFilename || 'File'}</Text>
+                    <Text style={[styles.fileSize, { color: sub }]}>
+                      {m.uploadProgress !== undefined ? `Uploading ${m.uploadProgress}%` : formatSize(m.mediaSize)}
+                    </Text>
+                  </View>
+                  {m.uploadProgress !== undefined ? (
+                    <Pressable onPress={onCancelUpload} hitSlop={8} accessibilityLabel="Cancel upload"><X size={18} color={fg} /></Pressable>
+                  ) : (
+                    <Download size={18} color={fg} />
+                  )}
                 </Pressable>
               )}
 
-              {!!m.text && <Text style={[styles.text, { color: fg }]}>{m.text}</Text>}
+              {!!m.text && <Text style={[styles.text, { color: fg }, visual && styles.inset]}>{m.text}</Text>}
             </>
           )}
 
-          <View style={styles.meta}>
-            {m.editedAt && !m.isDeleted && <Text style={[styles.metaText, { color: sub }]}>edited</Text>}
-            <Text style={[styles.metaText, { color: sub }]}>{clockTime(m.timestamp)}</Text>
-            {status}
-          </View>
+          {!timeOnMedia && meta(false)}
         </Pressable>
 
         {m.status === 'failed' && mine && (
-          <Pressable onPress={onRetry} style={styles.retry} hitSlop={6}>
-            <RotateCw size={12} color={colors.danger600} />
-            <Text style={styles.retryText}>Not sent · Tap to retry</Text>
-          </Pressable>
+          m.uploadFailed ? (
+            <View style={styles.retry}>
+              <Text style={styles.retryText}>Not sent</Text>
+              <Pressable onPress={onRetryUpload} hitSlop={6} style={styles.retryButton}>
+                <RotateCw size={12} color={colors.primary700} />
+                <Text style={styles.retryAction}>Retry</Text>
+              </Pressable>
+              <Pressable onPress={onCancelUpload} hitSlop={6}><Text style={styles.removeText}>Remove</Text></Pressable>
+            </View>
+          ) : (
+            <Pressable onPress={onRetry} style={styles.retry} hitSlop={6}>
+              <RotateCw size={12} color={colors.danger600} />
+              <Text style={styles.retryText}>Not sent · Tap to retry</Text>
+            </Pressable>
+          )
         )}
 
         {m.reactions.length > 0 && !m.isDeleted && (
@@ -122,6 +173,26 @@ const MessageBubble: React.FC<Props> = ({
     </View>
   );
 };
+
+// The bubble takes the picture's own shape: wide pictures are full width and short, tall ones
+// keep the full height and get narrower, so there are no bars beside or below the picture.
+// Only very thin or very wide pictures are cropped (to the limits below).
+const MEDIA = { maxWidth: 240, maxHeight: 320, minWidth: 150, minHeight: 110 };
+function mediaBox(w?: number | null, h?: number | null) {
+  if (!w || !h) return { width: MEDIA.maxWidth, height: 200 };
+  const ratio = w / h;
+  if (ratio >= MEDIA.maxWidth / MEDIA.maxHeight) {
+    return { width: MEDIA.maxWidth, height: Math.max(MEDIA.minHeight, Math.round(MEDIA.maxWidth / ratio)) };
+  }
+  return { width: Math.max(MEDIA.minWidth, Math.round(MEDIA.maxHeight * ratio)), height: MEDIA.maxHeight };
+}
+
+const UploadBadge: React.FC<{ progress: number; onCancel: () => void; inline?: boolean }> = ({ progress, onCancel, inline }) => (
+  <Pressable onPress={onCancel} hitSlop={8} style={inline ? styles.uploadInline : styles.upload} accessibilityLabel="Cancel upload">
+    <Text style={styles.uploadText}>{progress >= 99 ? 'Processing' : `${progress}%`}</Text>
+    <X size={14} color={colors.white} />
+  </Pressable>
+);
 
 function statusIcon(status: Message['status']) {
   const muted = 'rgba(255,255,255,0.75)';
@@ -151,12 +222,30 @@ const styles = StyleSheet.create({
   quoteOther: { backgroundColor: colors.muted50, borderLeftColor: colors.primary500 },
   quoteName: { fontSize: 12, fontWeight: '700' },
   quoteText: { fontSize: 13 },
-  media: { borderRadius: radius.md, overflow: 'hidden', marginBottom: space(1), width: 220 },
-  image: { width: 220, maxHeight: 320, backgroundColor: colors.muted100 },
+  // Set each side explicitly: in React Native paddingTop/paddingHorizontal from `bubble` win over a plain `padding`
+  bubbleMedia: { paddingTop: 3, paddingBottom: 3, paddingHorizontal: 3 },
+  senderMedia: { marginHorizontal: 6, marginTop: 2 },
+  quoteMedia: { marginBottom: 3 },
+  inset: { paddingHorizontal: 6 },
+  media: { borderRadius: radius.lg - 3, overflow: 'hidden', marginBottom: space(1) },
+  mediaAlone: { marginBottom: 0 },
+  image: { backgroundColor: colors.muted100 },
+  metaOverlay: { position: 'absolute', right: 6, bottom: 6, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.full, backgroundColor: 'rgba(0,0,0,0.45)' },
   file: { flexDirection: 'row', alignItems: 'center', gap: space(2), padding: space(2.5), borderRadius: radius.md, marginBottom: space(1), minWidth: 180 },
   fileMine: { backgroundColor: 'rgba(255,255,255,0.15)' },
   fileOther: { backgroundColor: colors.muted100 },
   fileName: { flexShrink: 1, fontSize: 14, fontWeight: '500' },
+  fileSize: { fontSize: 11, marginTop: 1 },
+  videoPlaceholder: { backgroundColor: colors.muted700 },
+  playOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  playButton: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', paddingLeft: 3 },
+  videoTime: { position: 'absolute', left: 8, bottom: 6, color: colors.white, fontSize: 11, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 3 },
+  upload: { position: 'absolute', top: 6, right: 6, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.full, backgroundColor: 'rgba(0,0,0,0.6)' },
+  uploadInline: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.full, backgroundColor: 'rgba(0,0,0,0.35)', marginTop: 4 },
+  uploadText: { color: colors.white, fontSize: 11 },
+  retryButton: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.primary50 },
+  retryAction: { fontSize: 12, color: colors.primary700, fontWeight: '600' },
+  removeText: { fontSize: 12, color: colors.muted600 },
   meta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 },
   metaText: { fontSize: 10.5 },
   retry: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },

@@ -8,6 +8,10 @@
 	<string>en</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Papyris uses the camera to photograph receipts so they can be split.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Papyris uses the microphone to record voice messages.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Papyris saves photos and videos you choose to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Papyris uses your photos to read receipts and set your profile photo.</string>
 	<key>CFBundleDisplayName</key>

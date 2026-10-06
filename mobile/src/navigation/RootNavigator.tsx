@@ -16,6 +16,7 @@ import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import ChatListScreen from '../screens/chats/ChatListScreen';
 import ChatScreen from '../screens/chats/ChatScreen';
 import ChatInfoScreen from '../screens/chats/ChatInfoScreen';
+import SharedMediaScreen from '../screens/chats/SharedMediaScreen';
 import NewChatScreen from '../screens/chats/NewChatScreen';
 import NewGroupScreen from '../screens/chats/NewGroupScreen';
 import ExpensesHomeScreen from '../screens/expenses/ExpensesHomeScreen';
@@ -140,6 +141,11 @@ const RootNavigator: React.FC = () => {
           name="ChatInfo"
           component={ChatInfoScreen}
           options={{ title: 'Info' }}
+        />
+        <AppStack.Screen
+          name="SharedMedia"
+          component={SharedMediaScreen}
+          options={{ title: 'Media, links and docs' }}
         />
         <AppStack.Screen
           name="NewChat"

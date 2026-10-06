@@ -3,7 +3,8 @@
 
 import { create } from 'zustand';
 import { chatApi, Conversation, Message, ReplyPreview } from '../api/chat';
-import { socket, WsEvent } from '../ws/socket';
+import { OutgoingMedia, socket, WsEvent } from '../ws/socket';
+import { LocalFile, UploadQuality, uploadFile } from '../api/media';
 
 const TYPING_TTL_MS = 6000;
 
@@ -23,6 +24,10 @@ interface ChatState {
   open: (conversationId: string | null) => void;
   send: (conversationId: string, text: string, me: { id: string; username: string }, replyTo?: ReplyPreview | null) => void;
   retry: (conversationId: string, clientId: string) => void;
+  sendMedia: (conversationId: string, attachment: Attachment, me: { id: string; username: string }, replyTo?: ReplyPreview | null) => void;
+  cancelUpload: (conversationId: string, clientId: string) => void;
+  retryUpload: (clientId: string) => void;
+  forward: (message: Message, conversationIds: string[]) => number;
   setPinned: (conversationId: string, pinned: boolean) => void;
   reset: () => void;
 }
@@ -124,6 +129,57 @@ export const useChat = create<ChatState>((set, get) => ({
     }
   },
 
+  sendMedia: (conversationId, attachment, me, replyTo) => {
+    const clientId = newClientId();
+    const message: Message = {
+      id: clientId,
+      clientId,
+      conversationId,
+      senderId: me.id,
+      senderName: me.username,
+      text: attachment.caption,
+      timestamp: new Date().toISOString(),
+      status: 'sending',
+      mediaUrl: attachment.file.uri, // local preview until the server copy arrives
+      mediaType: attachment.kind,
+      mediaFilename: attachment.file.name,
+      mediaSize: attachment.size,
+      mediaWidth: attachment.width,
+      mediaHeight: attachment.height,
+      mediaDuration: attachment.duration,
+      uploadProgress: 0,
+      replyTo: replyTo || null,
+      reactions: [],
+    };
+    set((s) => ({ messages: { ...s.messages, [conversationId]: [...(s.messages[conversationId] || []), message] } }));
+    uploads.set(clientId, { conversationId, attachment, replyTo });
+    uploadAndSend(clientId);
+  },
+
+  cancelUpload: (conversationId, clientId) => {
+    uploads.get(clientId)?.controller?.abort();
+    uploads.delete(clientId);
+    set((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] || []).filter((m) => m.id !== clientId) } }));
+  },
+
+  retryUpload: (clientId) => uploadAndSend(clientId),
+
+  forward: (message, conversationIds) => {
+    const media: OutgoingMedia | undefined = message.mediaUrl && message.mediaType && !message.id.startsWith('temp-')
+      ? {
+          mediaUrl: message.mediaUrl, // the server drops the link's signature and checks it's ours
+          mediaType: message.mediaType,
+          mediaSize: message.mediaSize,
+          mediaFilename: message.mediaFilename,
+          mediaThumbnail: message.mediaThumbnail,
+          mediaWidth: message.mediaWidth,
+          mediaHeight: message.mediaHeight,
+          mediaDuration: message.mediaDuration,
+        }
+      : undefined;
+    return conversationIds.filter((id) => socket.sendMessage(id, newClientId(), message.text || '', undefined, media)).length;
+  },
+
   setPinned: (conversationId, pinned) =>
     set((s) => ({
       conversations: s.conversations.map((c) =>
@@ -135,6 +191,64 @@ export const useChat = create<ChatState>((set, get) => ({
 }));
 
 type Setter = (fn: (s: ChatState) => Partial<ChatState>) => void;
+
+// ---- attachments: upload first, then send the message by URL (same as the web app)
+export interface Attachment {
+  file: LocalFile;
+  kind: 'image' | 'video' | 'audio' | 'file';
+  caption: string;
+  quality: UploadQuality;
+  size?: number;
+  width?: number;
+  height?: number;
+  duration?: number; // seconds (voice notes, videos)
+}
+
+const uploads = new Map<string, {
+  conversationId: string;
+  attachment: Attachment;
+  replyTo?: ReplyPreview | null;
+  controller?: AbortController;
+  sent?: OutgoingMedia; // uploaded already: a retry only resends the message
+}>();
+
+async function uploadAndSend(clientId: string) {
+  const job = uploads.get(clientId);
+  if (!job) return;
+  const { conversationId, attachment, replyTo } = job;
+  const set = useChat.setState as unknown as Setter;
+  const controller = new AbortController();
+  job.controller = controller;
+  updateMessage(set, conversationId, clientId, { status: 'sending', uploadFailed: undefined, uploadProgress: 0 });
+  try {
+    if (!job.sent) {
+      const uploaded = await uploadFile(attachment.file, {
+        quality: attachment.quality,
+        signal: controller.signal,
+        // Past 100% the server is still compressing a video; keep the bar just short of full
+        onProgress: (percent) => updateMessage(set, conversationId, clientId, { uploadProgress: Math.min(percent, 99) }),
+      });
+      job.sent = {
+        mediaUrl: uploaded.url,
+        mediaType: attachment.quality === 'original' && attachment.kind !== 'audio' ? 'file' : attachment.kind,
+        mediaSize: uploaded.size,
+        mediaFilename: uploaded.filename,
+        mediaWidth: uploaded.width || attachment.width,
+        mediaHeight: uploaded.height || attachment.height,
+        mediaDuration: attachment.duration,
+      };
+    }
+    if (socket.sendMessage(conversationId, clientId, attachment.caption, replyTo?.id, job.sent)) {
+      uploads.delete(clientId);
+      updateMessage(set, conversationId, clientId, { uploadProgress: undefined });
+    } else {
+      updateMessage(set, conversationId, clientId, { status: 'failed', uploadFailed: true, uploadProgress: undefined });
+    }
+  } catch {
+    if (controller.signal.aborted) return; // cancelled
+    updateMessage(set, conversationId, clientId, { status: 'failed', uploadFailed: true, uploadProgress: undefined });
+  }
+}
 
 function updateMessage(set: Setter, conversationId: string, messageId: string, patch: Partial<Message>) {
   set((s) => ({
@@ -227,7 +341,9 @@ socket.on((e) => {
       break;
     }
     case 'error':
-      if (e.roomId && e.clientId) updateMessage(set, e.roomId, e.clientId, { status: 'failed' });
+      if (e.roomId && e.clientId) {
+        updateMessage(set, e.roomId, e.clientId, { status: 'failed', ...(uploads.has(e.clientId) ? { uploadFailed: true } : {}) });
+      }
       break;
     case 'typing': {
       if (!e.roomId || !e.userId) break;

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ChevronRight, LogOut, Pin, PinOff, UserPlus, Wallet, X } from 'lucide-react-native';
+import { ChevronRight, Images, LogOut, Pin, PinOff, UserPlus, Wallet, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
 import UserSearch from '../../components/UserSearch';
@@ -103,6 +103,8 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
         </View>
 
         <View style={styles.section}>
+          <Row icon={Images} label="Media, links and docs" onPress={() => navigation.navigate('SharedMedia', { conversationId })} />
+          <Divider />
           <Row icon={Wallet} label="Balances & expenses" onPress={() => navigation.navigate('ChatExpenses', { conversationId })} />
           <Divider />
           <Row icon={pinned ? PinOff : Pin} label={pinned ? 'Unpin chat' : 'Pin chat'} onPress={() => run(async () => {
