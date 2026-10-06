@@ -1,6 +1,7 @@
 # backend/app/api/v1/media.py
 
 import asyncio
+import logging
 import os
 import re
 import time
@@ -15,6 +16,7 @@ from app.models.user import User
 from app.services import media_crypto, media_processing, media_storage
 
 router = APIRouter(prefix="/media", tags=["Media"])
+logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1024 * 1024
 _RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
@@ -51,6 +53,8 @@ async def upload_media(
 
     size = len(head)
     width = height = None
+    duration = None
+    poster_key = None
     try:
         with open(work, "wb") as out:
             out.write(head)
@@ -79,9 +83,28 @@ async def upload_media(
                     key = key.rsplit(".", 1)[0] + extension
                     path = media_storage.path_for_key(key)
 
+        if media_type == "video":
+            # Poster frame for previews; the video still uploads fine if this fails
+            poster = work.with_name(work.name + ".jpg")
+            try:
+                info = await media_processing.video_poster(work, poster)
+                if info:
+                    width, height, duration = info
+                    poster_key = media_storage.new_key(".jpg")
+                    poster_path = media_storage.path_for_key(poster_key)
+                    poster_path.parent.mkdir(parents=True, exist_ok=True)
+                    await asyncio.to_thread(media_crypto.encrypt_file, poster, poster_path)
+            except Exception:
+                logger.warning("Couldn't make a video poster", exc_info=True)
+                poster_key = None
+            finally:
+                poster.unlink(missing_ok=True)
+
         size = await asyncio.to_thread(media_crypto.encrypt_file, work, path)
     except BaseException:
         path.unlink(missing_ok=True)
+        if poster_key:
+            media_storage.path_for_key(poster_key).unlink(missing_ok=True)
         raise
     finally:
         work.unlink(missing_ok=True)
@@ -103,6 +126,10 @@ async def upload_media(
             "filename": name,
             "width": width,
             "height": height,
+            # Videos: a server-made poster frame and the length in seconds (null if unavailable)
+            "thumbnailUrl": media_storage.MEDIA_URL_PREFIX + poster_key if poster_key else None,
+            "thumbnailSignedUrl": media_storage.sign_url(media_storage.MEDIA_URL_PREFIX + poster_key) if poster_key else None,
+            "duration": round(duration, 1) if duration else None,
         },
     }
 

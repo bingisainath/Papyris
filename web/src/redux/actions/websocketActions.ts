@@ -31,7 +31,7 @@ import type { Message, ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
-import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
+import { compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
 import type { UploadQuality } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
@@ -231,7 +231,7 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
     updates: { status: 'sending', uploadFailed: undefined, uploadProgress: 0 },
   }));
 
-  // Size (to reserve space in the bubble) and, for videos, a poster frame; both best-effort
+  // Size (to reserve space in the bubble), best-effort. Video posters are made by the server.
   const dimensionsPromise = kind === 'image' || kind === 'video'
     ? measureMedia(file).then(dims => {
         if (dims) {
@@ -239,11 +239,6 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
         }
         return dims;
       })
-    : Promise.resolve(null);
-  const posterPromise = kind === 'video'
-    ? captureVideoPoster(file)
-        .then(poster => (poster ? mediaService.upload(poster, undefined, { signal: controller.signal }) : null))
-        .catch(() => null)
     : Promise.resolve(null);
 
   let media: OutgoingMedia;
@@ -253,16 +248,16 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
       // Past 100% the server is still compressing a video; keep the bar just short of full
       dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: Math.min(percent, 99) } }));
     }, { signal: controller.signal, quality });
-    const [dims, poster] = await Promise.all([dimensionsPromise, posterPromise]);
+    const dims = await dimensionsPromise;
     media = {
       mediaUrl: uploaded.url,
       mediaType: kind,
       mediaSize: uploaded.size,
       mediaFilename: uploaded.filename,
-      mediaThumbnail: poster?.url,
+      mediaThumbnail: uploaded.thumbnailUrl || undefined,
       mediaWidth: uploaded.width || dims?.width,
       mediaHeight: uploaded.height || dims?.height,
-      mediaDuration: options.duration,
+      mediaDuration: options.duration || uploaded.duration || undefined,
     };
   } catch (error) {
     if (controller.signal.aborted) return; // cancelled: cancelUpload already removed it

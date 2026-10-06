@@ -24,4 +24,6 @@ export type AppStackParams = {
   ScanReceipt: { conversationId: string; receiptId?: string };
   ExpenseDetail: { expenseId: string };
   Profile: undefined;
+  ReceiptScanning: undefined;
+  StoreDiscounts: undefined;
 };

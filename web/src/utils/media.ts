@@ -102,47 +102,6 @@ export function measureMedia(file: File, timeoutMs = 5000): Promise<MediaDimensi
 }
 
 /**
- * A JPEG poster frame from early in a video (shown before it's played),
- * or null if the browser can't decode it.
- */
-export function captureVideoPoster(file: File, maxSide = 640, timeoutMs = 8000): Promise<File | null> {
-  return new Promise(resolve => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    const done = (poster: File | null) => {
-      clearTimeout(timer);
-      URL.revokeObjectURL(url);
-      resolve(poster);
-    };
-    const timer = setTimeout(() => done(null), timeoutMs);
-
-    video.preload = 'auto';
-    video.muted = true;
-    video.playsInline = true;
-    video.onloadeddata = () => {
-      // Skip a possibly black first frame
-      video.currentTime = Math.min(0.5, (video.duration || 1) / 4);
-    };
-    video.onseeked = () => {
-      const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-      const context = canvas.getContext('2d');
-      if (!context) return done(null);
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(
-        blob => done(blob ? new File([blob], 'poster.jpg', { type: 'image/jpeg' }) : null),
-        'image/jpeg',
-        0.8
-      );
-    };
-    video.onerror = () => done(null);
-    video.src = url;
-  });
-}
-
-/**
  * CSS size for a photo/video in a chat bubble, taking the picture's own shape (same rules as the
  * phone app): wide pictures are full width, tall ones full height and narrower, so there are no
  * bars beside or below them. Only very thin or very wide pictures are cropped, to the minimums.

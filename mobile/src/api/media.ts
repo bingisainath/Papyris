@@ -19,6 +19,10 @@ export interface Uploaded {
   filename: string;
   width?: number | null;
   height?: number | null;
+  /** Videos: poster frame made by the server, and the length in seconds */
+  thumbnailUrl?: string | null;
+  thumbnailSignedUrl?: string | null;
+  duration?: number | null;
 }
 
 // Keep in sync with backend media_storage.ALLOWED_TYPES / MAX_*_SIZE

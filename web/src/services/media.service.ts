@@ -12,6 +12,10 @@ export interface UploadedMedia {
   filename: string;
   width?: number | null;
   height?: number | null;
+  /** Videos: poster frame made by the server, and the length in seconds */
+  thumbnailUrl?: string | null;
+  thumbnailSignedUrl?: string | null;
+  duration?: number | null;
 }
 
 class MediaService {

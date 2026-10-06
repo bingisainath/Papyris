@@ -137,6 +137,9 @@ export const chatApi = {
   react: (messageId: string, emoji: string) => api.put(`/messages/${messageId}/reaction`, { emoji }),
   addMembers: (conversationId: string, userIds: string[]) => api.post(`/conversations/${conversationId}/members`, { user_ids: userIds }),
   removeMember: (conversationId: string, userId: string) => api.delete(`/conversations/${conversationId}/members/${userId}`),
+  /** Group admins: rename, describe or change the photo ('' removes the description or photo) */
+  updateGroup: (conversationId: string, body: { title?: string; description?: string; avatar_url?: string }) =>
+    api.patch(`/conversations/${conversationId}`, body),
   /** Leaving a group = removing yourself */
   leave: (conversationId: string, myId: string) => api.delete(`/conversations/${conversationId}/members/${myId}`),
 };

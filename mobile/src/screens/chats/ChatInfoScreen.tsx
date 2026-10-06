@@ -1,11 +1,13 @@
 // src/screens/chats/ChatInfoScreen.tsx
-// Group or contact info: members, admin actions, pin, leave, and the chat's expense settings.
+// Group or contact info: members, admin actions (incl. editing the group), pin, leave, and the chat's expense settings.
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ChevronRight, Images, LogOut, Pin, PinOff, UserPlus, Wallet, X } from 'lucide-react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
+import EditableField from '../../components/EditableField';
 import UserSearch from '../../components/UserSearch';
 import { Divider } from '../../components/ui';
 import { chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
@@ -25,6 +27,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   const [settings, setSettings] = useState<ExpenseSettings | null>(null);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [busyPhoto, setBusyPhoto] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +58,36 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     } catch (e) {
       Alert.alert('Something went wrong', errorMessage(e));
     }
+  };
+
+  // Admins edit the group: each change saves on its own and posts a note in the chat (server side)
+  const saveGroup = async (body: Parameters<typeof chatApi.updateGroup>[1]) => {
+    await chatApi.updateGroup(conversationId, body);
+    await load();
+    useChat.getState().loadConversations().catch(() => undefined);
+  };
+
+  const changePhoto = () => Alert.alert('Group photo', undefined, [
+    { text: 'Choose photo', onPress: pickPhoto },
+    ...(details.avatar_url ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: () => photoTask(() => saveGroup({ avatar_url: '' })) }] : []),
+    { text: 'Cancel', style: 'cancel' as const },
+  ]);
+
+  const photoTask = async (action: () => Promise<unknown>) => {
+    setBusyPhoto(true);
+    try { await action(); } catch (e) { Alert.alert("Couldn't update the photo", errorMessage(e)); } finally { setBusyPhoto(false); }
+  };
+
+  const pickPhoto = async () => {
+    const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, maxWidth: 1024, maxHeight: 1024, quality: 0.8 });
+    const asset = result.assets?.[0];
+    if (!asset?.uri) return;
+    photoTask(async () => {
+      const form = new FormData();
+      form.append('file', { uri: asset.uri, type: asset.type || 'image/jpeg', name: asset.fileName || 'group.jpg' } as any);
+      const r = await api.post('/media/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await saveGroup({ avatar_url: r.data.data.url });
+    });
   };
 
   const memberActions = (member: MemberInfo) => {
@@ -96,11 +129,27 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView>
         <View style={styles.hero}>
-          <Avatar uri={isGroup ? details.avatar_url : other?.avatar} name={title} size={88} />
+          {isGroup && isAdmin ? (
+            <Pressable onPress={changePhoto} accessibilityLabel="Change group photo">
+              <Avatar uri={details.avatar_url} name={title} size={88} />
+              <View style={styles.camera}>{busyPhoto ? <ActivityIndicator size="small" color={colors.white} /> : <Camera size={16} color={colors.white} />}</View>
+            </Pressable>
+          ) : (
+            <Avatar uri={isGroup ? details.avatar_url : other?.avatar} name={title} size={88} />
+          )}
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{isGroup ? `Group · ${details.members.length} members` : `@${other?.username}`}</Text>
-          {(isGroup ? details.description : other?.bio) ? <Text style={styles.about}>{isGroup ? details.description : other?.bio}</Text> : null}
+          {!(isGroup && isAdmin) && (isGroup ? details.description : other?.bio) ? <Text style={styles.about}>{isGroup ? details.description : other?.bio}</Text> : null}
         </View>
+
+        {isGroup && isAdmin && (
+          <View style={styles.section}>
+            <EditableField icon={Type} label="Group name" value={details.title || ''} max={100}
+              validate={(v) => (v.trim() ? null : 'Enter a group name')} onSave={(t) => saveGroup({ title: t })} />
+            <EditableField icon={Info} label="Description" value={details.description || ''} placeholder="Add a group description" max={500} multiline
+              onSave={(d) => saveGroup({ description: d })} />
+          </View>
+        )}
 
         <View style={styles.section}>
           <Row icon={Images} label="Media, links and docs" onPress={() => navigation.navigate('SharedMedia', { conversationId })} />
@@ -201,6 +250,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hero: { alignItems: 'center', paddingVertical: space(6), backgroundColor: colors.white },
+  camera: { position: 'absolute', right: -2, bottom: -2, width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary700, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.white },
   title: { marginTop: space(3), fontSize: 22, fontWeight: '700', color: colors.muted900 },
   subtitle: { marginTop: space(1), fontSize: 14, color: colors.muted500 },
   about: { marginTop: space(3), paddingHorizontal: space(8), fontSize: 14, color: colors.muted700, textAlign: 'center' },

@@ -233,10 +233,17 @@ async function uploadAndSend(clientId: string) {
         mediaType: attachment.quality === 'original' && attachment.kind !== 'audio' ? 'file' : attachment.kind,
         mediaSize: uploaded.size,
         mediaFilename: uploaded.filename,
+        // For videos the server's numbers come from the decoded frame, so they respect rotation
         mediaWidth: uploaded.width || attachment.width,
         mediaHeight: uploaded.height || attachment.height,
-        mediaDuration: attachment.duration,
+        mediaDuration: attachment.duration || uploaded.duration || undefined,
+        mediaThumbnail: uploaded.thumbnailUrl || undefined,
       };
+      if (uploaded.thumbnailSignedUrl) {
+        updateMessage(set, conversationId, clientId, {
+          mediaThumbnail: uploaded.thumbnailSignedUrl, mediaWidth: job.sent.mediaWidth, mediaHeight: job.sent.mediaHeight,
+        });
+      }
     }
     if (socket.sendMessage(conversationId, clientId, attachment.caption, replyTo?.id, job.sent)) {
       uploads.delete(clientId);
