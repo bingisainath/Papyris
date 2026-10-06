@@ -7,6 +7,9 @@ from app.api.v1.chat import router as chat_router
 from app.api.v1.media import router as media_router
 from app.api.v1.messages import router as messages_router
 from app.api.v1.groups import router as groups_router
+from app.api.v1.expenses import router as expenses_router
+from app.api.v1.receipts import router as receipts_router
+from app.api.v1.ai_settings import router as ai_settings_router
 
 api_router = APIRouter()
 
@@ -24,3 +27,12 @@ api_router.include_router(media_router)
 
 # Message actions (edit, delete, react)
 api_router.include_router(messages_router)
+
+# Expenses, settle up and balances
+api_router.include_router(expenses_router)
+
+# Receipt scanning
+api_router.include_router(receipts_router)
+
+# AI model choice, own keys, store discounts, app admin
+api_router.include_router(ai_settings_router)

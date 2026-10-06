@@ -35,7 +35,7 @@ import { captureVideoPoster, measureMedia, mediaTypeOf, messagePreview } from '.
 import { parseApiError } from '../../utils/apiError';
 
 import { fetchConversations, fetchMessages } from './chatActions';
-import { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT } from '../../utils/events';
+import { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT, EXPENSE_CHANGED_EVENT, RECEIPT_READY_EVENT } from '../../utils/events';
 import { notifyNewMessage } from '../../utils/notifications';
 
 // import { clearUnreadCount } from '../slices/chatSlice';
@@ -290,6 +290,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         mediaHeight: data.mediaHeight || undefined,
         uploadProgress: undefined,
         messageType: data.messageType,
+        expenseId: data.expenseId || null,
         replyTo: data.replyTo || null,
         reactions: [],
       };
@@ -402,6 +403,27 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       messageId: data.messageId,
       reactions: data.reactions || [],
     }));
+  });
+
+  // An expense, payment or expense setting changed in one of our chats
+  wsService.on('expense_changed', (data) => {
+    window.dispatchEvent(new CustomEvent(EXPENSE_CHANGED_EVENT, {
+      detail: { conversationId: data.conversationId, expenseId: data.expenseId, action: data.action },
+    }));
+  });
+
+  // The AI finished reading a receipt we uploaded
+  wsService.on('receipt_scan_ready', (data) => {
+    window.dispatchEvent(new CustomEvent(RECEIPT_READY_EVENT, { detail: data }));
+    // Already looking at it (the scan screen is open)? Then no toast.
+    if ((window as any).__waitingForReceiptId === data.receiptId) return;
+    const path = `/chat/${data.conversationId}?receipt=${data.receiptId}`;
+    const open = () => window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT, { detail: path }));
+    if (data.status === 'failed') {
+      toast.error(`Couldn't read your receipt: ${data.error || 'try again'}`, { onClick: open });
+    } else {
+      toast.success('Your receipt is ready to review', { onClick: open });
+    }
   });
 
   // Group renamed / photo / members changed

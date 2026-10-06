@@ -8,6 +8,11 @@ from app.models.conversation_member import ConversationMember
 from app.models.message import Message, MessageType
 from app.models.message_receipt import MessageReceipt
 from app.models.message_reaction import MessageReaction
+from app.models.ai import AIModel, AppSetting, UserAISettings
+from app.models.expense import (
+    ConversationSettings, Expense, ExpenseEvent, ExpensePayer, ExpenseShare, Settlement,
+)
+from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, StoreDiscountRule
 
 __all__ = [
     "User",
@@ -19,4 +24,18 @@ __all__ = [
     "MessageType",
     "MessageReceipt",
     "MessageReaction",
+    "AIModel",
+    "AppSetting",
+    "UserAISettings",
+    "ConversationSettings",
+    "Expense",
+    "ExpenseEvent",
+    "ExpensePayer",
+    "ExpenseShare",
+    "Settlement",
+    "ItemPreference",
+    "Receipt",
+    "ReceiptAdjustment",
+    "ReceiptItem",
+    "StoreDiscountRule",
 ]

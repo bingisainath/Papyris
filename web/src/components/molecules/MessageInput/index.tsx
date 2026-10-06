@@ -17,6 +17,7 @@ interface MessageInputProps {
   showAttachment?: boolean;
   showEmoji?: boolean;
   showExpense?: boolean; // For adding expense from chat
+  onExpense?: () => void;
   className?: string;
   replyingTo?: { senderName?: string | null; text: string } | null;
   onCancelReply?: () => void;
@@ -33,6 +34,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   showAttachment = true,
   showEmoji = true,
   showExpense = false,
+  onExpense,
   className = '',
   replyingTo = null,
   onCancelReply,
@@ -288,9 +290,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
           {showExpense && (
             <button
-              onClick={() => {
-                // TODO: Open expense modal
-              }}
+              type="button"
+              onClick={onExpense}
               disabled={disabled}
               className="p-2 hover:bg-accent-50 rounded-lg transition-colors disabled:opacity-50"
               title="Add expense"

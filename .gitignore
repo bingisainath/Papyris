@@ -88,3 +88,5 @@ dump.rdb
 # ==================== OS ====================
 .DS_Store
 Thumbs.db
+# Browser test screenshots
+e2e-screenshots/

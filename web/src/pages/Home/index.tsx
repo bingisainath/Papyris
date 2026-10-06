@@ -9,7 +9,6 @@ import {
   ChatList,
   ChatWindow,
   ProfileModal,
-  CreateExpenseModal,
   SearchUserModal,
   CreateGroupModal,
   EmptyState,
@@ -32,6 +31,8 @@ import { mediaService } from '../../services/media.service';
 import { mediaTypeOf, validateFile } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
+import ExpensesPage from '../../components/expenses/ExpensesPage';
+import { ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -67,7 +68,6 @@ const Home: React.FC = () => {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSearchUserModal, setShowSearchUserModal] = useState(false);     // ✅ NEW
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
-  const [showCreateExpenseModal, setShowCreateExpenseModal] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);  // ✅ NEW
 
   // Active route
@@ -245,11 +245,6 @@ const Home: React.FC = () => {
     navigate(`/chat/${id}`);
   };
 
-  const handleCreateExpense = (data: any) => {
-    alert('Expense feature coming soon!');
-    setShowCreateExpenseModal(false);
-  };
-
   const handleUpdateProfile = async (data: {
     name: string;
     username?: string;
@@ -378,16 +373,7 @@ const Home: React.FC = () => {
         {/* EXPENSES PAGE */}
         {activeRoute === 'expenses' && (
           <div className="flex-1 min-w-0 pb-16 md:pb-0">
-            <div className="p-8 h-full overflow-auto">
-              <div className="max-w-4xl mx-auto text-center py-20">
-                <h2 className="text-3xl font-bold text-muted-900 mb-4">
-                  Expenses Feature Coming Soon! 💰
-                </h2>
-                <p className="text-muted-500">
-                  We're working on bringing bill splitting to Papyris.
-                </p>
-              </div>
-            </div>
+            <ExpensesPage conversations={sortedConversations} currentUserId={currentUser.id} />
           </div>
         )}
 
@@ -447,17 +433,6 @@ const Home: React.FC = () => {
           }}
           onUpdateProfile={handleUpdateProfile}
           isLoading={savingProfile}
-        />
-      )}
-
-      {/* Expense Modal */}
-      {showCreateExpenseModal && (
-        <CreateExpenseModal
-          isOpen={showCreateExpenseModal}
-          onClose={() => setShowCreateExpenseModal(false)}
-          onCreateExpense={handleCreateExpense}
-          groupMembers={[]}
-          currentUserId={currentUser.id}
         />
       )}
 
@@ -658,6 +633,10 @@ const SettingsPage: React.FC<{
         </div>
 
         <NotificationSettings />
+
+        <ReceiptScanningSettings />
+
+        <StoreDiscountSettings />
 
         <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between gap-4">

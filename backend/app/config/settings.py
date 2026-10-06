@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     MAX_VIDEO_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
     UPLOAD_DIR: str = "uploads"  # relative paths resolve against the backend/ directory
     
+    # Receipt scanning. Keys live only here on the server, never in the app.
+    ANTHROPIC_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    # Encrypts the AI keys people add themselves; falls back to one derived from JWT_SECRET_KEY
+    AI_KEY_ENCRYPTION_SECRET: str = ""
+    RECEIPT_SCANS_PER_MONTH: int = 50  # per person on the app's key; admins can change it in the app
+    RECEIPT_AI_TIMEOUT_SECONDS: int = 120
+    RECEIPT_MAX_IMAGES: int = 4
+
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds
     WS_MAX_CONNECTIONS_PER_USER: int = 5

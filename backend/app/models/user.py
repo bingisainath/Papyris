@@ -56,6 +56,8 @@ class User(Base):
     
     # Account Status
     is_active = Column(Boolean, default=True)
+    # App-wide admin (manages AI models and limits). Set with scripts/make_admin.py
+    is_app_admin = Column(Boolean, default=False, server_default="false", nullable=False)
     status = Column(SQLEnum(UserStatus, name="user_status_enum"), default=UserStatus.ACTIVE)
     
     # Password Reset Fields

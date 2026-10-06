@@ -239,6 +239,7 @@ async def get_messages(
                 "media_height": msg.media_height,
                 "media_size": msg.media_size,
                 "media_filename": msg.media_filename,
+                "expense_id": str(msg.expense_id) if msg.expense_id else None,
                 "created_at": msg.created_at.isoformat(),
                 "status": "read" if is_read else "delivered",
                 "sender": {

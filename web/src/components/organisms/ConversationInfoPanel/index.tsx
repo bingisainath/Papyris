@@ -17,6 +17,7 @@ import { CONVERSATION_UPDATED_EVENT, NAVIGATE_EVENT } from '../../../utils/event
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
 import { togglePinConversation } from '../../../redux/actions/chatActions';
+import { ChatExpenseSettings } from '../../expenses/ExpenseSettingsSections';
 
 interface ConversationInfoPanelProps {
   conversationId: string;
@@ -308,6 +309,17 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
                   )}
                 </p>
               )}
+            </section>
+
+            {/* Expenses: currency, simplify debts, receipt model */}
+            <section className="px-6 py-4 border-b border-muted-100">
+              <ChatExpenseSettings
+                conversationId={conversationId}
+                onOpenExpenses={() => {
+                  onClose();
+                  window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT, { detail: `/expenses?chat=${conversationId}` }));
+                }}
+              />
             </section>
 
             {/* Members */}

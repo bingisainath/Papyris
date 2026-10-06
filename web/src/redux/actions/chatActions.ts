@@ -91,6 +91,7 @@ const toMessage = (msg: any) => ({
   mediaWidth: msg.media_width || undefined,
   mediaHeight: msg.media_height || undefined,
   messageType: msg.message_type,
+  expenseId: msg.expense_id || null,
   isDeleted: !!msg.is_deleted,
   editedAt: msg.edited_at || null,
   replyTo: msg.reply_to
