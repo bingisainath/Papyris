@@ -15,19 +15,26 @@ import {
   EmptyState,
 } from '../../components/organisms';
 import {
-  useSendMessage,
-  useConversationRoom
-} from '../../hooks/useWebSocket';
-import {
   fetchConversations,
   fetchMessages,
   createDirectConversation,
   createGroupConversation,
+  togglePinConversation,
 } from '../../redux/actions/chatActions';
 import type { AppDispatch, RootState } from '../../redux/store';
 import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
 import { clearUnreadCount } from '../../redux/slices/chatSlice';
 import { chatService } from '../../services/chat.service';
+import { NAVIGATE_EVENT } from '../../utils/events';
+import { getNotificationStatus, setNotificationsEnabled } from '../../utils/notifications';
+import type { NotificationStatus } from '../../utils/notifications';
+import { mediaService } from '../../services/media.service';
+import { mediaTypeOf, validateFile } from '../../utils/media';
+import { parseApiError } from '../../utils/apiError';
+import { toast } from 'react-toastify';
+
+// Stable empty value for selectors: returning a new [] each time makes components re-render
+const EMPTY: never[] = [];
 
 // import { selectActiveConversation } from '../../redux/slices/chatSlice';
 
@@ -38,22 +45,17 @@ const Home: React.FC = () => {
   const params = useParams();
 
   // Auth
-  const { user: currentUser, isAuthenticated, logout: authLogout } = useAuth();
+  const { user: currentUser, isAuthenticated, logout: authLogout, updateProfile } = useAuth();
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // Redux state
-  const conversations = useSelector((state: RootState) => state.chat?.conversations || []);
-  const messages = useSelector((state: RootState) =>
-    params.conversationId ? state.chat?.messages?.[params.conversationId] || [] : []
-  );
+  const conversations = useSelector((state: RootState) => state.chat?.conversations ?? EMPTY);
   const isLoading = useSelector((state: RootState) => state.chat?.isLoading || false);
-  const messagesLoading = useSelector((state: RootState) => state.chat?.messagesLoading || false);
 
   const onlineUsers = useSelector(selectOnlineUsers);
 
-  // WebSocket
-  const { sendMessage } = useSendMessage();
+  // Room join/leave is handled by ChatWindow
   const activeConversationId = params.conversationId;
-  useConversationRoom(activeConversationId);
 
   // Get other user ID from conversation
   const getOtherUserId = (conversation: any) => {
@@ -69,6 +71,20 @@ const Home: React.FC = () => {
   const [creatingConversation, setCreatingConversation] = useState(false);  // ✅ NEW
 
   // Active route
+  // Unread count in the browser tab title, e.g. "(3) Papyris"
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+  useEffect(() => {
+    document.title = totalUnread > 0 ? `(${totalUnread}) Papyris` : 'Papyris';
+  }, [totalUnread]);
+  useEffect(() => () => { document.title = 'Papyris'; }, []);
+
+  // Lets toasts and other non-component code open a route (e.g. "added to group" toast)
+  useEffect(() => {
+    const onNavigate = (e: Event) => navigate((e as CustomEvent<string>).detail);
+    window.addEventListener(NAVIGATE_EVENT, onNavigate);
+    return () => window.removeEventListener(NAVIGATE_EVENT, onNavigate);
+  }, [navigate]);
+
   const activeRoute = ['chat', 'groups', 'expenses', 'settings'].includes(location.pathname.split('/')[1])
     ? location.pathname.split('/')[1]
     : 'chat';
@@ -76,7 +92,6 @@ const Home: React.FC = () => {
   // Redirect if not authenticated
   useEffect(() => {
     if (!isAuthenticated) {
-      console.log('⚠️ Not authenticated, redirecting to login');
       navigate('/login', { replace: true });
     }
   }, [isAuthenticated, navigate]);
@@ -84,7 +99,6 @@ const Home: React.FC = () => {
   // Load conversations
   useEffect(() => {
     if (isAuthenticated && currentUser) {
-      console.log('📥 Loading conversations...');
       dispatch(fetchConversations());
     }
   }, [dispatch, isAuthenticated, currentUser]);
@@ -92,7 +106,6 @@ const Home: React.FC = () => {
   // Load messages
   useEffect(() => {
     if (activeConversationId && isAuthenticated) {
-      console.log('📥 Loading messages for:', activeConversationId);
       dispatch(fetchMessages(activeConversationId));
     }
   }, [activeConversationId, dispatch, isAuthenticated]);
@@ -104,11 +117,13 @@ const Home: React.FC = () => {
   const currentUserId = localStorage.getItem('userId') || '';
 
   const sortedConversations = useMemo(() => {
-    return [...conversations].sort((a, b) => {
-      const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
-      const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
-      return timeB - timeA; // Most recent first
-    });
+    const time = (value?: string | null) => (value ? new Date(value).getTime() : 0);
+    // Pinned chats first (most recently pinned on top), then by latest message
+    return [...conversations].sort((a, b) =>
+      Number(!!b.isPinned) - Number(!!a.isPinned) ||
+      time(b.pinnedAt) - time(a.pinnedAt) ||
+      time(b.lastMessageTime) - time(a.lastMessageTime)
+    );
   }, [conversations]);
 
   const otherUserId = activeConversation ? getOtherUserId(activeConversation) : null;
@@ -122,11 +137,10 @@ const Home: React.FC = () => {
 
       if (!user || !user.id) {
         console.error('Invalid user:', user);
-        alert('Invalid user selected');
+        toast.error('Invalid user selected');
         return;
       }
 
-      console.log('Creating DM with user:', user.id);
 
       // Check if DM already exists
       const existingDM = conversations.find(c =>
@@ -146,11 +160,11 @@ const Home: React.FC = () => {
         await dispatch(fetchConversations());
         navigate(`/chat/${result.conversationId}`);
       } else {
-        alert('Failed to create conversation');
+        toast.error('Failed to create conversation');
       }
     } catch (error) {
       console.error('Error creating DM:', error);
-      alert('Failed to create conversation');
+      toast.error('Failed to create conversation');
     } finally {
       setCreatingConversation(false);
     }
@@ -166,15 +180,20 @@ const Home: React.FC = () => {
     setCreatingConversation(true);
 
     try {
-      // TODO: Upload avatar if provided
-      let avatarUrl = '';
+      let avatarUrl: string | undefined;
       if (data.avatar) {
-        console.log('Avatar upload coming soon');
-        // avatarUrl = await uploadAvatar(data.avatar);
+        try {
+          avatarUrl = (await mediaService.upload(data.avatar)).url;
+        } catch (error) {
+          toast.error(`Group photo not uploaded: ${parseApiError(error)}`);
+        }
       }
 
       // Create group
-      const result = await dispatch(createGroupConversation(data.name, data.memberIds));
+      const result = await dispatch(createGroupConversation(data.name, data.memberIds, {
+        description: data.description?.trim() || undefined,
+        avatar_url: avatarUrl,
+      }));
 
       if (result.success && result.conversationId) {
         setShowCreateGroupModal(false);
@@ -182,11 +201,11 @@ const Home: React.FC = () => {
         await dispatch(fetchConversations());
         navigate(`/chat/${result.conversationId}`);
       } else {
-        alert(`Failed to create group: ${result.error || 'Unknown error'}`);
+        toast.error(`Failed to create group: ${result.error || 'Unknown error'}`);
       }
     } catch (error: any) {
       console.error('Error creating group:', error);
-      alert(`Failed to create group: ${error.message}`);
+      toast.error(`Failed to create group: ${parseApiError(error)}`);
     } finally {
       setCreatingConversation(false);
     }
@@ -197,14 +216,12 @@ const Home: React.FC = () => {
   };
 
   const handleSelectConversation = async (id: string) => {
-    console.log('👆 User clicked conversation:', id.substring(0, 8));
 
     // Get conversation
     const conversation = conversations.find(c => c.id === id);
 
     // ✅ Mark as read on server
-    if (conversation && conversation.unreadCount > 0) {
-      console.log(`🧹 Marking ${conversation.unreadCount} messages as read on server`);
+    if (conversation && (conversation.unreadCount ?? 0) > 0) {
 
       // Clear in Redux immediately for instant UI update
       dispatch(clearUnreadCount(id));
@@ -214,7 +231,6 @@ const Home: React.FC = () => {
         const result = await chatService.markConversationRead(id);
 
         if (result.success) {
-          console.log('✅ Server marked as read, now fetching updated conversations');
           // Now the server has updated counts, safe to fetch
           await dispatch(fetchConversations());
         } else {
@@ -229,27 +245,38 @@ const Home: React.FC = () => {
     navigate(`/chat/${id}`);
   };
 
-  const handleSendMessage = (text: string, file?: File) => {
-    if (!activeConversationId) return;
-
-    if (file) {
-      alert('File upload coming soon!');
-      return;
-    }
-
-    sendMessage(activeConversationId, text);
-  };
-
   const handleCreateExpense = (data: any) => {
-    console.log('Create expense:', data);
     alert('Expense feature coming soon!');
     setShowCreateExpenseModal(false);
   };
 
-  const handleUpdateProfile = (data: any) => {
-    console.log('Update profile:', data);
-    alert('Profile update coming soon!');
-    setShowProfileModal(false);
+  const handleUpdateProfile = async (data: {
+    name: string;
+    username?: string;
+    bio?: string;
+    avatar?: File;
+  }) => {
+    setSavingProfile(true);
+    try {
+      let avatar: string | undefined;
+      if (data.avatar) {
+        const error = validateFile(data.avatar) || (mediaTypeOf(data.avatar) !== 'image' ? 'Please choose an image.' : null);
+        if (error) throw new Error(error);
+        avatar = (await mediaService.upload(data.avatar)).url;
+      }
+      await updateProfile({
+        name: data.name,
+        username: data.username,
+        bio: data.bio ?? '',
+        avatar,
+      });
+      toast.success('Profile updated');
+      dispatch(fetchConversations()); // our name/photo shows in chats
+    } catch (error) {
+      toast.error(`Couldn't update profile: ${parseApiError(error)}`);
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const handleLogout = () => {
@@ -280,7 +307,7 @@ const Home: React.FC = () => {
         <Sidebar
           user={{
             id: currentUser.id,
-            name: currentUser.username || currentUser.email.split('@')[0],
+            name: currentUser.name || currentUser.username || currentUser.email.split('@')[0],
             username: currentUser.username || currentUser.email,
             avatar: currentUser.avatar
           }}
@@ -294,18 +321,19 @@ const Home: React.FC = () => {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex min-w-0 overflow-hidden">
         {/* CHAT PAGE */}
         {activeRoute === 'chat' && (
           <>
             {/* Chat List */}
             {/* <div className="w-full md:w-96 flex-shrink-0 border-r border-muted-200 bg-white/80"> */}
-            <div className={`w-full md:w-96 flex-shrink-0 border-r border-muted-200 bg-white/80 ${activeConversationId ? 'hidden md:block' : 'block'
+            <div className={`w-full md:w-80 lg:w-96 flex-shrink-0 border-r border-muted-200 bg-white/80 pb-16 md:pb-0 ${activeConversationId ? 'hidden md:block' : 'block'
               }`}>
               <ChatList
                 conversations={sortedConversations}
                 activeConversationId={activeConversationId}
                 onSelectConversation={handleSelectConversation}
+                onTogglePin={(id) => dispatch(togglePinConversation(id))}
                 onNewChat={() => setShowSearchUserModal(true)}
                 onNewGroup={() => setShowCreateGroupModal(true)}
                 isLoading={isLoading}
@@ -313,21 +341,18 @@ const Home: React.FC = () => {
             </div>
 
             {/* Chat Window - Show on mobile when active, always show on desktop */}
-            <div className={`flex-1 ${activeConversationId ? 'block' : 'hidden md:block'  // ✅ FIX: Show window when chat is active
+            <div className={`flex-1 min-w-0 ${activeConversationId ? 'block' : 'hidden md:block'  // ✅ FIX: Show window when chat is active
               }`}>
               {activeConversation ? (
                 <ChatWindow
-                  conversationId={activeConversationId}
+                  conversationId={activeConversation.id}
                   conversationName={activeConversation.name}
                   conversationAvatar={activeConversation.avatar}
                   isGroup={activeConversation.isGroup}
+                  memberCount={activeConversation.members?.length}
                   isOnline={isOnline}
-                  messages={messages}
                   currentUserId={currentUser.id}
-                  onSendMessage={handleSendMessage}
-                  onTyping={(isTyping) => console.log('Typing:', isTyping)}
                   onBack={() => navigate('/chat')}  // ✅ FIX: Go back to list on mobile
-                  isLoading={messagesLoading}
                 />
               ) : (
                 <EmptyState
@@ -341,7 +366,7 @@ const Home: React.FC = () => {
 
         {/* GROUPS PAGE */}
         {activeRoute === 'groups' && (
-          <div className="flex-1">
+          <div className="flex-1 min-w-0 pb-16 md:pb-0">
             <GroupsPage
               groups={conversations.filter(c => c.isGroup)}
               onCreateGroup={() => setShowCreateGroupModal(true)}
@@ -352,7 +377,7 @@ const Home: React.FC = () => {
 
         {/* EXPENSES PAGE */}
         {activeRoute === 'expenses' && (
-          <div className="flex-1">
+          <div className="flex-1 min-w-0 pb-16 md:pb-0">
             <div className="p-8 h-full overflow-auto">
               <div className="max-w-4xl mx-auto text-center py-20">
                 <h2 className="text-3xl font-bold text-muted-900 mb-4">
@@ -368,14 +393,20 @@ const Home: React.FC = () => {
 
         {/* SETTINGS PAGE */}
         {activeRoute === 'settings' && (
-          <div className="flex-1">
-            <SettingsPage user={currentUser} />
+          <div className="flex-1 min-w-0 pb-16 md:pb-0">
+            <SettingsPage
+              user={currentUser}
+              onEditProfile={() => setShowProfileModal(true)}
+              onLogout={handleLogout}
+            />
           </div>
         )}
       </div>
 
-      {/* Mobile bottom nav */}
-      <MobileBottomNav activeRoute={activeRoute} onNavigate={handleNavigate} />
+      {/* Mobile bottom nav (hidden inside an open chat, like other messengers) */}
+      {!(activeRoute === 'chat' && activeConversationId) && (
+        <MobileBottomNav activeRoute={activeRoute} onNavigate={handleNavigate} />
+      )}
 
       {/* ✅ NEW: SearchUserModal */}
       <SearchUserModal
@@ -401,11 +432,11 @@ const Home: React.FC = () => {
           onClose={() => setShowProfileModal(false)}
           user={{
             id: currentUser.id,
-            name: currentUser.username || currentUser.email.split('@')[0],
+            name: currentUser.name || currentUser.username || currentUser.email.split('@')[0],
             username: currentUser.username || currentUser.email,
             email: currentUser.email,
             avatar: currentUser.avatar,
-            bio: '',
+            bio: currentUser.bio || '',
             joinedDate: new Date(currentUser.created_at).toLocaleDateString()
           }}
           stats={{
@@ -415,6 +446,7 @@ const Home: React.FC = () => {
             totalSettled: 0
           }}
           onUpdateProfile={handleUpdateProfile}
+          isLoading={savingProfile}
         />
       )}
 
@@ -446,44 +478,22 @@ const Home: React.FC = () => {
 
 
 
-// Welcome Screen Component
-const WelcomeScreen: React.FC = () => (
-  <div className="flex items-center justify-center h-full">
-    <div className="text-center px-8">
-      <div className="w-32 h-32 mx-auto mb-6 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center shadow-card animate-scale-in">
-        <svg className="w-16 h-16 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-      </div>
-      <h2 className="text-3xl font-bold text-muted-900 mb-3">Papyris Web</h2>
-      <p className="text-muted-500 max-w-md leading-relaxed mb-4">
-        Send and receive messages without keeping your phone online.
-        <br />
-        Use Papyris on multiple devices at the same time.
-      </p>
-      <p className="text-sm text-primary-600 font-medium">
-        ← Select a conversation to start chatting
-      </p>
-    </div>
-  </div>
-);
-
 // Groups Page Component  
 const GroupsPage: React.FC<{
   groups: any[];
   onCreateGroup: () => void;
   onOpenGroup: (id: string) => void;
 }> = ({ groups, onCreateGroup, onOpenGroup }) => (
-  <div className="p-8 h-full overflow-auto">
+  <div className="p-4 sm:p-8 h-full overflow-auto">
     <div className="max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-muted-900">Groups</h1>
+      <div className="flex items-center justify-between gap-4 mb-6 sm:mb-8">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-muted-900">Groups</h1>
           <p className="text-muted-500 mt-1">Manage your group conversations</p>
         </div>
         <button
           onClick={onCreateGroup}
-          className="px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all hover:scale-105 flex items-center gap-2"
+          className="flex-shrink-0 whitespace-nowrap px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all hover:scale-105 flex items-center gap-2"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -554,33 +564,116 @@ const GroupsPage: React.FC<{
 
 
 
+// Desktop notification preference (Settings)
+const NotificationSettings: React.FC = () => {
+  const [status, setStatus] = useState<NotificationStatus>(getNotificationStatus);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      setStatus(await setNotificationsEnabled(status !== 'on'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const description: Record<NotificationStatus, string> = {
+    on: 'You get a desktop notification for new messages when Papyris is in the background.',
+    off: 'Turn on to get a desktop notification for new messages when Papyris is in the background.',
+    denied: 'Notifications are blocked for this site. Allow them in your browser\'s site settings, then reload.',
+    unsupported: 'This browser does not support desktop notifications.',
+  };
+
+  return (
+    <div className="card p-4 sm:p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-muted-900">Notifications</h2>
+          <p className="text-sm text-muted-500">{description[status]}</p>
+        </div>
+        {(status === 'on' || status === 'off') && (
+          <button
+            role="switch"
+            aria-checked={status === 'on'}
+            aria-label="Desktop notifications"
+            onClick={toggle}
+            disabled={busy}
+            className={`relative flex-shrink-0 w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+              status === 'on' ? 'bg-primary-600' : 'bg-muted-300'
+            }`}
+          >
+            <span
+              className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                status === 'on' ? 'translate-x-5' : ''
+              }`}
+            />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Settings Page Component
-const SettingsPage: React.FC<{ user: any }> = ({ user }) => (
-  <div className="p-8 h-full overflow-auto">
+const SettingsPage: React.FC<{
+  user: any;
+  onEditProfile: () => void;
+  onLogout: () => void;
+}> = ({ user, onEditProfile, onLogout }) => (
+  <div className="p-4 sm:p-8 h-full overflow-auto">
     <div className="max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold text-muted-900 mb-8">Settings</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-muted-900 mb-6 sm:mb-8">Settings</h1>
 
       <div className="space-y-6">
-        <div className="card p-6">
-          <h2 className="text-xl font-semibold text-muted-900 mb-4 flex items-center gap-2">
-            <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-            Account
-          </h2>
+        <div className="card p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className="text-xl font-semibold text-muted-900 flex items-center gap-2">
+              <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              Account
+            </h2>
+            <button
+              onClick={onEditProfile}
+              className="px-3 py-1.5 text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+            >
+              Edit profile
+            </button>
+          </div>
           <div className="space-y-3">
-            <div className="flex justify-between items-center py-3 border-b border-muted-100">
+            <div className="flex justify-between items-center gap-4 py-3 border-b border-muted-100">
               <span className="text-muted-700">Username</span>
-              <span className="text-muted-900 font-medium">{user.username || user.email.split('@')[0]}</span>
+              <span className="text-muted-900 font-medium truncate">{user.username || user.email.split('@')[0]}</span>
             </div>
-            <div className="flex justify-between items-center py-3 border-b border-muted-100">
+            <div className="flex justify-between items-center gap-4 py-3 border-b border-muted-100">
               <span className="text-muted-700">Email</span>
-              <span className="text-muted-900 font-medium">{user.email}</span>
+              <span className="text-muted-900 font-medium truncate">{user.email}</span>
             </div>
-            <div className="flex justify-between items-center py-3">
+            <div className="flex justify-between items-center gap-4 py-3">
               <span className="text-muted-700">Joined</span>
               <span className="text-muted-500 text-sm">{new Date(user.created_at).toLocaleDateString()}</span>
             </div>
+          </div>
+        </div>
+
+        <NotificationSettings />
+
+        <div className="card p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-muted-900">Log out</h2>
+              <p className="text-sm text-muted-500">Sign out of Papyris on this device.</p>
+            </div>
+            <button
+              onClick={onLogout}
+              className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-accent-600 hover:bg-accent-700 rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Log out
+            </button>
           </div>
         </div>
       </div>

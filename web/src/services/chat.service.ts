@@ -2,8 +2,9 @@
 
 import axios from 'axios';
 import { tokenStore } from '../utils/token';
+import { API_V1_URL } from '../config/env';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+const API_URL = API_V1_URL;
 
 // Get auth token from localStorage
 const getAuthHeader = () => {
@@ -11,6 +12,29 @@ const getAuthHeader = () => {
   const token = tokenStore.get();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
+
+export interface ConversationMemberInfo {
+  id: string;
+  username: string;
+  name?: string | null;
+  avatar?: string | null;
+  bio?: string | null;
+  role: 'admin' | 'moderator' | 'member' | 'viewer';
+  joined_at?: string | null;
+  is_me: boolean;
+}
+
+export interface ConversationDetails {
+  id: string;
+  kind: 'dm' | 'group';
+  title?: string | null;
+  description?: string | null;
+  avatar_url?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  my_role: ConversationMemberInfo['role'];
+  members: ConversationMemberInfo[];
+}
 
 class ChatService {
   /**
@@ -26,11 +50,11 @@ class ChatService {
   /**
    * Get messages for a conversation
    */
-  async getMessages(conversationId: string, limit = 50, offset = 0) {
+  async getMessages(conversationId: string, limit = 50, before?: string) {
     const response = await axios.get(
       `${API_URL}/conversations/${conversationId}/messages`,
       {
-        params: { limit, offset },
+        params: before ? { limit, before } : { limit },
         headers: getAuthHeader(),
       }
     );
@@ -57,13 +81,18 @@ class ChatService {
   /**
    * Create a new group conversation
    */
-  async createGroupConversation(name: string, memberIds: string[]) {
+  async createGroupConversation(
+    name: string,
+    memberIds: string[],
+    extra: { description?: string; avatar_url?: string } = {}
+  ) {
     const response = await axios.post(
       `${API_URL}/conversations`,
       {
         kind: 'group',
         title: name,
         participant_ids: memberIds,
+        ...extra,
       },
       {
         headers: getAuthHeader(),
@@ -98,8 +127,11 @@ class ChatService {
   /**
    * Update group conversation
    */
-  async updateGroup(conversationId: string, data: { title?: string; avatar_url?: string }) {
-    const response = await axios.put(
+  async updateGroup(
+    conversationId: string,
+    data: { title?: string; description?: string; avatar_url?: string }
+  ) {
+    const response = await axios.patch(
       `${API_URL}/conversations/${conversationId}`,
       data,
       {
@@ -132,6 +164,74 @@ class ChatService {
       {
         headers: getAuthHeader(),
       }
+    );
+    return response.data;
+  }
+
+  /**
+   * Make a group member an admin, or dismiss an admin
+   */
+  async updateGroupMemberRole(conversationId: string, userId: string, role: 'admin' | 'member') {
+    const response = await axios.patch(
+      `${API_URL}/conversations/${conversationId}/members/${userId}`,
+      { role },
+      { headers: getAuthHeader() }
+    );
+    return response.data;
+  }
+
+  /**
+   * Conversation details with members (group / contact info panel)
+   */
+  async getConversation(conversationId: string): Promise<ConversationDetails> {
+    const response = await axios.get(`${API_URL}/conversations/${conversationId}`, {
+      headers: getAuthHeader(),
+    });
+    return response.data.data;
+  }
+
+  /**
+   * Pin a conversation to the top of your list (max 3), or unpin it
+   */
+  async pinConversation(conversationId: string, pinned: boolean) {
+    const response = await axios.put(
+      `${API_URL}/conversations/${conversationId}/pin`,
+      { pinned },
+      { headers: getAuthHeader() }
+    );
+    return response.data;
+  }
+
+  /**
+   * Edit the text of your own message
+   */
+  async editMessage(messageId: string, text: string) {
+    const response = await axios.patch(
+      `${API_URL}/messages/${messageId}`,
+      { text },
+      { headers: getAuthHeader() }
+    );
+    return response.data;
+  }
+
+  /**
+   * Delete your own message for everyone
+   */
+  async deleteMessage(messageId: string) {
+    const response = await axios.delete(`${API_URL}/messages/${messageId}`, {
+      headers: getAuthHeader(),
+    });
+    return response.data;
+  }
+
+  /**
+   * Toggle your reaction on a message (same emoji again removes it)
+   */
+  async reactToMessage(messageId: string, emoji: string) {
+    const response = await axios.put(
+      `${API_URL}/messages/${messageId}/reaction`,
+      { emoji },
+      { headers: getAuthHeader() }
     );
     return response.data;
   }

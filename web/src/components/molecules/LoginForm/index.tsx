@@ -22,18 +22,8 @@ const LoginForm: React.FC<LoginFormProps> = ({
   onSubmit,
   error,
 }) => {
-  const handleButtonClick = () => {
-    console.log("Button clicked");
-    // Create a fake form event
-    const fakeEvent = {
-      preventDefault: () => { },
-      stopPropagation: () => { },
-    } as React.FormEvent<HTMLFormElement>;
-    onSubmit(fakeEvent);
-  };
-
   return (
-    <form className="auth-form">
+    <form className="auth-form" onSubmit={onSubmit} noValidate>
       <h1 className="auth-form-title">Sign In</h1>
       <ErrorMessage message={error} />
       <Input
@@ -78,7 +68,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
       >
         Forgot your password?
       </Link>
-      <Button type="button" variant="submit" onClick={handleButtonClick}>
+      <Button type="submit" variant="submit">
         Sign In
       </Button>
     </form>

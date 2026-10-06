@@ -18,6 +18,8 @@ def verify_ws_token(token: str) -> str:
     # returns user_id (subject)
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        if payload.get("type") == "refresh":
+            raise JWTError("Refresh token can't be used here")
         sub = payload.get("sub") or payload.get("subject") or payload.get("user_id")
         if not sub:
             raise JWTError("Missing subject")

@@ -20,7 +20,7 @@ interface TypographyProps {
   weight?: 'normal' | 'medium' | 'semibold' | 'bold';
   align?: 'left' | 'center' | 'right';
   truncate?: boolean;
-  as?: keyof JSX.IntrinsicElements;
+  as?: keyof React.JSX.IntrinsicElements;
 }
 
 const Typography: React.FC<TypographyProps> = ({
@@ -73,7 +73,7 @@ const Typography: React.FC<TypographyProps> = ({
   };
 
   // Determine the HTML element to use
-  const defaultElements: Record<TypographyVariant, keyof JSX.IntrinsicElements> = {
+  const defaultElements: Record<TypographyVariant, keyof React.JSX.IntrinsicElements> = {
     h1: 'h1',
     h2: 'h2',
     h3: 'h3',

@@ -5,8 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import os
 
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserLogin, UserResponse
-from app.schemas.auth import Token, ForgotPasswordRequest, VerifyResetTokenRequest, ResetPasswordRequest
+from app.schemas.user import UserCreate, UserLogin, UserResponse, UserUpdate
+from app.services import media_storage
+from sqlalchemy import select, func
+from app.schemas.auth import Token, RefreshTokenRequest, ForgotPasswordRequest, VerifyResetTokenRequest, ResetPasswordRequest
+from app.core.security import decode_token, password_fingerprint
+from uuid import UUID
 from app.schemas.response import APIResponse
 from app.services.auth_service import AuthService
 from app.services.email_service import email_service
@@ -45,6 +49,34 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
         data=token,
     )
 
+
+@router.post("/refresh", response_model=APIResponse[Token])
+async def refresh(payload: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Exchange a refresh token for a new access + refresh token pair.
+    Fails if the token expired, the user is inactive, or the password changed since.
+    """
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Session expired. Please log in again.",
+    )
+    try:
+        claims = decode_token(payload.refresh_token)
+    except HTTPException:
+        raise invalid
+    if claims.get("type") != "refresh" or not claims.get("sub"):
+        raise invalid
+
+    user = await db.get(User, UUID(claims["sub"]))
+    if user is None or not user.is_active or claims.get("pwd") != password_fingerprint(user.hashed_password):
+        raise invalid
+
+    return APIResponse(
+        success=True,
+        message="Token refreshed",
+        data=AuthService.issue_tokens(user),
+    )
+
 # ============================================
 # GET CURRENT USER
 # ============================================
@@ -54,6 +86,41 @@ async def me(current_user: User = Depends(get_current_user)):
     return APIResponse(
         success=True,
         message="User fetched successfully",
+        data=current_user,
+    )
+
+
+@router.patch("/me", response_model=APIResponse[UserResponse])
+async def update_me(
+    payload: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the current user's profile (name, username, bio, avatar)"""
+    if payload.username is not None and payload.username.lower() != current_user.username.lower():
+        taken = (await db.execute(
+            select(User.id).where(func.lower(User.username) == payload.username.lower(), User.id != current_user.id)
+        )).scalar_one_or_none()
+        if taken:
+            raise HTTPException(status_code=409, detail="Username is already taken")
+        current_user.username = payload.username
+
+    if payload.name is not None:
+        current_user.name = payload.name or None
+    if payload.bio is not None:
+        current_user.bio = payload.bio or None
+    if payload.avatar is not None:
+        if payload.avatar and not media_storage.is_stored_image_url(payload.avatar):
+            raise HTTPException(status_code=400, detail="Avatar must be an uploaded image")
+        current_user.avatar = media_storage.unsigned(payload.avatar) or None
+
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return APIResponse(
+        success=True,
+        message="Profile updated successfully",
         data=current_user,
     )
 

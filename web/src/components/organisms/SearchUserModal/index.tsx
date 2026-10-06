@@ -143,7 +143,7 @@ const SearchUserModal: React.FC<SearchUserModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-muted-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-600 to-secondary-400 flex items-center justify-center">
-              <Icon name="message-square" size={22} className="text-white" />
+              <Icon name="message" size={22} className="text-white" />
             </div>
             <div>
               <Typography variant="h5" weight="bold" className="text-muted-900">
@@ -208,7 +208,7 @@ const SearchUserModal: React.FC<SearchUserModalProps> = ({
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Icon name="alert-circle" size={48} className="text-accent-500 mb-3" />
+              <Icon name="alert" size={48} className="text-accent-500 mb-3" />
               <Typography variant="body1" weight="semibold" className="text-muted-700 mb-1">
                 {error}
               </Typography>

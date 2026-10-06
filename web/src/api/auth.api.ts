@@ -28,3 +28,15 @@ export async function getMe(): Promise<UserResponse> {
   const { data } = await api.get<UserResponse>("/api/v1/auth/me");
   return data;
 }
+
+export interface ProfileUpdate {
+  name?: string;
+  username?: string;
+  bio?: string;
+  avatar?: string; // uploaded image URL, or "" to remove
+}
+
+export async function updateMe(payload: ProfileUpdate): Promise<UserResponse> {
+  const { data } = await api.patch<UserResponse>("/api/v1/auth/me", payload);
+  return data;
+}

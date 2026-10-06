@@ -1,20 +1,7 @@
-# from sqlalchemy.orm import DeclarativeBase
-
-# class Base(DeclarativeBase):
-#     pass
-
-
-# from app.db.base import Base
-# from app.db.session import get_db, engine
-
-# __all__ = ["Base", "get_db", "engine"]
+# backend/app/db/base.py
 
 from app.db.base_class import Base
 
-# import all models so Alembic can see them
+# Models register themselves on Base when they are imported (see app/models/__init__.py)
 
-# from app.models.user import User
-# from app.db.base_class import Base
-# from app.models.conversation import Conversation
-# from app.models.conversation_member import ConversationMember
-# from app.models.message import Message
+__all__ = ["Base"]

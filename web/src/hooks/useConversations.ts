@@ -67,60 +67,6 @@ export const useMessages = (conversationId?: string) => {
 };
 
 /**
- * Hook to manage expenses
- */
-export const useExpenses = () => {
-  const dispatch = useDispatch();
-
-  const expenses = useSelector((state: RootState) => state.expenses?.list || []);
-  const isLoading = useSelector((state: RootState) => state.expenses?.isLoading || false);
-
-  // Calculate totals
-  const totals = useSelector((state: RootState) => {
-    const userId = state.auth?.user?.id;
-    if (!userId) return { totalOwed: 0, totalOwe: 0, totalSettled: 0 };
-
-    const expenses = state.expenses?.list || [];
-
-    let totalOwed = 0;
-    let totalOwe = 0;
-    let totalSettled = 0;
-
-    expenses.forEach((expense: any) => {
-      if (expense.status === 'settled') {
-        totalSettled += expense.totalAmount;
-      } else {
-        const userShare = expense.shares.find((s: any) => s.userId === userId);
-        if (expense.paidBy.id === userId) {
-          // User paid, others owe them
-          totalOwed += expense.shares
-            .filter((s: any) => s.userId !== userId && !s.paid)
-            .reduce((sum: number, s: any) => sum + s.amount, 0);
-        } else if (userShare && !userShare.paid) {
-          // User owes money
-          totalOwe += userShare.amount;
-        }
-      }
-    });
-
-    return { totalOwed, totalOwe, totalSettled };
-  });
-
-  useEffect(() => {
-    // dispatch(fetchExpenses());
-  }, [dispatch]);
-
-  return {
-    expenses,
-    isLoading,
-    ...totals,
-    // createExpense: (data: any) => dispatch(createExpense(data)),
-    // settleExpense: (id: string) => dispatch(settleExpense(id)),
-    // deleteExpense: (id: string) => dispatch(deleteExpense(id)),
-  };
-};
-
-/**
  * Hook to manage groups
  */
 export const useGroups = () => {

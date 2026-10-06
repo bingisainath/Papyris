@@ -10,11 +10,15 @@ import React, {
   useState,
 } from "react";
 import { useDispatch } from "react-redux";
-import { loginUser, registerUser, getMe } from "../api/auth.api";
-import { UserResponse } from "../types/auth.types";
-import { isTokenExpired, tokenStore } from "../utils/token";
+import { loginUser, registerUser, getMe, updateMe } from "../api/auth.api";
+import type { ProfileUpdate } from "../api/auth.api";
+import { User } from "../types/auth.types";
+import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
+import { refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
+import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
+import type { AppDispatch } from "../redux/store";
 import { authService } from "../services/auth.service";
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data?: T };
@@ -26,7 +30,7 @@ function unwrap<T>(res: any): ApiEnvelope<T> {
 }
 
 type AuthContextType = {
-  user: UserResponse | null;
+  user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
@@ -38,49 +42,91 @@ type AuthContextType = {
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   logout: () => void;
   clearError: () => void;
+  updateProfile: (data: ProfileUpdate) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<UserResponse | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const dispatch = useDispatch();  // ✅ ADD: Redux dispatch
+  const dispatch = useDispatch<AppDispatch>();
 
   const clearError = useCallback(() => setError(null), []);
 
+  // Chat code reads the current user from localStorage (sender id, own-message checks)
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem("userId", user.id);
+      localStorage.setItem("username", user.username);
+      if (user.avatar) localStorage.setItem("userAvatar", user.avatar);
+      else localStorage.removeItem("userAvatar");
+    } else {
+      localStorage.removeItem("userId");
+      localStorage.removeItem("username");
+      localStorage.removeItem("userAvatar");
+    }
+  }, [user]);
+
   const logout = useCallback(() => {
     // ✅ ADD: Disconnect WebSocket before logout
-    console.log("[AUTH] 🔌 Disconnecting WebSocket...");
     dispatch(disconnectWebSocket());
 
     tokenStore.clear();
     setUser(null);
     setError(null);
-    console.log("[AUTH] Logged out");
   }, [dispatch]);
 
+
+  // Renew the access token shortly before it expires, for as long as we're logged in
+  useEffect(() => {
+    if (!user) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const exp = decodeJwt(tokenStore.get() || "")?.exp;
+      const msLeft = exp ? exp * 1000 - Date.now() : 0;
+      timer = setTimeout(async () => {
+        if (await refreshAccessToken()) schedule();
+      }, Math.max(msLeft - 60_000, 5_000));
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [user]);
+
+  // The refresh token was rejected (expired, password changed, ...): end the session
+  useEffect(() => {
+    const onExpired = () => {
+      if (!tokenStore.get()) {
+        logout();
+        toast.info("Your session expired. Please log in again.");
+      }
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, [logout]);
 
   useEffect(() => {
     const init = async () => {
       try {
-        const token = tokenStore.get();
+        let token = tokenStore.get();
         if (!token || isTokenExpired(token)) {
-          logout();
-          return;
+          // Access token gone or expired: try to renew it before giving up
+          token = await refreshAccessToken();
+          if (!token) {
+            logout();
+            return;
+          }
         }
 
-        const res = unwrap<UserResponse>(await getMe());
+        const res = unwrap<User>(await getMe());
         if (!res.success || !res.data) {
           logout();
           return;
         }
 
         setUser(res.data);
-        console.log("[AUTH] Session restored:", res.data.email);
 
-        console.log("[AUTH] 🔌 Reconnecting WebSocket after refresh...");
         dispatch(connectWebSocket(token));
 
       } catch (err) {
@@ -99,7 +145,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setError(null);
       setIsLoading(true);
 
-      console.log("[AUTH] Login attempt for:", identifier);
 
       try {
         // Validate inputs
@@ -107,7 +152,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!password.trim()) throw new Error("Password is required");
 
         // ✅ CHANGED: Use identifier instead of email
-        const res = unwrap<{ access_token: string; token_type: string }>(
+        const res = unwrap<{ access_token: string; refresh_token?: string; token_type: string }>(
           await loginUser({ identifier, password })
         );
 
@@ -121,19 +166,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         tokenStore.set(res.data.access_token);
+        if (res.data.refresh_token) tokenStore.setRefresh(res.data.refresh_token);
 
         // Fetch user profile
-        const meRes = unwrap<UserResponse>(await getMe());
+        const meRes = unwrap<User>(await getMe());
         if (!meRes.success || !meRes.data) {
           throw new Error(meRes.message || "Unable to fetch user profile");
         }
 
         setUser(meRes.data);
         setError(null);
-        console.log("[AUTH] ✅ LOGIN SUCCESS:", meRes.data.email);
 
         // Connect WebSocket immediately after successful login
-        console.log("[AUTH] 🔌 Connecting WebSocket...");
         dispatch(connectWebSocket(res.data.access_token));
 
       } catch (err) {
@@ -171,7 +215,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error("Password must be at least 6 characters");
         }
 
-        const res = unwrap<UserResponse>(
+        const res = unwrap<User>(
           await registerUser({ username, email, password })
         );
 
@@ -180,7 +224,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         setError(null);
-        console.log("[AUTH] ✅ REGISTER SUCCESS:", res.data?.email ?? email);
 
         // Note: No WebSocket connection here - user needs to login first
 
@@ -205,7 +248,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error("Username or email is required");
         }
 
-        console.log('forget password called : ', identifier);
 
         const response = await authService.forgotPassword(identifier);
 
@@ -213,7 +255,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error(response.message || "Failed to send reset email");
         }
 
-        console.log("[AUTH] ✅ Password reset email sent");
 
       } catch (err) {
         const msg = parseApiError(err);
@@ -239,7 +280,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error(response.message || "Invalid or expired token");
         }
 
-        console.log("[AUTH] ✅ Token verified");
         return {
           email: response.data.email,
           username: response.data.username
@@ -277,7 +317,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error(response.message || "Failed to reset password");
         }
 
-        console.log("[AUTH] ✅ Password reset successful");
 
       } catch (err) {
         const msg = parseApiError(err);
@@ -291,6 +330,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     []
   );
 
+  const updateProfile = useCallback(async (data: ProfileUpdate): Promise<void> => {
+    const res = unwrap<User>(await updateMe(data));
+    if (!res.success || !res.data) {
+      throw new Error(res.message || "Profile update failed");
+    }
+    setUser(res.data);
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -301,11 +348,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       register,
       logout,
       clearError,
+      updateProfile,
       forgotPassword,    
       verifyResetToken,    
       resetPassword,        
     }),
-    [user, isLoading, error, login, register, logout, clearError, forgotPassword, verifyResetToken, resetPassword]
+    [user, isLoading, error, login, register, logout, clearError, updateProfile, forgotPassword, verifyResetToken, resetPassword]
   );
 
 return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -13,6 +13,7 @@ interface ButtonProps {
   iconPosition?: 'left' | 'right';
   fullWidth?: boolean;
   type?: 'button' | 'submit' | 'reset';
+  title?: string; // tooltip; also used as the accessible name for icon-only buttons
 }
 
 const Button: React.FC<ButtonProps> = ({ 
@@ -26,7 +27,8 @@ const Button: React.FC<ButtonProps> = ({
   icon = null,
   iconPosition = 'left',
   fullWidth = false,
-  type = 'button'
+  type = 'button',
+  title
 }) => {
   const variants: Record<string, string> = {
     primary: `
@@ -79,6 +81,8 @@ const Button: React.FC<ButtonProps> = ({
   return (
     <button
       type={type}
+      title={title}
+      aria-label={title && !children ? title : undefined}
       onClick={onClick}
       disabled={isDisabled}
       className={`

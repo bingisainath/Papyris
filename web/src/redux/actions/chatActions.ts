@@ -2,9 +2,13 @@
 
 import { AppDispatch, RootState } from '../store';
 import { chatService } from '../../services/chat.service';
+import { parseApiError } from '../../utils/apiError';
+import { toast } from 'react-toastify';
 import {
   setConversations,
   setMessages,
+  prependMessages,
+  setPinned,
   setLoading,
   setMessagesLoading,
   setError,
@@ -26,15 +30,6 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
       const onlineUsers = state.websocket.onlineUsers || [];
       const currentUserId = localStorage.getItem('userId');
 
-      // ✅ CRITICAL: Get existing unread counts from Redux
-      const existingConversations = state.chat.conversations;
-      const unreadMap = new Map(
-        existingConversations.map(c => [c.id, c.unreadCount || 0])
-      );
-      
-      // const existingIds = new Set(existingConversations.map(c => c.id));
-
-      console.log('💾 Preserving unread counts:', Array.from(unreadMap.entries()).map(([id, count]) => `${id.substring(0, 8)}: ${count}`));
 
       const conversationsWithOnline = response.data.map((conv: any) => {
         let isOnline = false;
@@ -52,28 +47,21 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
 
         }
 
-        // ✅ Get existing unread count, or 0 for new conversations
-        // const existingUnread = unreadMap.get(conv.id) || 0;
-        // const isNewConversation = !existingIds.has(conv.id)
-        
-        // const unreadCount = existingUnread !== undefined ? existingUnread : conv.unreadCount || 0;
-        
-        // if (isNewConversation) {
-        //   console.log(`🆕 New conversation detected: ${conv.name} - unread: ${unreadCount}`);
-        // }
 
-        console.log('unread count :', conv.unreadCount);
         
+
+        // The open chat is being read live (if the tab is visible); its read receipt may still be in flight
+        const isActive =
+          conv.id === (window as any).__activeConversationId && document.visibilityState === 'visible';
 
         return {
           ...conv,
           isOnline,
           members: conv.members || [],
-          unreadCount: conv.unreadCount || 0,
+          unreadCount: isActive ? 0 : conv.unreadCount || 0,
         };
       });
 
-      // console.log('✅ Conversations with online status:', conversationsWithOnline.length);
       dispatch(setConversations(conversationsWithOnline));
 
 
@@ -86,8 +74,40 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
   }
 };
 
+const toMessage = (msg: any) => ({
+  id: msg.id,
+  conversationId: msg.conversation_id,
+  senderId: msg.sender_id,
+  senderName: msg.sender?.username,
+  senderAvatar: msg.sender?.avatar,
+  text: msg.text,
+  timestamp: msg.created_at,
+  status: msg.status || 'delivered',
+  mediaUrl: msg.media_url || undefined,
+  mediaType: msg.media_type || undefined,
+  mediaSize: msg.media_size || undefined,
+  mediaFilename: msg.media_filename || undefined,
+  mediaThumbnail: msg.media_thumbnail || undefined,
+  mediaWidth: msg.media_width || undefined,
+  mediaHeight: msg.media_height || undefined,
+  messageType: msg.message_type,
+  isDeleted: !!msg.is_deleted,
+  editedAt: msg.edited_at || null,
+  replyTo: msg.reply_to
+    ? {
+        id: msg.reply_to.id,
+        text: msg.reply_to.text,
+        senderId: msg.reply_to.sender_id,
+        senderName: msg.reply_to.sender_name,
+        messageType: msg.reply_to.message_type,
+        isDeleted: msg.reply_to.is_deleted,
+      }
+    : null,
+  reactions: (msg.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.user_ids })),
+});
+
 /**
- * Fetch messages for a conversation
+ * Fetch the newest page of messages for a conversation
  */
 export const fetchMessages = (conversationId: string) => async (dispatch: AppDispatch) => {
   try {
@@ -96,27 +116,42 @@ export const fetchMessages = (conversationId: string) => async (dispatch: AppDis
     const response = await chatService.getMessages(conversationId);
 
     if (response.success && response.data) {
-      // Transform backend data to frontend format
-      const messages = response.data.map((msg: any) => ({
-        id: msg.id,
-        conversationId: msg.conversation_id,
-        senderId: msg.sender_id,
-        senderName: msg.sender?.username,
-        senderAvatar: msg.sender?.avatar,
-        text: msg.text,
-        timestamp: msg.created_at,
-        status: msg.status || 'delivered',
-        mediaUrl: msg.media_url,
-        mediaType: msg.media_type,
+      dispatch(setMessages({
+        conversationId,
+        messages: response.data.map(toMessage),
+        hasMore: !!response.has_more,
       }));
-
-      dispatch(setMessages({ conversationId, messages }));
     }
   } catch (error: any) {
     console.error('Failed to fetch messages:', error);
     dispatch(setError(error.message || 'Failed to load messages'));
   } finally {
     dispatch(setMessagesLoading(false));
+  }
+};
+
+/**
+ * Fetch the page of messages older than the oldest one loaded
+ */
+export const fetchOlderMessages = (conversationId: string) => async (
+  dispatch: AppDispatch,
+  getState: () => RootState
+) => {
+  const oldest = (getState().chat.messages[conversationId] || []).find(m => !m.id.startsWith('temp-'));
+  if (!oldest) return;
+
+  try {
+    const response = await chatService.getMessages(conversationId, 50, oldest.id);
+    if (response.success && response.data) {
+      dispatch(prependMessages({
+        conversationId,
+        messages: response.data.map(toMessage),
+        hasMore: !!response.has_more,
+      }));
+    }
+  } catch (error: any) {
+    console.error('Failed to fetch older messages:', error);
+    dispatch(setError(error.message || 'Failed to load older messages'));
   }
 };
 
@@ -157,9 +192,13 @@ export const createDirectConversation = (userId: string) => async (dispatch: App
 /**
  * Create a new group conversation
  */
-export const createGroupConversation = (name: string, memberIds: string[]) => async (dispatch: AppDispatch) => {
+export const createGroupConversation = (
+  name: string,
+  memberIds: string[],
+  extra: { description?: string; avatar_url?: string } = {}
+) => async (dispatch: AppDispatch) => {
   try {
-    const response = await chatService.createGroupConversation(name, memberIds);
+    const response = await chatService.createGroupConversation(name, memberIds, extra);
 
     if (response.success && response.data) {
       const conv = response.data;
@@ -209,5 +248,27 @@ export const fetchUsers = async (search?: string) => {
   } catch (error) {
     console.error('Failed to fetch users:', error);
     return [];
+  }
+};
+/**
+ * Pin or unpin a conversation for the current user (optimistic; max 3 pinned)
+ */
+export const togglePinConversation = (conversationId: string) => async (
+  dispatch: AppDispatch,
+  getState: () => RootState
+) => {
+  const conversation = getState().chat.conversations.find(c => c.id === conversationId);
+  if (!conversation) return;
+
+  const previous = conversation.pinnedAt ?? null;
+  const pin = !conversation.isPinned;
+  dispatch(setPinned({ conversationId, pinnedAt: pin ? new Date().toISOString() : null }));
+
+  try {
+    const response = await chatService.pinConversation(conversationId, pin);
+    dispatch(setPinned({ conversationId, pinnedAt: response.data?.pinnedAt ?? null }));
+  } catch (error) {
+    dispatch(setPinned({ conversationId, pinnedAt: previous }));
+    toast.error(parseApiError(error));
   }
 };

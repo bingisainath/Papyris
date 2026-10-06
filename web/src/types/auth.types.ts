@@ -15,14 +15,6 @@ export interface LoginResponse {
   expires_in?: number; // optional (if backend adds it)
 }
 
-// export interface UserResponse {
-//   id: string;
-//   username: string;
-//   email: string;
-//   is_active: boolean;
-//   created_at: string;
-// }
-
 
 export interface LoginResponse {
   success: boolean;
@@ -55,3 +47,7 @@ export interface JwtPayload {
   iat?: number;
   type?: string;
 }
+
+
+/** The user object inside UserResponse.data (what AuthProvider keeps as `user`) */
+export type User = UserResponse['data'];

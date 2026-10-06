@@ -322,12 +322,10 @@ body {
   }
 }
 
-/* Dark mode support (future) */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f172a;
-    --card-bg: rgba(30, 41, 59, 0.95);
-  }
+/* The app is light-only for now. Tell the browser so form controls and
+   scrollbars don't switch to dark styling on dark-mode systems. */
+:root {
+  color-scheme: light;
 }
 
 /* Accessibility */
@@ -369,4 +367,9 @@ body {
 /* Fallback for devices without notch */
 .mobile-safe-bottom {
   padding-bottom: 4rem; /* 16 in Tailwind = 4rem */
+}
+/* Briefly highlights the message a reply quote points to */
+.message-highlight > div > div {
+  box-shadow: 0 0 0 3px rgba(126, 34, 206, 0.45);
+  transition: box-shadow 0.3s ease;
 }

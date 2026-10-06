@@ -1,5 +1,11 @@
 // src/services/websocket.service.ts
 
+import { WS_URL } from '../config/env';
+import { isTokenExpired, tokenStore } from '../utils/token';
+import { refreshAccessToken } from '../utils/authRefresh';
+
+const MAX_RECONNECT_DELAY = 30_000;
+
 // import { io, Socket } from 'socket.io-client';
 
 export interface Message {
@@ -12,21 +18,66 @@ export interface Message {
   timestamp: string;
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   mediaUrl?: string;
-  mediaType?: 'image' | 'video' | 'file';
+  mediaType?: MediaType;
+}
+
+export type MediaType = 'image' | 'video' | 'file';
+
+export interface OutgoingMedia {
+  mediaUrl: string;
+  mediaType: MediaType;
+  mediaSize?: number;
+  mediaFilename?: string;
+  mediaThumbnail?: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
 }
 
 export interface WebSocketEvent {
-  type: 'message' | 'typing' | 'read' | 'joined' | 'left' | 'online' | 'offline' | 'error';
+  type: 'message' | 'typing' | 'read' | 'joined' | 'left' | 'online' | 'offline' | 'presence'
+    | 'conversation_created' | 'conversation_updated' | 'conversation_removed' | 'conversation_pinned'
+    | 'message_updated' | 'reactions_updated' | 'error';
   roomId?: string;
   userId?: string;
+  userIds?: string[];
   messageId?: string;
+  clientId?: string;
   senderId?: string;
+  senderName?: string;
+  senderAvatar?: string;
   text?: string;
+  mediaUrl?: string | null;
+  mediaType?: MediaType | null;
+  mediaSize?: number | null;
+  mediaFilename?: string | null;
+  mediaThumbnail?: string | null;
+  mediaWidth?: number | null;
+  mediaHeight?: number | null;
   timestamp?: string;
   status?: string;
   isTyping?: boolean;
   lastMessageId?: string;
+  readUpTo?: string | null;
   message?: string;
+  conversationId?: string;
+  kind?: 'dm' | 'group';
+  title?: string | null;
+  createdBy?: string;
+  createdByName?: string;
+  removedBy?: string;
+  removedByName?: string;
+  left?: boolean;
+  pinned?: boolean;
+  pinnedAt?: string | null;
+  userName?: string | null;
+  messageType?: 'text' | 'image' | 'video' | 'file' | 'system';
+  replyTo?: {
+    id: string; text: string; senderId: string;
+    senderName?: string | null; messageType?: string; isDeleted?: boolean;
+  } | null;
+  reactions?: { emoji: string; userIds: string[] }[];
+  isDeleted?: boolean;
+  editedAt?: string;
 }
 
 type EventCallback = (event: WebSocketEvent) => void;
@@ -38,18 +89,22 @@ class WebSocketService {
   // private reconnectDelay = 1000;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private eventListeners: Map<string, EventCallback[]> = new Map();
+  // Rooms this client wants to be in; re-joined whenever the socket (re)opens
+  private rooms = new Set<string>();
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private tokenRejected = false; // server closed with 1008 (bad/expired token)
   private isConnecting = false;
   private shouldReconnect = true;
   private token: string | null = null;
   private wsUrl: string;
   // private listeners: Record<string, Array<(data: any) => void>> = {};
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
   private reconnectDelay = 2000;
 
   constructor() {
     // WebSocket URL - adjust for your backend
-    this.wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:8000/api/v1/ws/chat';
+    this.wsUrl = WS_URL;
+    window.addEventListener('online', this.handleOnline);
   }
 
   connect(token: string): Promise<void> {
@@ -59,13 +114,11 @@ class WebSocketService {
         (this.ws.readyState === WebSocket.OPEN ||
           this.ws.readyState === WebSocket.CONNECTING)
       ) {
-        console.log('⏳ WebSocket already open or connecting');
         resolve();
         return;
       }
 
       if (this.isConnecting) {
-        console.log('⏳ Connection already in progress');
         return;
       }
 
@@ -77,10 +130,10 @@ class WebSocketService {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        console.log('✅ WebSocket connected');
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
+        this.rooms.forEach(roomId => this.send({ type: 'join', roomId }));
         this.emit('connected', {});  // ✅ ADD THIS
         resolve();
       };
@@ -89,7 +142,6 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data: WebSocketEvent = JSON.parse(event.data);
-          console.log('📨 WebSocket received:', data);  // Debug log
           this.handleMessage(data);
         } catch (error) {
           console.error('❌ Failed to parse WebSocket message:', error);
@@ -104,8 +156,8 @@ class WebSocketService {
       };
 
       this.ws.onclose = (event) => {
-        console.log('🔌 WebSocket disconnected:', event.code, event.reason);
         this.isConnecting = false;
+        if (event.code === 1008) this.tokenRejected = true;
         this.stopHeartbeat();
         this.emit('disconnected', {});
 
@@ -118,7 +170,6 @@ class WebSocketService {
 
   // ✅ Add method to clear all listeners
   // clearListeners() {
-  //   console.log('🧹 Clearing all WebSocket listeners');
   //   this.listeners = {};
   // }
 
@@ -127,6 +178,11 @@ class WebSocketService {
    */
   disconnect() {
     this.shouldReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.rooms.clear();
     this.stopHeartbeat();
 
     if (this.ws) {
@@ -134,7 +190,6 @@ class WebSocketService {
       this.ws = null;
     }
 
-    console.log('👋 WebSocket disconnected by user');
   }
 
   /**
@@ -152,8 +207,6 @@ class WebSocketService {
     }
 
     // ✅ Log all outgoing WebSocket messages
-    console.log(`%c⬆️ WS SEND: ${data.type}`, 'background: #FF9800; color: white; padding: 2px 5px; border-radius: 3px;');
-    console.log('  Data:', data);
 
     try {
       this.ws!.send(JSON.stringify(data));
@@ -168,14 +221,10 @@ class WebSocketService {
    * Join a conversation room
    */
   joinConversation(conversationId: string) {
-    console.log(`📥 Joining conversation: ${conversationId}`);
-    const sent = this.send({
-      type: 'join',
-      roomId: conversationId
-    });
-
-    if (!sent) {
-      console.warn(`⚠️ Failed to join ${conversationId} - not connected`);
+    this.rooms.add(conversationId);
+    // If not connected yet, the room is joined when the socket opens
+    if (this.isConnected()) {
+      this.send({ type: 'join', roomId: conversationId });
     }
   }
 
@@ -183,26 +232,29 @@ class WebSocketService {
    * Leave a conversation room
    */
   leaveConversation(conversationId: string) {
-    console.log(`📤 Leaving conversation: ${conversationId}`);
-    const sent = this.send({
-      type: 'leave',
-      roomId: conversationId
-    });
-
-    if (!sent) {
-      console.warn(`⚠️ Failed to leave ${conversationId} - not connected`);
+    this.rooms.delete(conversationId);
+    if (this.isConnected()) {
+      this.send({ type: 'leave', roomId: conversationId });
     }
   }
 
   /**
    * Send a message
    */
-  sendMessage(conversationId: string, text: string) {
-    console.log(`💬 Sending message to ${conversationId}`);
+  sendMessage(
+    conversationId: string,
+    clientId: string,
+    text: string,
+    media?: OutgoingMedia,
+    replyToId?: string
+  ) {
     const sent = this.send({
       type: 'message',
       roomId: conversationId,
-      text
+      clientId,
+      text,
+      ...media,
+      ...(replyToId ? { replyToId } : {})
     });
 
     if (!sent) {
@@ -277,7 +329,6 @@ class WebSocketService {
    * Handle incoming message from server
    */
   private handleMessage(data: WebSocketEvent) {
-    // console.log('📨 Received:', data.type, data);
 
     // Emit specific event type
     this.emit(data.type, data);
@@ -319,21 +370,50 @@ class WebSocketService {
   /**
    * Schedule reconnection attempt
    */
-  private scheduleReconnect() {
+  private scheduleReconnect(immediate = false) {
+    if (this.reconnectTimer) return;
+
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const delay = immediate
+      ? 0
+      : Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), MAX_RECONNECT_DELAY);
 
-    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
-    setTimeout(() => {
-      if (this.shouldReconnect && this.token) {
-        console.log(`🔄 Reconnection attempt ${this.reconnectAttempts}`);
-        this.connect(this.token).catch(error => {
-          console.error('Reconnection failed:', error);
-        });
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (!this.shouldReconnect) return;
+
+      // Use the newest token; renew it if it expired (or was rejected) while we were away
+      let token = tokenStore.get();
+      if (!token || isTokenExpired(token) || this.tokenRejected) {
+        token = await refreshAccessToken();
       }
+      if (!this.shouldReconnect) return;
+      if (!token) {
+        // Refresh failed. If we still have a refresh token it was a network problem: keep trying.
+        // (If the session really ended, tokens are cleared and the app logs out.)
+        if (tokenStore.getRefresh()) this.scheduleReconnect();
+        return;
+      }
+
+      this.tokenRejected = false;
+      this.connect(token).catch(error => {
+        console.error('Reconnection failed:', error);
+      });
     }, delay);
   }
+
+  /** Browser came back online: reconnect now instead of waiting for the backoff */
+  private handleOnline = () => {
+    if (!this.shouldReconnect || this.isConnected() || !this.token) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    this.scheduleReconnect(true);
+  };
+
 
 }
 

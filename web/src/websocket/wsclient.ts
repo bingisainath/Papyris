@@ -11,16 +11,13 @@ let resolveOpen: (() => void) | null = null;
 
 export function connectWS(token: string, onMessage: (msg: any) => void) {
   if (socket && isOpen) {
-    console.log("[WS] Already connected");
     return;
   }
 
   if (isConnecting) {
-    console.log("[WS] Already connecting...");
     return;
   }
 
-  console.log("[WS] Connecting...");
   isConnecting = true;
 
   socket = new WebSocket("ws://localhost:9000");
@@ -29,7 +26,6 @@ export function connectWS(token: string, onMessage: (msg: any) => void) {
   waitForOpen = new Promise((resolve) => (resolveOpen = resolve));
 
   socket.onopen = () => {
-    console.log("[WS] Connected");
     isConnecting = false;
     isOpen = true;
 
@@ -49,7 +45,6 @@ export function connectWS(token: string, onMessage: (msg: any) => void) {
       const msg = JSON.parse(event.data);
       onMessage(msg);
     } catch {
-      console.log("[WS RAW]", event.data);
     }
   };
 
@@ -73,7 +68,6 @@ export async function safeSend(data: any) {
   }
 
   if (!isOpen) {
-    console.log("[WS] Waiting for open...");
     await waitForOpen;
   }
 

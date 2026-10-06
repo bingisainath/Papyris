@@ -1,41 +1,3 @@
-# from pydantic_settings import BaseSettings
-# from pydantic import Field
-# from typing import List, Optional
-
-# class Settings(BaseSettings):
-#     APP_NAME: str = "Papyris"
-#     ENV: str = "local"
-#     DEBUG: bool = True
-
-#     # Database
-#     DATABASE_URL: str
-#     DB_SSL: bool = False  # ✅ add this to match .env
-
-#     # JWT
-#     JWT_SECRET_KEY: str
-#     JWT_ALGORITHM: str = "HS256"
-#     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-
-#     # CORS
-#     CORS_ORIGINS: List[str] = Field(default_factory=list)
-
-#     # Redis (support both styles)
-#     REDIS_URL: Optional[str] = None  # ✅ add this to match .env
-#     REDIS_HOST: str = "redis"
-#     REDIS_PORT: int = 6379
-
-#     @property
-#     def redis_dsn(self) -> str:
-#         # prefer REDIS_URL if provided, else build from host/port
-#         return self.REDIS_URL or f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
-
-#     class Config:
-#         env_file = ".env"
-#         extra = "forbid"
-
-# settings = Settings()
-
-
 # backend/app/config/settings.py
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -60,7 +22,7 @@ class Settings(BaseSettings):
     # JWT Authentication
     JWT_SECRET_KEY: str = "your-secret-key-change-this-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour; clients renew via /auth/refresh
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
     # CORS
@@ -70,9 +32,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
     ]
     
-    # File Upload (for future media messages)
-    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
-    UPLOAD_DIR: str = "uploads"
+    # Media uploads (stored on local disk, served by /api/v1/media)
+    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB - images and documents
+    MAX_VIDEO_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
+    UPLOAD_DIR: str = "uploads"  # relative paths resolve against the backend/ directory
     
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds

@@ -1,22 +1,17 @@
-# from pydantic import BaseModel
-# from typing import Optional
-
-# class Token(BaseModel):
-#     access_token: str
-#     token_type: str = "bearer"
-
-# class TokenData(BaseModel):
-#     user_id: Optional[str] = None
-
-
-# backend/app/schemas/auth.py - UPDATED
+# backend/app/schemas/auth.py
 
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
+    expires_in: Optional[int] = None  # access token lifetime in seconds
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None

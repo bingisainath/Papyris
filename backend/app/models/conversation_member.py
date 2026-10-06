@@ -58,6 +58,9 @@ class ConversationMember(Base):
     )
     
     muted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # When this member pinned the conversation to the top of their list (None = not pinned)
+    pinned_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     joined_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), 
