@@ -23,6 +23,7 @@ import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { useSearchParams } from 'react-router-dom';
+import { UserPlus } from 'lucide-react';
 import AddExpenseSheet from '../../expenses/AddExpenseSheet';
 import ExpenseCard from '../../expenses/ExpenseCard';
 import ExpenseDetail from '../../expenses/ExpenseDetail';
@@ -60,6 +61,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+  const [infoAddMembers, setInfoAddMembers] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const lastMediaRefresh = useRef(0);
 
@@ -364,6 +366,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             title={isConnected ? 'Connected' : 'Disconnected'}
           />
 
+          {isGroup && (
+            <button
+              type="button"
+              onClick={() => { setInfoAddMembers(true); setShowInfo(true); }}
+              className="p-2 hover:bg-primary-50 rounded-lg transition-colors"
+              title="Add members"
+              aria-label="Add members"
+            >
+              <UserPlus className="w-5 h-5 text-primary-700" strokeWidth={1.75} />
+            </button>
+          )}
           <button
             onClick={() => setShowInfo(true)}
             className="p-2 hover:bg-muted-100 rounded-lg transition-colors"
@@ -380,7 +393,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {/* Messages Area */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 py-4 space-y-4"
+        className="flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 pt-6 pb-4 space-y-4"
       >
         {hasMoreMessages && (
           <div className="flex justify-center">
@@ -395,7 +408,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         )}
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-muted-400">No messages yet. Say hi! 👋</p>
+            <p className="text-muted-400">No messages yet. Say hello.</p>
           </div>
         ) : (
           <>
@@ -466,7 +479,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       )}
 
       {/* Message Input */}
-      <div className="border-t border-muted-200 bg-white mobile-nav-safe">
+      <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-3 mobile-nav-safe">
         <MessageInput
           onSend={handleSendMessage}
           replyingTo={replyingTo}
@@ -505,14 +518,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       <ConversationInfoPanel
         conversationId={conversationId}
         isOpen={showInfo}
-        onClose={() => setShowInfo(false)}
+        startAddingMembers={infoAddMembers}
+        onClose={() => { setShowInfo(false); setInfoAddMembers(false); }}
       />
 
       {/* Not connected warning */}
       {!isConnected && (
         <div className="px-6 py-2 bg-warning-50 border-t border-warning-200">
           <p className="text-sm text-warning-700">
-            ⚠️ Not connected. Trying to reconnect...
+            Not connected. Trying to reconnect…
           </p>
         </div>
       )}

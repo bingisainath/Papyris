@@ -1,6 +1,7 @@
 # backend/app/api/v1/auth.py - FIXED LOGGING VERSION
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 import os
@@ -26,14 +27,49 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 # REGISTRATION
 # ============================================
 @router.post("/register", response_model=APIResponse[UserResponse], status_code=201)
-async def register(payload: UserCreate, db: AsyncSession = Depends(get_db)):
-    """Register a new user"""
+async def register(payload: UserCreate, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Register a new user and email them a 6-digit code to verify their address"""
     user = await AuthService.register_user(db, payload)
+    code = AuthService.new_email_code(user)
+    await db.commit()
+    background.add_task(email_service.send_verification_code, user.email, user.username, code)
+    logger.info("Verification code sent to new user %s", user.id)
     return APIResponse(
         success=True,
-        message="User registered successfully",
+        message="Account created. Enter the code we emailed you",
         data=user,
     )
+
+
+class VerifyEmailRequest(BaseModel):
+    identifier: str = Field(..., min_length=1, max_length=255)  # email or username
+    code: str = Field(..., pattern=r"^\s*\d{6}\s*$")
+
+
+class ResendCodeRequest(BaseModel):
+    identifier: str = Field(..., min_length=1, max_length=255)
+
+
+@router.post("/verify-email", response_model=APIResponse[Token])
+async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
+    """Check the emailed code; on success the person is signed in"""
+    user = await AuthService.verify_email_code(db, payload.identifier, payload.code)
+    logger.info("Email verified for user %s", user.id)
+    return APIResponse(success=True, message="Email verified", data=AuthService.issue_tokens(user))
+
+
+@router.post("/resend-code", response_model=APIResponse[dict])
+async def resend_code(payload: ResendCodeRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Email a new code. Same answer whether or not the account exists."""
+    user = await AuthService.get_user_by_identifier(db, payload.identifier)
+    if user is not None and not user.email_verified:
+        wait = AuthService.resend_wait_seconds(user)
+        if wait:
+            raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before asking for another code")
+        code = AuthService.new_email_code(user)
+        await db.commit()
+        background.add_task(email_service.send_verification_code, user.email, user.username, code)
+    return APIResponse(success=True, message="If that account needs a code, we've sent a new one", data={"sent": True})
 
 # ============================================
 # LOGIN (✅ Username OR Email)

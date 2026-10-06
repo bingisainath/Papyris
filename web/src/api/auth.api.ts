@@ -40,3 +40,13 @@ export async function updateMe(payload: ProfileUpdate): Promise<UserResponse> {
   const { data } = await api.patch<UserResponse>("/api/v1/auth/me", payload);
   return data;
 }
+
+export async function verifyEmailCode(payload: { identifier: string; code: string }): Promise<LoginResponse> {
+  const { data } = await api.post<LoginResponse>("/api/v1/auth/verify-email", payload);
+  return data;
+}
+
+export async function resendVerificationCode(payload: { identifier: string }): Promise<{ success: boolean; message?: string }> {
+  const { data } = await api.post("/api/v1/auth/resend-code", payload);
+  return data;
+}

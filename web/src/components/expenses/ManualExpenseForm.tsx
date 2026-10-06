@@ -4,6 +4,7 @@
 import React, { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { CATEGORIES, expenseService } from '../../services/expense.service';
+import CategoryIcon from './CategoryIcon';
 import type { Expense, ExpenseInput } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { formatMinor, parseMajor, toMajorString } from '../../utils/money';
@@ -224,9 +225,9 @@ const ManualExpenseForm: React.FC<Props> = ({ conversationId, members, currentUs
             key={c.id}
             type="button"
             onClick={() => setCategory(c.id)}
-            className={`px-2.5 py-1 rounded-full text-sm border ${category === c.id ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-muted-200 text-muted-600'}`}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border ${category === c.id ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-muted-200 text-muted-600'}`}
           >
-            {c.icon} {c.label}
+            <CategoryIcon category={c.id} bare /> {c.label}
           </button>
         ))}
       </div>

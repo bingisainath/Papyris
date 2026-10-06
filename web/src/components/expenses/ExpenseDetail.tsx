@@ -2,8 +2,11 @@
 // One expense: who paid, who owes, the receipt photos, and the full history of changes.
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import CategoryIcon from './CategoryIcon';
 import { toast } from 'react-toastify';
-import { categoryIcon, expenseService } from '../../services/expense.service';
+import { expenseService } from '../../services/expense.service';
 import type { Expense, HistoryEntry } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
@@ -16,8 +19,8 @@ interface Props {
   onClose: () => void;
 }
 
-const ACTION_ICONS: Record<HistoryEntry['action'], string> = {
-  created: '➕', updated: '✏️', deleted: '🗑️', restored: '↩️', locked: '🔒', unlocked: '🔓',
+const ACTION_ICONS: Record<HistoryEntry['action'], LucideIcon> = {
+  created: Plus, updated: PenLine, deleted: Trash2, restored: RotateCcw, locked: Lock, unlocked: LockOpen,
 };
 
 const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose }) => {
@@ -84,12 +87,12 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose }) =
   return (
     <Sheet title={expense.description} onClose={onClose}>
       <div className="text-center mb-4">
-        <div className="text-4xl">{categoryIcon(expense.category)}</div>
+        <CategoryIcon category={expense.category} size="lg" />
         <Money minor={expense.total_minor} currency={expense.currency} className="block text-3xl font-bold text-muted-900 mt-1" />
         <p className="text-sm text-muted-500">
           {expense.spent_at && new Date(expense.spent_at).toLocaleDateString()}
           {expense.source === 'receipt' && ' · from a receipt'}
-          {expense.locked && ' · 🔒 locked'}
+          {expense.locked && ' · locked'}
         </p>
         {expense.deleted && <p className="mt-2 text-sm font-medium text-accent-600">This expense was deleted</p>}
         <p className={`mt-2 text-sm font-medium ${myPaid - myShare > 0 ? 'text-success-700' : myPaid - myShare < 0 ? 'text-accent-600' : 'text-muted-500'}`}>
@@ -172,7 +175,14 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose }) =
         <ol className="space-y-3">
           {history.map((h) => (
             <li key={h.id} className="flex gap-3">
-              <span className="text-lg leading-6">{ACTION_ICONS[h.action]}</span>
+              {(() => {
+                const ActionIcon = ACTION_ICONS[h.action];
+                return (
+                  <span className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full bg-primary-50 text-primary-700 flex items-center justify-center">
+                    <ActionIcon className="w-3.5 h-3.5" aria-hidden />
+                  </span>
+                );
+              })()}
               <div className="min-w-0">
                 <p className="text-sm text-muted-900">
                   <span className="font-semibold">{h.actor ? (h.actor.id === currentUserId ? 'You' : h.actor.username) : 'Someone'}</span> {h.summary}

@@ -58,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div className={`
       flex flex-col h-full
-      bg-gradient-to-b from-white to-primary-50/30
+      bg-white
       border-r-2 border-primary-100
       shadow-soft
       ${className}
@@ -66,7 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Logo / Brand */}
       <div className="px-6 py-5 border-b border-primary-100">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-secondary-400 flex items-center justify-center shadow-card">
+          <div className="w-10 h-10 rounded-xl bg-primary-700 flex items-center justify-center shadow-card">
             <Typography variant="h5" weight="bold" className="text-white">
               P
             </Typography>
@@ -96,7 +96,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 px-4 py-3 rounded-xl
                 transition-all duration-200
                 ${isActive 
-                  ? 'bg-gradient-to-r from-primary-50 to-secondary-50 border-l-4 border-primary-600 text-primary-700 shadow-soft' 
+                  ? 'bg-primary-50 border-l-4 border-primary-600 text-primary-700 shadow-soft' 
                   : 'text-muted-600 hover:bg-primary-50/50 hover:text-primary-600'
                 }
               `}

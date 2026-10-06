@@ -5,9 +5,12 @@ Needs: backend from e2e/fake_ai_server.py on :8000, `npm start` on :3000, and th
 qa_alice / qa_bob / qa_carol (password Passw0rd!23) in the database.
 
     python e2e/expenses_e2e.py [screenshot_dir]
+
+Other ports: PAPYRIS_API=http://localhost:8001 PAPYRIS_WEB=http://localhost:3001 python e2e/expenses_e2e.py
 """
 
 import io
+import os
 import re
 import sys
 import time
@@ -17,8 +20,8 @@ import httpx
 from PIL import Image, ImageDraw
 from playwright.sync_api import expect, sync_playwright
 
-API = "http://localhost:8000/api/v1"
-WEB = "http://localhost:3000"
+API = os.environ.get("PAPYRIS_API", "http://localhost:8000") + "/api/v1"
+WEB = os.environ.get("PAPYRIS_WEB", "http://localhost:3000")
 PASSWORD = "Passw0rd!23"
 SHOTS = Path(sys.argv[1] if len(sys.argv) > 1 else "e2e-screenshots")
 SHOTS.mkdir(parents=True, exist_ok=True)
@@ -77,6 +80,12 @@ def main() -> None:
     group = r.json()["data"]["id"]
     print("group", group)
 
+    # Alice's own Tesco discount (not printed on receipts): shows up switched off, rate adjustable
+    rules = httpx.get(f"{API}/store-discounts", headers={"Authorization": f"Bearer {alice_tok}"}).json()["data"]
+    if not any(r["store_name"].lower() == "tesco" for r in rules):
+        httpx.post(f"{API}/store-discounts", headers={"Authorization": f"Bearer {alice_tok}"},
+                   json={"store_name": "Tesco", "percent": "15"}).raise_for_status()
+
     photo = SHOTS / "receipt.jpg"
     photo.write_bytes(receipt_photo())
     problems: list[str] = []
@@ -90,7 +99,7 @@ def main() -> None:
 
         # ---- manual expense
         page.get_by_title("Add expense").click()
-        page.get_by_role("tab", name="✏️ Enter manually").click()
+        page.get_by_role("tab", name="Enter manually").click()
         page.get_by_label("Description").fill("Pizza night")
         page.get_by_label("Amount", exact=True).fill("30")
         page.screenshot(path=SHOTS / "01-manual-form.png")
@@ -117,9 +126,44 @@ def main() -> None:
         page.wait_for_timeout(1200)  # autosave + recalculation
         summary = page.locator("section", has_text="Each person pays")
         expect(summary).to_contain_text("18.20")
+
+        # The store discount can be re-rated per receipt (10 / 15 / 20 %), then switched off again
+        rate = page.get_by_role("group", name="Discount rate")
+        rate.get_by_role("button", name="20%").click()
+        page.wait_for_timeout(1200)
+        expect(summary).to_contain_text("14.64")  # 18.20 - 20% of 17.80 (milk, cheese, rice; not reduced items)
+        page.get_by_role("switch", name=re.compile("^Apply Tesco")).click()
+        page.wait_for_timeout(1200)
+        expect(summary).to_contain_text("18.20")
+
+        # Paid by several: Alice 10.00, Bob 8.20
+        page.get_by_role("tab", name="Several").click()
+        payers = page.locator("div.space-y-2", has=page.get_by_label(re.compile(" paid$")))
+        page.get_by_label(f"You paid").fill("10")
+        payers.locator(f"button[aria-pressed][title='{b}']").click()
+        page.get_by_label(f"{b} paid").fill("8.20")
+        page.wait_for_timeout(1200)
         page.screenshot(path=SHOTS / "04-assigned.png", full_page=True)
         page.get_by_role("button", name=re.compile("^Save expense")).click()
         expect(page.get_by_text("Tesco").first).to_be_visible()
+
+        # ---- hovering a received message must not move it or the sender's avatar
+        bob_page = browser.new_page(viewport={"width": 1280, "height": 860})
+        login(bob_page, "qa_bob")
+        bob_page.goto(f"{WEB}/chat/{group}")
+        bob_page.get_by_label("Message", exact=True).fill("Thanks for shopping!")
+        bob_page.get_by_label("Send").click()
+        bubble = page.locator("[data-message-id]", has_text="Thanks for shopping!").last
+        expect(bubble).to_be_visible(timeout=15000)
+        avatar = bubble.locator("[data-avatar]").first
+        before = avatar.bounding_box()
+        bubble.hover()
+        page.wait_for_timeout(300)
+        after = avatar.bounding_box()
+        page.screenshot(path=SHOTS / "05a-hover.png")
+        if before != after:
+            problems.append(f"avatar moved on hover: {before} -> {after}")
+        bob_page.close()
 
         # ---- open the card, check history
         page.locator("button", has_text="Tesco").last.click()
@@ -152,9 +196,9 @@ def main() -> None:
         expect(phone.get_by_text("You owe").first).to_be_visible()
         phone.screenshot(path=SHOTS / "09-bob-phone-chat.png")
         phone.goto(f"{WEB}/expenses?chat={group}")
-        # Alice recorded Bob's payment (largest debt is settled first), so Bob is even now
-        expect(phone.get_by_text("You’re settled")).to_be_visible()
-        expect(phone.locator("main")).to_contain_text(re.compile(r"owes .*€16\.00"))  # Carol still owes Alice
+        # Bob paid 8.20 of the receipt, so he owes Alice 10.00 + 6.40 - 8.20 = 8.20.
+        # Alice settled the largest debt (Carol's 16.00) first, so only Bob's is left.
+        expect(phone.locator("main")).to_contain_text(re.compile(r"You owe\s*€8\.20"))
         phone.screenshot(path=SHOTS / "10-bob-phone-balances.png")
         width = phone.evaluate("document.documentElement.scrollWidth")
         if width > 390:
@@ -165,6 +209,9 @@ def main() -> None:
     # Server-side truth: shares of the receipt expense
     expenses = httpx.get(f"{API}/conversations/{group}/expenses", headers={"Authorization": f"Bearer {alice_tok}"}).json()["data"]
     tesco = next(e for e in expenses if e["source"] == "receipt")
+    paid = {p["user_id"]: p["amount_minor"] for p in tesco["payers"]}
+    if paid != {alice["id"]: 1000, bob["id"]: 820}:
+        problems.append(f"receipt payers {paid}")
     shares = {s["user_id"]: s["amount_minor"] for s in tesco["shares"]}
     expected = {alice["id"]: 180 + 400, bob["id"]: 200 + 400 + 40, carol["id"]: 200 + 400}
     if shares != expected or tesco["total_minor"] != 1820:

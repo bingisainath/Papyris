@@ -24,9 +24,9 @@ code {
 
 /* === ROOT VARIABLES === */
 :root {
-  --primary: #7e22ce;
-  --primary-light: #a855f7;
-  --primary-dark: #6b21a8;
+  --primary: #543f7d;
+  --primary-light: #7b64aa;
+  --primary-dark: #443468;
   --secondary: #a5b4fc;
   --accent: #f43f5e;
   --success: #22c55e;
@@ -35,9 +35,9 @@ code {
   --card-bg: rgba(255, 255, 255, 0.95);
   
   /* Shadows */
-  --shadow-soft: 0 2px 15px -3px rgba(126, 34, 206, 0.1);
-  --shadow-card: 0 4px 20px -2px rgba(126, 34, 206, 0.08);
-  --shadow-elevated: 0 10px 40px -5px rgba(126, 34, 206, 0.15);
+  --shadow-soft: 0 2px 15px -3px rgba(15, 23, 42, 0.1);
+  --shadow-card: 0 4px 20px -2px rgba(15, 23, 42, 0.08);
+  --shadow-elevated: 0 10px 40px -5px rgba(15, 23, 42, 0.15);
 }
 
 /* === BASE STYLES === */
@@ -53,7 +53,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(to bottom right, #f8fafc, #e9d5ff);
+  background: #f6f6f8;
+  color: #1e293b;
   min-height: 100vh;
 }
 
@@ -69,13 +70,13 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, #7e22ce, #a855f7);
+  background: #cbd5e1;
   border-radius: 10px;
   transition: background 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #6b21a8, #9333ea);
+  background: #94a3b8;
 }
 
 /* === CUSTOM UTILITY CLASSES === */
@@ -88,9 +89,9 @@ body {
 }
 
 .glass-dark {
-  background: rgba(126, 34, 206, 0.1);
+  background: rgba(15, 23, 42, 0.1);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(126, 34, 206, 0.2);
+  border: 1px solid rgba(15, 23, 42, 0.2);
 }
 
 /* Card styles */
@@ -124,7 +125,7 @@ body {
 }
 
 .message-bubble-sent {
-  background: linear-gradient(135deg, #7e22ce 0%, #4338ca 100%);
+  background: #543f7d;
   color: white;
   border-bottom-right-radius: 0.375rem;
   margin-left: auto;
@@ -215,19 +216,19 @@ body {
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  background: linear-gradient(135deg, #7e22ce, #a855f7);
+  background: #543f7d;
   color: white;
   font-size: 11px;
   font-weight: 700;
   border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(126, 34, 206, 0.3);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.3);
 }
 
 /* Active navigation item */
 .nav-item-active {
-  background: linear-gradient(135deg, rgba(126, 34, 206, 0.1) 0%, rgba(165, 180, 252, 0.1) 100%);
-  border-left: 3px solid #7e22ce;
-  color: #7e22ce;
+  background: #ece8f5;
+  border-left: 3px solid #543f7d;
+  color: #543f7d;
   font-weight: 600;
 }
 
@@ -236,26 +237,26 @@ body {
 }
 
 .nav-item:hover {
-  background: rgba(126, 34, 206, 0.05);
+  background: rgba(15, 23, 42, 0.05);
 }
 
 /* Input focus styles */
 .input-focus:focus {
   outline: none;
-  border-color: #7e22ce;
-  box-shadow: 0 0 0 3px rgba(126, 34, 206, 0.1);
+  border-color: #543f7d;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
 }
 
 /* Button hover effects */
 .btn-primary {
-  background: linear-gradient(135deg, #7e22ce 0%, #4338ca 100%);
+  background: #543f7d;
   color: white;
   transition: all 0.3s ease;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(126, 34, 206, 0.3);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.3);
 }
 
 .btn-primary:active {
@@ -264,8 +265,8 @@ body {
 
 /* Loading spinner */
 .spinner {
-  border: 3px solid rgba(126, 34, 206, 0.1);
-  border-top-color: #7e22ce;
+  border: 3px solid rgba(15, 23, 42, 0.1);
+  border-top-color: #543f7d;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -289,7 +290,7 @@ body {
 .typing-dot {
   width: 8px;
   height: 8px;
-  background: #7e22ce;
+  background: #543f7d;
   border-radius: 50%;
   animation: bounce 1.4s infinite ease-in-out;
 }
@@ -330,7 +331,7 @@ body {
 
 /* Accessibility */
 .focus-visible:focus-visible {
-  outline: 2px solid #7e22ce;
+  outline: 2px solid #543f7d;
   outline-offset: 2px;
 }
 
@@ -370,6 +371,6 @@ body {
 }
 /* Briefly highlights the message a reply quote points to */
 .message-highlight > div > div {
-  box-shadow: 0 0 0 3px rgba(126, 34, 206, 0.45);
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.45);
   transition: box-shadow 0.3s ease;
 }

@@ -37,9 +37,9 @@ describe('mediaBoxStyle', () => {
 describe('messagePreview', () => {
   it('prefers text, then describes the media', () => {
     expect(messagePreview('hi', 'image')).toBe('hi');
-    expect(messagePreview('', 'image')).toBe('📷 Photo');
-    expect(messagePreview('', 'video')).toBe('🎥 Video');
-    expect(messagePreview('', 'file', 'cv.pdf')).toBe('📎 cv.pdf');
+    expect(messagePreview('', 'image')).toBe('Photo');
+    expect(messagePreview('', 'video')).toBe('Video');
+    expect(messagePreview('', 'file', 'cv.pdf')).toBe('cv.pdf');
   });
 });
 

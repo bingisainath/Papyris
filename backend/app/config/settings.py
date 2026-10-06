@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     
     # Receipt scanning. Keys live only here on the server, never in the app.
     ANTHROPIC_API_KEY: str = ""
+    # Needed only when ANTHROPIC_API_KEY isn't scoped to a workspace (Console > Settings > Workspaces)
+    ANTHROPIC_WORKSPACE_ID: str = ""
     OPENAI_API_KEY: str = ""
     # Encrypts the AI keys people add themselves; falls back to one derived from JWT_SECRET_KEY
     AI_KEY_ENCRYPTION_SECRET: str = ""

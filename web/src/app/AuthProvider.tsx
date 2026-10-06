@@ -10,7 +10,8 @@ import React, {
   useState,
 } from "react";
 import { useDispatch } from "react-redux";
-import { loginUser, registerUser, getMe, updateMe } from "../api/auth.api";
+import { loginUser, registerUser, getMe, updateMe, verifyEmailCode, resendVerificationCode } from "../api/auth.api";
+import { AxiosError } from "axios";
 import type { ProfileUpdate } from "../api/auth.api";
 import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
@@ -37,6 +38,8 @@ type AuthContextType = {
   // login: (email: string, password: string) => Promise<void>;
   login: (identifier: string, password: string) => Promise<void>;
   register: (u: string, e: string, p: string) => Promise<void>;
+  verifyEmail: (identifier: string, code: string) => Promise<void>;
+  resendCode: (identifier: string) => Promise<void>;
   forgotPassword: (identifier: string) => Promise<void>;
   verifyResetToken: (token: string) => Promise<{ email: string; username: string }>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
@@ -140,6 +143,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     init();
   }, [logout, dispatch]);
 
+  // Store the tokens, load the profile and open the live connection
+  const finishSignIn = useCallback(
+    async (tokens: { access_token: string; refresh_token?: string }) => {
+      tokenStore.set(tokens.access_token);
+      if (tokens.refresh_token) tokenStore.setRefresh(tokens.refresh_token);
+      const meRes = unwrap<User>(await getMe());
+      if (!meRes.success || !meRes.data) {
+        throw new Error(meRes.message || "Unable to fetch user profile");
+      }
+      setUser(meRes.data);
+      setError(null);
+      dispatch(connectWebSocket(tokens.access_token));
+    },
+    [dispatch]
+  );
+
+  /** Check the emailed 6-digit code; signs the person in on success. */
+  const verifyEmail = useCallback(
+    async (identifier: string, code: string): Promise<void> => {
+      try {
+        const res = unwrap<{ access_token: string; refresh_token?: string }>(
+          await verifyEmailCode({ identifier, code })
+        );
+        if (!res.success || !res.data?.access_token) throw new Error(res.message || "Verification failed");
+        await finishSignIn(res.data);
+      } catch (err) {
+        throw new Error(parseApiError(err));
+      }
+    },
+    [finishSignIn]
+  );
+
+  const resendCode = useCallback(async (identifier: string): Promise<void> => {
+    try {
+      await resendVerificationCode({ identifier });
+    } catch (err) {
+      throw new Error(parseApiError(err));
+    }
+  }, []);
+
   const login = useCallback(
     async (identifier: string, password: string): Promise<void> => {
       setError(null);
@@ -165,31 +208,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error("No access token received");
         }
 
-        tokenStore.set(res.data.access_token);
-        if (res.data.refresh_token) tokenStore.setRefresh(res.data.refresh_token);
-
-        // Fetch user profile
-        const meRes = unwrap<User>(await getMe());
-        if (!meRes.success || !meRes.data) {
-          throw new Error(meRes.message || "Unable to fetch user profile");
-        }
-
-        setUser(meRes.data);
-        setError(null);
-
-        // Connect WebSocket immediately after successful login
-        dispatch(connectWebSocket(res.data.access_token));
-
+        await finishSignIn(res.data);
       } catch (err) {
         const msg = parseApiError(err);
         setError(msg);
-        console.error("[AUTH] ❌ LOGIN ERROR:", msg);
+        // Account exists but its email isn't confirmed yet: the caller shows the code screen
+        const body = err instanceof AxiosError ? err.response?.data : undefined;
+        if (body?.code === "email_not_verified") {
+          throw Object.assign(new Error(msg), { code: "email_not_verified", email: body.data?.email as string });
+        }
         throw new Error(msg);
       } finally {
         setIsLoading(false);
       }
     },
-    [dispatch]
+    [finishSignIn]
   );
 
   const register = useCallback(
@@ -346,6 +379,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       error,
       login,
       register,
+      verifyEmail,
+      resendCode,
       logout,
       clearError,
       updateProfile,
@@ -353,7 +388,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       verifyResetToken,    
       resetPassword,        
     }),
-    [user, isLoading, error, login, register, logout, clearError, updateProfile, forgotPassword, verifyResetToken, resetPassword]
+    [user, isLoading, error, login, register, verifyEmail, resendCode, logout, clearError, updateProfile, forgotPassword, verifyResetToken, resetPassword]
   );
 
 return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

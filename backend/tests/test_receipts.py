@@ -283,3 +283,19 @@ async def test_chat_model_override_and_store_rule_matching(client, six, fake_ai,
     receipt = await scan(client, owner, group)
     assert fake_ai.calls[-1]["model"] == "claude-haiku-4-5"
     assert not any(a["source"] == "store_rule" for a in receipt["adjustments"])  # Lidl rule, Tesco receipt
+
+
+def test_workspace_header_only_for_the_server_key(monkeypatch):
+    import httpx2
+    import anthropic
+    from app.services.receipt_ai import claude
+
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-ant-server")
+    monkeypatch.setattr(settings, "ANTHROPIC_WORKSPACE_ID", "wrkspc_123")
+    assert claude.make_client("sk-ant-server").default_headers.get("anthropic-workspace-id") == "wrkspc_123"
+    assert "anthropic-workspace-id" not in claude.make_client("sk-ant-someone-else").default_headers
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(400, request=request)
+    error = anthropic.BadRequestError("This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header", response=response, body=None)
+    assert claude.is_workspace_error(error)

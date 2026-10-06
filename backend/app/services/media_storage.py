@@ -149,9 +149,9 @@ def preview_text(message_type: str | None, text: str | None, filename: str | Non
     if text:
         return text
     if message_type == "image":
-        return "📷 Photo"
+        return "Photo"
     if message_type == "video":
-        return "🎥 Video"
+        return "Video"
     if message_type == "file":
-        return f"📎 {filename}" if filename else "📎 File"
+        return filename if filename else "File"
     return ""

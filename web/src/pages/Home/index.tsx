@@ -282,7 +282,7 @@ const Home: React.FC = () => {
   // Loading state
   if (!currentUser && isAuthenticated) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-muted-50 to-primary-50/20">
+      <div className="flex items-center justify-center h-screen bg-muted-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-600 mx-auto mb-4"></div>
           <p className="text-muted-600">Loading user data...</p>
@@ -296,7 +296,7 @@ const Home: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-muted-50 to-primary-50/20 overflow-hidden">
+    <div className="flex h-screen bg-muted-50 overflow-hidden">
       {/* Sidebar */}
       <div className="w-64 flex-shrink-0 hidden md:block">
         <Sidebar
@@ -468,7 +468,7 @@ const GroupsPage: React.FC<{
         </div>
         <button
           onClick={onCreateGroup}
-          className="flex-shrink-0 whitespace-nowrap px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all hover:scale-105 flex items-center gap-2"
+          className="flex-shrink-0 whitespace-nowrap px-4 sm:px-6 py-2.5 sm:py-3 bg-primary-600 text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all flex items-center gap-2"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -482,11 +482,11 @@ const GroupsPage: React.FC<{
           {groups.map(group => (
             <div
               key={group.id}
-              className="card p-6 hover:shadow-elevated transition-all cursor-pointer hover:scale-[1.02]"
+              className="card p-6 hover:shadow-elevated transition-all cursor-pointer"
               onClick={() => onOpenGroup(group.id)}
             >
               <div className="flex items-start gap-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
+                <div className="w-16 h-16 rounded-full bg-primary-500 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
                   {group.name.charAt(0)}
                 </div>
 
@@ -524,7 +524,7 @@ const GroupsPage: React.FC<{
         </div>
       ) : (
         <div className="text-center py-20">
-          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-secondary-100 to-primary-100 flex items-center justify-center">
+          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-secondary-100 flex items-center justify-center">
             <svg className="w-12 h-12 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
@@ -670,7 +670,7 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
     <button
       onClick={() => onNavigate('/chat')}
       className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'chat'
-        ? 'text-primary-600 bg-primary-50 scale-105'
+        ? 'text-primary-600 bg-primary-50'
         : 'text-muted-600 hover:bg-muted-50'
         }`}
     >
@@ -683,7 +683,7 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
     <button
       onClick={() => onNavigate('/groups')}
       className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'groups'
-        ? 'text-primary-600 bg-primary-50 scale-105'
+        ? 'text-primary-600 bg-primary-50'
         : 'text-muted-600 hover:bg-muted-50'
         }`}
     >
@@ -696,7 +696,7 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
     <button
       onClick={() => onNavigate('/expenses')}
       className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'expenses'
-        ? 'text-primary-600 bg-primary-50 scale-105'
+        ? 'text-primary-600 bg-primary-50'
         : 'text-muted-600 hover:bg-muted-50'
         }`}
     >
@@ -709,7 +709,7 @@ const MobileBottomNav: React.FC<{ activeRoute: string; onNavigate: (path: string
     <button
       onClick={() => onNavigate('/settings')}
       className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${activeRoute === 'settings'
-        ? 'text-primary-600 bg-primary-50 scale-105'
+        ? 'text-primary-600 bg-primary-50'
         : 'text-muted-600 hover:bg-muted-50'
         }`}
     >

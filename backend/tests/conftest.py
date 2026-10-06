@@ -112,14 +112,30 @@ class TestUser:
         return {"Authorization": f"Bearer {self.access_token}"}
 
 
+@pytest.fixture(autouse=True)
+def sent_codes(monkeypatch):
+    """Verification codes that would have been emailed: {email: latest code}."""
+    codes = {}
+
+    def fake_send(to_email, username, code):
+        codes[to_email] = code
+        return True
+
+    from app.api.v1 import auth as auth_api
+    monkeypatch.setattr(auth_api.email_service, "send_verification_code", fake_send)
+    return codes
+
+
 @pytest.fixture
-def make_user(client):
-    """Register and log in a new user with a unique name."""
+def make_user(client, sent_codes):
+    """Register, verify the email with the emailed code, and log in a new user with a unique name."""
     async def _make(prefix: str = "user") -> TestUser:
         username = f"{prefix}_{uuid.uuid4().hex[:8]}"
         email = f"{username}@example.com"
         r = await client.post("/api/v1/auth/register", json={"username": username, "email": email, "password": PASSWORD})
         assert r.status_code == 201, r.text
+        r = await client.post("/api/v1/auth/verify-email", json={"identifier": email, "code": sent_codes[email]})
+        assert r.status_code == 200, r.text
         r = await client.post("/api/v1/auth/login", json={"identifier": username, "password": PASSWORD})
         assert r.status_code == 200, r.text
         me = (await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {r.json()['data']['access_token']}"})).json()["data"]

@@ -51,7 +51,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   status = 'sent',
   senderName,
   senderAvatar,
-  senderColor = '#7e22ce',
+  senderColor = '#543f7d',
   mediaUrl,
   mediaType,
   mediaFilename,
@@ -121,7 +121,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         />
       )}
 
-      <div className={`flex flex-col min-w-0 max-w-[85%] sm:max-w-[75%] ${isSent ? 'items-end' : 'items-start'}`}>
+      <div className={`relative flex flex-col min-w-0 max-w-[85%] sm:max-w-[75%] ${isSent ? 'items-end' : 'items-start'}`}>
         {/* Sender name for group chats */}
         {!isSent && isGroup && senderName && (
           <span className="mb-1 ml-3 text-xs font-semibold" style={{ color: senderColor }}>
@@ -137,7 +137,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             px-4 py-2.5
             rounded-2xl
             ${isSent
-              ? 'bg-gradient-to-br from-primary-700 to-primary-600 text-white rounded-br-sm shadow-card'
+              ? 'bg-primary-700 text-white rounded-br-sm shadow-card'
               : `bg-white border-2 border-muted-100 text-muted-900 rounded-bl-sm shadow-soft ${
                   isGroup ? 'border-l-4' : ''
                 }`
@@ -287,9 +287,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
 
-        {/* Action bar: quick reactions, reply, edit, delete */}
+        {/* Action bar: quick reactions, reply, edit, delete. Floats over the bubble's top edge
+            so showing it never moves the message or the sender's avatar. */}
         {showActions && hasActions && (
-          <div className="flex flex-wrap items-center gap-0.5 mt-1 px-1 py-0.5 bg-white border border-muted-200 rounded-full shadow-card animate-fade-in">
+          <div className={`absolute -top-4 z-20 ${isSent ? 'right-2' : 'left-2'} flex items-center gap-0.5 whitespace-nowrap px-1 py-0.5 bg-white border border-muted-200 rounded-full shadow-elevated animate-fade-in`}>
             {onReact && QUICK_REACTIONS.map(emoji => (
               <button
                 key={emoji}

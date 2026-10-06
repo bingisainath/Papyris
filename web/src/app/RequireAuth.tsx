@@ -15,7 +15,7 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children }) => {
   // Show loading spinner while checking authentication
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-muted-50 to-primary-50/20">
+      <div className="flex items-center justify-center h-screen bg-muted-50">
         <Loading variant="spinner" size="xl" text="Loading..." />
       </div>
     );

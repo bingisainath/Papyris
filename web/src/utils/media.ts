@@ -56,9 +56,9 @@ export const messagePreview = (
   filename?: string | null
 ): string => {
   if (text) return text;
-  if (mediaType === 'image') return '📷 Photo';
-  if (mediaType === 'video') return '🎥 Video';
-  if (mediaType === 'file') return filename ? `📎 ${filename}` : '📎 File';
+  if (mediaType === 'image') return 'Photo';
+  if (mediaType === 'video') return 'Video';
+  if (mediaType === 'file') return filename || 'File';
   return '';
 };
 

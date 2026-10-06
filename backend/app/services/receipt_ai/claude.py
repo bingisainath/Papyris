@@ -17,12 +17,29 @@ _NO_THINKING_PREFIXES = ("claude-haiku-4", "claude-3")
 _FALLBACK_MODELS = {"claude-opus-5"}
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
+WORKSPACE_HINT = (
+    "This Claude API key isn't tied to a workspace. Create a key inside a workspace in the "
+    "Anthropic Console, or set ANTHROPIC_WORKSPACE_ID on the server"
+)
+
+
+def is_workspace_error(error: anthropic.APIStatusError) -> bool:
+    return error.status_code == 400 and "workspace" in str(getattr(error, "message", "")).lower()
+
+
+def make_client(api_key: str, **options) -> anthropic.AsyncAnthropic:
+    """The workspace header goes only with the server's own key, never with someone's personal key."""
+    headers = {}
+    if settings.ANTHROPIC_WORKSPACE_ID and api_key == settings.ANTHROPIC_API_KEY:
+        headers["anthropic-workspace-id"] = settings.ANTHROPIC_WORKSPACE_ID
+    return anthropic.AsyncAnthropic(api_key=api_key, default_headers=headers or None, **options)
+
 
 class ClaudeExtractor(ReceiptExtractor):
     provider = "anthropic"
 
     async def extract(self, images, note, model, api_key) -> ExtractionResult:
-        client = anthropic.AsyncAnthropic(api_key=api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
+        client = make_client(api_key, timeout=settings.RECEIPT_AI_TIMEOUT_SECONDS, max_retries=2)
         content = [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
             for media_type, data in images
@@ -56,6 +73,8 @@ class ClaudeExtractor(ReceiptExtractor):
             raise ExtractionError("Reading the receipt took too long. Try again")
         except anthropic.APIStatusError as e:
             logger.warning("Claude receipt scan failed: %s %s", e.status_code, getattr(e, "message", ""))
+            if is_workspace_error(e):
+                raise ExtractionError(WORKSPACE_HINT)
             raise ExtractionError("Claude couldn't read this receipt right now")
         except anthropic.APIConnectionError:
             raise ExtractionError("Couldn't reach Claude. Try again")

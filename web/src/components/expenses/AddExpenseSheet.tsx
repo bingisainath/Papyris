@@ -2,6 +2,7 @@
 // "Add expense" from a chat: scan a receipt or enter it by hand. Also used to edit.
 
 import React, { useState } from 'react';
+import { PenLine, ScanLine } from 'lucide-react';
 import type { Expense } from '../../services/expense.service';
 import ManualExpenseForm from './ManualExpenseForm';
 import ReceiptScan from './ReceiptScan';
@@ -33,7 +34,7 @@ const AddExpenseSheet: React.FC<Props> = ({ conversationId, currentUserId, expen
           <Segmented
             value={tab}
             onChange={setTab}
-            options={[{ value: 'scan', label: '📷 Scan receipt' }, { value: 'manual', label: '✏️ Enter manually' }]}
+            options={[{ value: 'scan', label: 'Scan receipt', icon: ScanLine }, { value: 'manual', label: 'Enter manually', icon: PenLine }]}
           />
         </div>
       )}

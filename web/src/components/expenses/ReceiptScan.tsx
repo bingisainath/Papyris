@@ -2,6 +2,7 @@
 // Pick receipt photos -> upload -> the AI reads them in the background -> review.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Camera } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
 import type { Expense, Receipt } from '../../services/expense.service';
@@ -167,7 +168,7 @@ const ReceiptScan: React.FC<Props> = ({ conversationId, members, currentUserId, 
             onClick={() => inputRef.current?.click()}
             className="aspect-[3/4] rounded-xl border-2 border-dashed border-muted-300 hover:border-primary-400 flex flex-col items-center justify-center gap-1 text-muted-500"
           >
-            <span className="text-3xl">📷</span>
+            <Camera className="w-8 h-8 text-primary-600" strokeWidth={1.5} aria-hidden />
             <span className="text-sm">{files.length ? 'Add another part' : 'Photo of the bill'}</span>
           </button>
         )}

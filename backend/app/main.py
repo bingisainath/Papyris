@@ -28,14 +28,12 @@ app.add_middleware(
 # ✅ Wrap FastAPI HTTPException -> {success:false, message, data:null}
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "message": exc.detail,
-            "data": None,
-        },
-    )
+    # detail may be {"message": ..., "code": ...} when clients need to react to a specific case
+    detail = exc.detail
+    content = {"success": False, "message": detail, "data": None}
+    if isinstance(detail, dict):
+        content.update(message=detail.get("message"), code=detail.get("code"), data=detail.get("data"))
+    return JSONResponse(status_code=exc.status_code, content=content, headers=getattr(exc, "headers", None))
 
 # ✅ Wrap validation errors too (422)
 @app.exception_handler(RequestValidationError)

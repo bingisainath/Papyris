@@ -1,10 +1,12 @@
 // src/components/molecules/MessageInput.tsx
 import React, { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { toast } from 'react-toastify';
-import { Button } from '../../atoms';
+import { Check, Paperclip, ReceiptText, SendHorizontal, Smile } from 'lucide-react';
 import Icon from '../../atoms/Icon';
 import EmojiPicker from '../EmojiPicker';
 import { ACCEPTED_FILE_TYPES, formatFileSize, mediaTypeOf, validateFile } from '../../../utils/media';
+
+const TOOL_BUTTON = 'p-2 rounded-lg text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-40';
 
 const TYPING_REPEAT_MS = 2500;
 
@@ -185,15 +187,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   return (
     <div
-      className={`
-        relative
-        bg-white/90 backdrop-blur-sm
-        border-2
-        ${isFocused ? 'border-primary-600 shadow-card' : 'border-muted-200'}
-        rounded-2xl
-        transition-all duration-200
-        ${className}
-      `}
+      className={`relative ${className}`}
     >
       {/* Hidden file input */}
       <input
@@ -206,7 +200,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
       {/* Reply / edit banner */}
       {(isEditing || replyingTo) && (
-        <div className="flex items-center gap-3 mx-3 mt-3 pl-3 pr-1.5 py-2 bg-primary-50 border-l-4 border-primary-600 rounded-lg">
+        <div className="flex items-center gap-3 mb-2 pl-3 pr-1.5 py-2 bg-primary-50 border-l-4 border-primary-600 rounded-lg">
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-primary-700">
               {isEditing ? 'Editing message' : `Replying to ${replyingTo?.senderName || 'message'}`}
@@ -227,7 +221,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
       {/* Attachment preview (sent together with the caption) */}
       {pendingFile && (
-        <div className="flex items-center gap-3 px-3 pt-3">
+        <div className="flex items-center gap-3 mb-2 p-2 rounded-lg border border-muted-200 bg-muted-50">
           {previewUrl && mediaTypeOf(pendingFile) === 'image' && (
             <img src={previewUrl} alt={pendingFile.name} className="h-16 w-16 rounded-lg object-cover" />
           )}
@@ -253,30 +247,33 @@ const MessageInput: React.FC<MessageInputProps> = ({
         </div>
       )}
 
-      {/* Input container */}
-      <div className="flex items-end gap-1 sm:gap-2 p-2 sm:p-3">
-        {/* Left actions */}
-        <div className="flex items-center gap-1 pb-2">
+      {/* Input row: tools, text field, send */}
+      <div className="flex items-end gap-2">
+        <div className="flex items-center gap-0.5 pb-1">
           {showAttachment && !isEditing && (
             <button
+              type="button"
               onClick={handleAttachment}
               disabled={disabled}
-              className="p-2 hover:bg-muted-100 rounded-lg transition-colors disabled:opacity-50"
-              title="Attach file"
+              className={TOOL_BUTTON}
+              title="Attach a photo, video or file"
+              aria-label="Attach"
             >
-              <Icon name="attach" size={20} className="text-muted-500" />
+              <Paperclip className="w-5 h-5" strokeWidth={1.75} />
             </button>
           )}
 
           {showEmoji && (
             <div className="relative">
               <button
+                type="button"
                 onClick={() => setShowEmojiPicker(open => !open)}
                 disabled={disabled}
-                className="p-2 hover:bg-muted-100 rounded-lg transition-colors disabled:opacity-50"
+                className={TOOL_BUTTON}
                 title="Add emoji"
+                aria-label="Add emoji"
               >
-                <Icon name="emoji" size={20} className="text-muted-500" />
+                <Smile className="w-5 h-5" strokeWidth={1.75} />
               </button>
               {showEmojiPicker && (
                 <EmojiPicker
@@ -293,60 +290,51 @@ const MessageInput: React.FC<MessageInputProps> = ({
               type="button"
               onClick={onExpense}
               disabled={disabled}
-              className="p-2 hover:bg-accent-50 rounded-lg transition-colors disabled:opacity-50"
+              className={TOOL_BUTTON}
               title="Add expense"
+              aria-label="Add expense"
             >
-              <Icon name="dollar" size={20} className="text-accent-500" />
+              <ReceiptText className="w-5 h-5" strokeWidth={1.75} />
             </button>
           )}
         </div>
 
-        {/* Textarea */}
-        <textarea
-          ref={textareaRef}
-          value={message}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          placeholder={isEditing ? 'Edit message…' : pendingFile ? 'Add a caption…' : placeholder}
-          disabled={disabled}
-          rows={1}
-          className="
-            flex-1
-            min-w-0
-            px-2 sm:px-3 py-2
-            bg-transparent
-            border-none
-            outline-none
-            resize-none
-            text-muted-900
-            placeholder:text-muted-400
-            disabled:opacity-50
-            max-h-[150px]
-            overflow-y-auto
-          "
-          style={{ minHeight: '40px' }}
-        />
-
-        {/* Send button */}
-        <div className="pb-2">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleSend}
-            disabled={disabled || (!message.trim() && !pendingFile && !isEditing)}
-            icon={<Icon name="send" size={18} />}
-            className="rounded-xl px-3 sm:px-4"
-          >
-            <span className="hidden sm:inline">{isEditing ? 'Save' : 'Send'}</span>
-          </Button>
+        <div
+          className={`flex-1 min-w-0 flex items-end rounded-xl border bg-muted-50 transition-colors ${
+            isFocused ? 'border-primary-500 bg-white ring-2 ring-primary-100' : 'border-muted-200'
+          }`}
+        >
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            placeholder={isEditing ? 'Edit message…' : pendingFile ? 'Add a caption…' : placeholder}
+            disabled={disabled}
+            rows={1}
+            aria-label="Message"
+            className="flex-1 min-w-0 px-4 py-2.5 bg-transparent border-none outline-none resize-none text-[15px] leading-6 text-muted-900 placeholder:text-muted-400 disabled:opacity-50 max-h-[150px] overflow-y-auto"
+            style={{ minHeight: '44px' }}
+          />
         </div>
+
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={disabled || (!message.trim() && !pendingFile && !isEditing)}
+          className="flex-shrink-0 w-11 h-11 rounded-full bg-primary-700 hover:bg-primary-800 text-white flex items-center justify-center transition-colors disabled:bg-muted-300 disabled:cursor-not-allowed"
+          title={isEditing ? 'Save' : 'Send'}
+          aria-label={isEditing ? 'Save' : 'Send'}
+        >
+          {isEditing ? <Check className="w-5 h-5" /> : <SendHorizontal className="w-5 h-5" />}
+        </button>
       </div>
 
       {/* Character counter */}
       {message.length > maxLength * 0.8 && (
-        <div className="px-4 pb-2 text-right">
+        <div className="pt-1 text-right">
           <span className={`text-xs ${message.length >= maxLength ? 'text-accent-600' : 'text-muted-400'}`}>
             {message.length}/{maxLength}
           </span>

@@ -50,12 +50,12 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
         rounded-2xl
         border-2
         ${isActive 
-          ? 'border-primary-600 bg-gradient-to-r from-primary-50 to-secondary-50 shadow-card' 
+          ? 'border-primary-600 bg-primary-50 shadow-card' 
           : 'border-transparent hover:border-primary-200 hover:bg-white'
         }
         transition-all duration-300
         cursor-pointer
-        ${isActive ? '' : 'hover:scale-[1.02] hover:shadow-soft'}
+        ${isActive ? '' : ' hover:shadow-soft'}
         ${className}
       `}
     >
@@ -147,7 +147,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
 
       {/* Active indicator line */}
       {isActive && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-12 bg-gradient-to-b from-primary-600 to-secondary-400 rounded-r-full" />
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-12 bg-primary-600 rounded-r-full" />
       )}
     </div>
   );

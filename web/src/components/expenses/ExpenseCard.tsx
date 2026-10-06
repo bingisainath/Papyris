@@ -2,9 +2,10 @@
 // The card shown in the chat when someone adds, edits or deletes an expense.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { categoryIcon, expenseService } from '../../services/expense.service';
+import { expenseService } from '../../services/expense.service';
 import type { Expense } from '../../services/expense.service';
 import { EXPENSE_CHANGED_EVENT } from '../../utils/events';
+import CategoryIcon from './CategoryIcon';
 import { Money } from './shared';
 
 // One request per expense even when several cards (added, edited...) show it
@@ -48,12 +49,12 @@ const ExpenseCard: React.FC<Props> = ({ expenseId, text, timestamp, currentUserI
       <button
         type="button"
         onClick={() => onOpen(expenseId)}
-        className="w-full max-w-xs text-left p-3 rounded-2xl border border-primary-100 bg-gradient-to-br from-white to-primary-50/60 shadow-sm hover:shadow-card transition-shadow"
+        className="w-full max-w-xs text-left p-3 rounded-2xl border border-primary-100 bg-white shadow-sm hover:shadow-card transition-shadow"
       >
         <p className="text-xs text-muted-500 mb-1.5">{text}</p>
         {expense ? (
           <div className={`flex items-center gap-3 ${expense.deleted ? 'opacity-50' : ''}`}>
-            <span className="text-2xl">{categoryIcon(expense.category)}</span>
+            <CategoryIcon category={expense.category} />
             <div className="flex-1 min-w-0">
               <p className={`font-semibold text-muted-900 truncate ${expense.deleted ? 'line-through' : ''}`}>{expense.description}</p>
               <p className={`text-xs ${net > 0 ? 'text-success-700' : net < 0 ? 'text-accent-600' : 'text-muted-500'}`}>

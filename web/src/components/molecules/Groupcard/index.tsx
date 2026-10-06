@@ -240,7 +240,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
         ${isActive ? 'border-primary-600 bg-primary-50' : 'border-transparent hover:border-primary-200'}
         shadow-soft
         hover:shadow-card
-        hover:scale-[1.01]
+       
         transition-all duration-200
         cursor-pointer
         ${className}

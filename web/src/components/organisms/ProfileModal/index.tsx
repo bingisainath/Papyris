@@ -112,7 +112,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
         {/* Header */}
         <div className="relative px-6 pt-6 pb-20">
           {/* Background gradient */}
-          <div className="absolute inset-0 h-32 bg-gradient-to-br from-primary-600 to-secondary-400 rounded-t-2xl" />
+          <div className="absolute inset-0 h-32 bg-primary-600 rounded-t-2xl" />
           
           {/* Close button */}
           <Button
@@ -262,7 +262,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 <>
                   <Divider />
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="text-center p-4 bg-gradient-to-br from-primary-50 to-secondary-50 rounded-xl">
+                    <div className="text-center p-4 bg-primary-50 rounded-xl">
                       <Typography variant="h5" weight="bold" className="text-primary-700 mb-1">
                         {stats.totalChats}
                       </Typography>
@@ -271,7 +271,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                       </Typography>
                     </div>
 
-                    <div className="text-center p-4 bg-gradient-to-br from-secondary-50 to-primary-50 rounded-xl">
+                    <div className="text-center p-4 bg-secondary-50 rounded-xl">
                       <Typography variant="h5" weight="bold" className="text-secondary-600 mb-1">
                         {stats.totalGroups}
                       </Typography>

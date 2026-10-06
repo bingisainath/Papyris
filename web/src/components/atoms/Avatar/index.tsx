@@ -22,7 +22,13 @@ const Avatar: React.FC<AvatarProps> = ({
   // Fall back to initials if the photo can't load (e.g. its link expired)
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  const initialsUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(alt)}&background=7e22ce&color=fff&bold=true`;
+  // Initials are drawn here (no third-party avatar service sees people's names)
+  const initials = alt.trim().split(/[\s_.-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+  const photo = !failed ? resolveMediaUrl(src) : null;
+
+  const textSizes: Record<string, string> = {
+    xs: 'text-[10px]', sm: 'text-xs', md: 'text-sm', lg: 'text-base', xl: 'text-xl', '2xl': 'text-2xl',
+  };
 
   const sizes: Record<string, string> = {
     xs: 'w-6 h-6',
@@ -34,28 +40,36 @@ const Avatar: React.FC<AvatarProps> = ({
   };
 
   return (
-    <div className={`relative inline-block flex-shrink-0 ${className}`}>
+    <div data-avatar className={`relative inline-block flex-shrink-0 ${className}`}>
       {/* Purple ring for active/selected state */}
       {showRing && (
-        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary-600 to-secondary-400 p-0.5 animate-pulse-soft">
+        <div className="absolute inset-0 rounded-full bg-primary-600 p-0.5">
           <div className="w-full h-full rounded-full bg-white" />
         </div>
       )}
       
       {/* Avatar image */}
-      <img
-        src={(!failed && resolveMediaUrl(src)) || initialsUrl}
-        onError={() => setFailed(true)}
-        alt={alt}
-        className={`${sizes[size]} rounded-full object-cover ${showRing ? 'relative z-10' : ''} transition-all duration-300 hover:scale-105`}
-      />
+      {photo ? (
+        <img
+          src={photo}
+          onError={() => setFailed(true)}
+          alt={alt}
+          className={`${sizes[size]} rounded-full object-cover ${showRing ? 'relative z-10' : ''}`}
+        />
+      ) : (
+        <span
+          role="img"
+          aria-label={alt}
+          className={`${sizes[size]} ${textSizes[size]} rounded-full bg-primary-100 text-primary-800 font-semibold flex items-center justify-center select-none ${showRing ? 'relative z-10' : ''}`}
+        >
+          {initials}
+        </span>
+      )}
       
       {/* Online status indicator */}
       {online && (
         <span className="absolute bottom-0 right-0 block">
-          <span className="block w-3 h-3 rounded-full bg-success-500 border-2 border-white shadow-sm" />
-          {/* Pulse animation for online status */}
-          <span className="absolute top-0 left-0 w-3 h-3 rounded-full bg-success-400 animate-ping opacity-75" />
+          <span className="block w-3 h-3 rounded-full bg-success-500 border-2 border-white" />
         </span>
       )}
     </div>

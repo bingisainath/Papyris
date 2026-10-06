@@ -209,4 +209,25 @@ class EmailService:
 
 
 # Create singleton instance
+    def send_verification_code(self, to_email: str, username: str, code: str) -> bool:
+        """The 6-digit code that confirms a new account's email address."""
+        subject = f"{code} is your Papyris code"
+        text_content = (
+            f"Hi {username},\n\nYour Papyris verification code is {code}.\n"
+            "It expires in 10 minutes. If you didn't create an account, you can ignore this email."
+        )
+        html_content = f"""
+        <!DOCTYPE html>
+        <html><body style="margin:0;padding:24px;background:#f6f6f8;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b">
+          <div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:32px">
+            <h1 style="margin:0 0 16px;font-size:20px;color:#543f7d">Papyris</h1>
+            <p style="margin:0 0 16px">Hi {username}, use this code to finish creating your account:</p>
+            <p style="margin:0 0 16px;font-size:32px;font-weight:700;letter-spacing:8px;color:#1e293b">{code}</p>
+            <p style="margin:0;color:#64748b;font-size:14px">It expires in 10 minutes. If you didn't create an account, you can ignore this email.</p>
+          </div>
+        </body></html>
+        """
+        return self.send_email(to_email, subject, html_content, text_content)
+
+
 email_service = EmailService()
