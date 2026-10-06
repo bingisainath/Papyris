@@ -74,8 +74,13 @@ npm start
 Open http://localhost:3000. The web app uses `http://localhost:8000` by default; see
 `web/.env.example` to change it.
 
-Optional for password-reset emails: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
-`FROM_EMAIL` in `backend/.env`.
+Optional settings in `backend/.env`:
+
+- `LOG_LEVEL` (default `INFO`). `DEBUG` also logs every WebSocket event and worker step.
+- `SQL_ECHO=true` logs every SQL statement (very noisy).
+- Password-reset emails: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `FROM_EMAIL`, and
+  `ENV=production`. With `ENV` unset (local), emails aren't sent; they're printed in the backend
+  log so you can open the reset link.
 
 ## Database migrations
 

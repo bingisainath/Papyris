@@ -1,6 +1,9 @@
 import json
+import logging
 from redis.asyncio import Redis
 from app.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 STREAM_KEY = "papyris:messages"
 CONSUMER_GROUP = "papyris-workers"
@@ -14,7 +17,7 @@ class RedisStreams:
             await self.redis.xgroup_create(STREAM_KEY, CONSUMER_GROUP, id='0', mkstream=True)
         except Exception as e:
             if "BUSYGROUP" not in str(e):
-                print(f"Stream init: {e}")
+                logger.warning("Could not create stream consumer group: %s", e)
     
     async def add_message(self, payload: dict) -> str:
         redis_payload = {"data": json.dumps(payload)}

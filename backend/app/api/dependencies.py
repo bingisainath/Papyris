@@ -1,5 +1,8 @@
 # backend/app/api/dependencies.py
 
+import logging
+from uuid import UUID
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +12,8 @@ from jose import JWTError, jwt
 from app.db.session import get_db
 from app.models.user import User
 from app.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 # HTTP Bearer token scheme
 security = HTTPBearer()
@@ -48,33 +53,21 @@ async def get_current_user(
             raise credentials_exception
 
         # Get user ID from token payload
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            print("❌ JWT Error: No 'sub' in token payload")
-            raise credentials_exception
+        user_id = UUID(str(payload.get("sub")))
 
-    except JWTError as e:
-        print(f"❌ JWT Error: {e}")
-        raise credentials_exception
-    except Exception as e:
-        print(f"❌ Unexpected error decoding JWT: {e}")
+    except (JWTError, ValueError) as e:
+        # Expired/invalid tokens are routine (clients refresh on 401)
+        logger.debug("Rejected token: %s", e)
         raise credentials_exception
 
-    # Query user from database
-    try:
-        stmt = select(User).where(User.id == user_id)
-        result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if user is None:
-            print(f"❌ User not found: {user_id}")
-            raise credentials_exception
-
-        return user
-
-    except Exception as e:
-        print(f"❌ Database error fetching user: {e}")
+    # Database errors propagate (500), they are not an authentication failure
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        logger.warning("Valid token for missing user %s", user_id)
         raise credentials_exception
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    return user
 
 
 # Optional: Dependency for admin-only routes

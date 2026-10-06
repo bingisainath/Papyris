@@ -23,7 +23,8 @@ if sync_db_url.startswith("postgresql://"):
 config.set_main_option("sqlalchemy.url", sync_db_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep loggers created before migrations run (e.g. the app's, when migrating from tests)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
