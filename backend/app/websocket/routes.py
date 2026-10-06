@@ -272,6 +272,7 @@ async def ws_chat(ws: WebSocket):
                     "messageId": msg_id,
                     "conversationId": room_id,
                     "senderId": user_id_str,
+                    "senderName": sender_name,  # for the push notification
                     "text": text,
                     "mediaType": media_type,
                     "mediaUrl": media_url,

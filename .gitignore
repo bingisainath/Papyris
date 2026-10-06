@@ -90,3 +90,6 @@ dump.rdb
 Thumbs.db
 # Browser test screenshots
 e2e-screenshots/
+
+# Firebase service account keys are server secrets: never commit them
+*firebase-adminsdk*.json

@@ -208,6 +208,8 @@ const data = <T>(promise: Promise<{ data: { data: T } }>) => promise.then(r => r
 export const expenseService = {
   currencies: () => data<CurrencyInfo[]>(api.get(`${V1}/currencies`)),
 
+  /** Ids of your chats that have expenses */
+  conversationsWithExpenses: () => data<string[]>(api.get(`${V1}/expenses/conversations`)),
   list: (conversationId: string, includeDeleted = false) =>
     data<Expense[]>(api.get(`${V1}/conversations/${conversationId}/expenses`, { params: { include_deleted: includeDeleted } })),
   get: (id: string) => data<Expense>(api.get(`${V1}/expenses/${id}`)),

@@ -73,3 +73,7 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Firebase config (per environment; download from the Firebase console)
+android/app/google-services.json
+ios/mobile/GoogleService-Info.plist

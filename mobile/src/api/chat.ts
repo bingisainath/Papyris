@@ -1,0 +1,140 @@
+// src/api/chat.ts
+import { api, data } from './client';
+
+export interface Conversation {
+  id: string;
+  name: string;
+  avatar?: string | null;
+  lastMessage: string;
+  lastMessageTime: string | null;
+  unreadCount: number;
+  isGroup: boolean;
+  members: string[];
+  isPinned: boolean;
+  pinnedAt: string | null;
+}
+
+export interface Reaction {
+  emoji: string;
+  userIds: string[];
+}
+
+export interface ReplyPreview {
+  id: string;
+  text: string;
+  senderId: string;
+  senderName?: string | null;
+  messageType?: string;
+  isDeleted?: boolean;
+}
+
+export interface Message {
+  id: string;
+  clientId?: string;
+  conversationId: string;
+  senderId: string;
+  senderName?: string;
+  senderAvatar?: string;
+  text: string;
+  timestamp: string;
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  messageType?: string;
+  mediaUrl?: string;
+  mediaType?: 'image' | 'video' | 'audio' | 'file';
+  mediaFilename?: string;
+  mediaSize?: number;
+  mediaThumbnail?: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
+  mediaDuration?: number;
+  isDeleted?: boolean;
+  editedAt?: string | null;
+  replyTo?: ReplyPreview | null;
+  reactions: Reaction[];
+  expenseId?: string | null;
+}
+
+export interface MemberInfo {
+  id: string;
+  username: string;
+  name?: string | null;
+  avatar?: string | null;
+  bio?: string | null;
+  role: 'admin' | 'moderator' | 'member' | 'viewer';
+  is_me: boolean;
+}
+
+export interface ConversationDetails {
+  id: string;
+  kind: 'dm' | 'group';
+  title?: string | null;
+  description?: string | null;
+  avatar_url?: string | null;
+  my_role: MemberInfo['role'];
+  members: MemberInfo[];
+}
+
+export interface UserSummary {
+  id: string;
+  username: string;
+  name?: string;
+  avatar?: string | null;
+}
+
+/** API message (snake_case) -> app message */
+export const toMessage = (m: any): Message => ({
+  id: m.id,
+  conversationId: m.conversation_id,
+  senderId: m.sender_id,
+  senderName: m.sender?.username,
+  senderAvatar: m.sender?.avatar,
+  text: m.text || '',
+  timestamp: m.created_at,
+  status: m.status || 'delivered',
+  messageType: m.message_type,
+  mediaUrl: m.media_url || undefined,
+  mediaType: m.media_type || undefined,
+  mediaFilename: m.media_filename || undefined,
+  mediaSize: m.media_size || undefined,
+  mediaThumbnail: m.media_thumbnail || undefined,
+  mediaWidth: m.media_width || undefined,
+  mediaHeight: m.media_height || undefined,
+  mediaDuration: m.media_duration || undefined,
+  isDeleted: !!m.is_deleted,
+  editedAt: m.edited_at || null,
+  replyTo: m.reply_to
+    ? {
+        id: m.reply_to.id,
+        text: m.reply_to.text,
+        senderId: m.reply_to.sender_id,
+        senderName: m.reply_to.sender_name,
+        messageType: m.reply_to.message_type,
+        isDeleted: m.reply_to.is_deleted,
+      }
+    : null,
+  reactions: (m.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.user_ids || r.userIds || [] })),
+  expenseId: m.expense_id || null,
+});
+
+export const chatApi = {
+  conversations: () => data<Conversation[]>(api.get('/conversations')),
+  messages: async (conversationId: string, before?: string) => {
+    const r = await api.get(`/conversations/${conversationId}/messages`, { params: { limit: 50, before } });
+    return { messages: (r.data.data as any[]).map(toMessage), hasMore: !!r.data.has_more };
+  },
+  markRead: (conversationId: string) => api.post(`/conversations/${conversationId}/mark-read`),
+  details: (conversationId: string) => data<ConversationDetails>(api.get(`/conversations/${conversationId}`)),
+  createDm: (userId: string) => data<{ id: string }>(api.post('/conversations', { kind: 'dm', participant_ids: [userId] })),
+  createGroup: (title: string, memberIds: string[]) =>
+    data<{ id: string }>(api.post('/conversations', { kind: 'group', title, participant_ids: memberIds })),
+  searchUsers: (search: string) => data<UserSummary[]>(api.get('/users', { params: { search } })),
+  pin: (conversationId: string, pinned: boolean) => api.put(`/conversations/${conversationId}/pin`, { pinned }),
+  editMessage: (messageId: string, text: string) => api.patch(`/messages/${messageId}`, { text }),
+  deleteMessage: (messageId: string) => api.delete(`/messages/${messageId}`),
+  /** Toggle your reaction (same emoji again removes it) */
+  react: (messageId: string, emoji: string) => api.put(`/messages/${messageId}/reaction`, { emoji }),
+  addMembers: (conversationId: string, userIds: string[]) => api.post(`/conversations/${conversationId}/members`, { user_ids: userIds }),
+  removeMember: (conversationId: string, userId: string) => api.delete(`/conversations/${conversationId}/members/${userId}`),
+  /** Leaving a group = removing yourself */
+  leave: (conversationId: string, myId: string) => api.delete(`/conversations/${conversationId}/members/${myId}`),
+};

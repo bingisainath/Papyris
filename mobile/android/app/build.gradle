@@ -77,9 +77,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.mobile"
+    namespace "com.papyris.app"
     defaultConfig {
-        applicationId "com.mobile"
+        applicationId "com.papyris.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -116,4 +116,12 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+}
+
+// Push notifications: Firebase reads android/app/google-services.json (from your Firebase project).
+// Without the file the app still builds and runs; it just doesn't receive push notifications.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.warn("google-services.json not found: building without push notifications")
 }

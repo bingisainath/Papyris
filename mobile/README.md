@@ -1,97 +1,52 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Papyris mobile (React Native)
 
-# Getting Started
+Android and iPhone app for Papyris: sign-in with email code, chats (DMs and groups) and shared
+expenses with receipt scanning. It talks to the same backend as the web app.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Run on an Android phone (USB)
 
-## Step 1: Start Metro
+1. On the phone: Developer options → **USB debugging** on; plug it in and allow the computer.
+2. Start the backend (API on port 8000) as described in the root README.
+3. Then:
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+```bash
+cd mobile
+npm install
+adb reverse tcp:8000 tcp:8000     # phone's localhost:8000 -> the API on this computer
+adb reverse tcp:8081 tcp:8081     # phone's localhost:8081 -> Metro (JavaScript dev server)
+npx react-native start            # terminal 1: Metro
+npx react-native run-android      # terminal 2: build, install and open the app
 ```
 
-## Step 2: Build and run your app
+JavaScript changes reload instantly through Metro. Native changes (new native libraries,
+`android/` edits) need `run-android` again. The API address is in `src/config.ts`.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+Tests: `npx jest` · types: `npx tsc --noEmit` · lint: `npx eslint src`
 
-### Android
+## Keyboard
 
-```sh
-# Using npm
-npm run android
+Screens with text input use `src/hooks/useKeyboardOffset.ts` instead of `KeyboardAvoidingView`:
+it measures how much the keyboard actually overlaps the screen and pads by exactly that, so it
+works on edge-to-edge Android 15+, older Android that resizes the window, and iOS.
 
-# OR using Yarn
-yarn android
-```
+## Push notifications (Firebase)
 
-### iOS
+The app builds and runs without Firebase; notifications just stay off. To switch them on:
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+1. Create a project at https://console.firebase.google.com (free).
+2. **Android:** Add app → Android, package name `com.papyris.app`. Download
+   `google-services.json` into `mobile/android/app/`, then rebuild (`npx react-native run-android`).
+3. **iPhone:** Add app → iOS, bundle ID `com.papyris.app`. Download `GoogleService-Info.plist`
+   into `mobile/ios/mobile/`. In Project settings → Cloud Messaging, upload your APNs key
+   (Apple Developer account → Keys → new key with Apple Push Notifications service).
+4. **Server:** Project settings → Service accounts → Generate new private key. Save the JSON on the
+   server (never in the app or git) and set `FIREBASE_SERVICE_ACCOUNT_FILE=/path/to/it.json` in
+   `backend/.env`. Restart the API and the worker.
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+The app asks for notification permission after sign-in, registers the phone with the server, and
+opens the chat when a notification is tapped. Logging out stops notifications to that phone.
 
-```sh
-bundle install
-```
+## iPhone builds
 
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Building for iPhone needs macOS, or a cloud build service such as Expo EAS Build (works with this
+bare React Native project) plus an Apple Developer account to install on devices.

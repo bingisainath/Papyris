@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { MessageBubble, MessageInput } from '../../molecules';
-import { Avatar, Loading } from '../../atoms';
+import { Avatar } from '../../atoms';
 import {
   useConversationRoom,
   useSendMessage,
@@ -379,17 +379,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
               />
             );
 
-  if (!isConnected) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <Loading size="lg" />
-          <p className="mt-4 text-muted-600">Connecting...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="relative flex flex-col h-full min-w-0 bg-white">
       {/* Header */}
@@ -531,7 +520,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           editingText={editingMessage ? editingMessage.text : null}
           onCancelEdit={() => setEditingMessage(null)}
           onTyping={handleTyping}
-          placeholder="Type a message..."
+          placeholder={isConnected ? "Type a message..." : "Waiting for connection…"}
           disabled={!isConnected}
           showExpense
           onExpense={() => setAddingExpense(true)}
@@ -576,15 +565,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         startAddingMembers={infoAddMembers}
         onClose={() => { setShowInfo(false); setInfoAddMembers(false); }}
       />
-
-      {/* Not connected warning */}
-      {!isConnected && (
-        <div className="px-6 py-2 bg-warning-50 border-t border-warning-200">
-          <p className="text-sm text-warning-700">
-            Not connected. Trying to reconnect…
-          </p>
-        </div>
-      )}
     </div>
   );
 };

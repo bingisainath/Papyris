@@ -376,6 +376,15 @@ class WebSocketService {
   /**
    * Schedule reconnection attempt
    */
+  /** "Try now" from the offline banner: skip the wait before the next attempt. */
+  retryNow() {
+    if (!this.shouldReconnect || this.isConnected()) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
+    this.scheduleReconnect(true);
+  }
+
   private scheduleReconnect(immediate = false) {
     if (this.reconnectTimer) return;
 

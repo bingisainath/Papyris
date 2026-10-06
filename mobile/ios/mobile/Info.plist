@@ -6,8 +6,12 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Papyris uses the camera to photograph receipts so they can be split.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Papyris uses your photos to read receipts and set your profile photo.</string>
 	<key>CFBundleDisplayName</key>
-	<string>mobile</string>
+	<string>Papyris</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
