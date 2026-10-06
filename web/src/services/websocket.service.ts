@@ -111,13 +111,11 @@ class WebSocketService {
         (this.ws.readyState === WebSocket.OPEN ||
           this.ws.readyState === WebSocket.CONNECTING)
       ) {
-        console.log('⏳ WebSocket already open or connecting');
         resolve();
         return;
       }
 
       if (this.isConnecting) {
-        console.log('⏳ Connection already in progress');
         return;
       }
 
@@ -129,7 +127,6 @@ class WebSocketService {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        console.log('✅ WebSocket connected');
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
@@ -142,7 +139,6 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const data: WebSocketEvent = JSON.parse(event.data);
-          console.log('📨 WebSocket received:', data);  // Debug log
           this.handleMessage(data);
         } catch (error) {
           console.error('❌ Failed to parse WebSocket message:', error);
@@ -157,7 +153,6 @@ class WebSocketService {
       };
 
       this.ws.onclose = (event) => {
-        console.log('🔌 WebSocket disconnected:', event.code, event.reason);
         this.isConnecting = false;
         if (event.code === 1008) this.tokenRejected = true;
         this.stopHeartbeat();
@@ -172,7 +167,6 @@ class WebSocketService {
 
   // ✅ Add method to clear all listeners
   // clearListeners() {
-  //   console.log('🧹 Clearing all WebSocket listeners');
   //   this.listeners = {};
   // }
 
@@ -193,7 +187,6 @@ class WebSocketService {
       this.ws = null;
     }
 
-    console.log('👋 WebSocket disconnected by user');
   }
 
   /**
@@ -211,8 +204,6 @@ class WebSocketService {
     }
 
     // ✅ Log all outgoing WebSocket messages
-    console.log(`%c⬆️ WS SEND: ${data.type}`, 'background: #FF9800; color: white; padding: 2px 5px; border-radius: 3px;');
-    console.log('  Data:', data);
 
     try {
       this.ws!.send(JSON.stringify(data));
@@ -254,7 +245,6 @@ class WebSocketService {
     media?: OutgoingMedia,
     replyToId?: string
   ) {
-    console.log(`💬 Sending message to ${conversationId}`);
     const sent = this.send({
       type: 'message',
       roomId: conversationId,
@@ -336,7 +326,6 @@ class WebSocketService {
    * Handle incoming message from server
    */
   private handleMessage(data: WebSocketEvent) {
-    // console.log('📨 Received:', data.type, data);
 
     // Emit specific event type
     this.emit(data.type, data);
@@ -386,7 +375,6 @@ class WebSocketService {
       ? 0
       : Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), MAX_RECONNECT_DELAY);
 
-    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;

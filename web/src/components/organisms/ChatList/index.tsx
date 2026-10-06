@@ -3,8 +3,6 @@ import React, { useState, useMemo } from 'react';
 import { Input, Button, Typography, Loading } from '../../atoms';
 import Icon from '../../atoms/Icon';
 import { ChatListItem } from '../../molecules';
-import { useConversations } from '../../../hooks/useConversations';
-import { formatMessageTime } from '../../../utils/dateFormat';
 
 interface Conversation {
   id: string;
@@ -94,7 +92,6 @@ const ChatList: React.FC<ChatListProps> = ({
     };
   }, [conversations]);
 
-  // console.log('conversations online :', conversations);
 
   return (
     <div className={`flex flex-col h-full bg-white/80 backdrop-blur-sm ${className}`}>

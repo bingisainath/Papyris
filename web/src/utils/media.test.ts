@@ -1,0 +1,60 @@
+import { formatFileSize, mediaBoxStyle, messagePreview, resolveMediaUrl, validateFile } from './media';
+
+const fileOf = (type: string, size: number, name = 'f') =>
+  new File([new Uint8Array(1)], name, { type }) as File & { size: number };
+
+const sized = (type: string, size: number) => {
+  const file = fileOf(type, size);
+  Object.defineProperty(file, 'size', { value: size });
+  return file;
+};
+
+describe('validateFile', () => {
+  it('accepts supported files within limits', () => {
+    expect(validateFile(sized('image/png', 1024))).toBeNull();
+    expect(validateFile(sized('video/mp4', 40 * 1024 * 1024))).toBeNull();
+  });
+
+  it('rejects unsupported types and oversized files', () => {
+    expect(validateFile(sized('text/html', 10))).toMatch(/not supported/);
+    expect(validateFile(sized('image/png', 11 * 1024 * 1024))).toMatch(/too large/);
+    expect(validateFile(sized('video/mp4', 51 * 1024 * 1024))).toMatch(/max 50MB/);
+  });
+});
+
+describe('mediaBoxStyle', () => {
+  it('fits within 320x256 keeping the aspect ratio', () => {
+    expect(mediaBoxStyle(400, 300)).toMatchObject({ width: 320, aspectRatio: '400 / 300' });
+    expect(mediaBoxStyle(200, 400)).toMatchObject({ width: 128 });
+    expect(mediaBoxStyle(100, 50)).toMatchObject({ width: 100 }); // never upscales
+  });
+
+  it('returns nothing without dimensions', () => {
+    expect(mediaBoxStyle(undefined, 300)).toBeUndefined();
+  });
+});
+
+describe('messagePreview', () => {
+  it('prefers text, then describes the media', () => {
+    expect(messagePreview('hi', 'image')).toBe('hi');
+    expect(messagePreview('', 'image')).toBe('📷 Photo');
+    expect(messagePreview('', 'video')).toBe('🎥 Video');
+    expect(messagePreview('', 'file', 'cv.pdf')).toBe('📎 cv.pdf');
+  });
+});
+
+describe('resolveMediaUrl', () => {
+  it('prefixes server-relative URLs with the API base', () => {
+    expect(resolveMediaUrl('/api/v1/media/a.png?sig=1')).toMatch(/^https?:\/\/.+\/api\/v1\/media\/a\.png\?sig=1$/);
+    expect(resolveMediaUrl('blob:http://x/1')).toBe('blob:http://x/1');
+    expect(resolveMediaUrl(null)).toBeUndefined();
+  });
+});
+
+describe('formatFileSize', () => {
+  it('uses readable units', () => {
+    expect(formatFileSize(512)).toBe('512 B');
+    expect(formatFileSize(2048)).toBe('2 KB');
+    expect(formatFileSize(5 * 1024 * 1024)).toBe('5.0 MB');
+  });
+});

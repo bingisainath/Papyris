@@ -1,6 +1,6 @@
 // src/components/molecules/ChatListItem.tsx
 import React from 'react';
-import { Avatar, Badge, Typography } from '../../atoms';
+import { Avatar, Typography } from '../../atoms';
 import Icon from '../../atoms/Icon';
 import { formatMessageTime } from '../../../utils/dateFormat';
 

@@ -91,7 +91,6 @@ const Home: React.FC = () => {
   // Redirect if not authenticated
   useEffect(() => {
     if (!isAuthenticated) {
-      console.log('⚠️ Not authenticated, redirecting to login');
       navigate('/login', { replace: true });
     }
   }, [isAuthenticated, navigate]);
@@ -99,7 +98,6 @@ const Home: React.FC = () => {
   // Load conversations
   useEffect(() => {
     if (isAuthenticated && currentUser) {
-      console.log('📥 Loading conversations...');
       dispatch(fetchConversations());
     }
   }, [dispatch, isAuthenticated, currentUser]);
@@ -107,7 +105,6 @@ const Home: React.FC = () => {
   // Load messages
   useEffect(() => {
     if (activeConversationId && isAuthenticated) {
-      console.log('📥 Loading messages for:', activeConversationId);
       dispatch(fetchMessages(activeConversationId));
     }
   }, [activeConversationId, dispatch, isAuthenticated]);
@@ -141,7 +138,6 @@ const Home: React.FC = () => {
         return;
       }
 
-      console.log('Creating DM with user:', user.id);
 
       // Check if DM already exists
       const existingDM = conversations.find(c =>
@@ -217,14 +213,12 @@ const Home: React.FC = () => {
   };
 
   const handleSelectConversation = async (id: string) => {
-    console.log('👆 User clicked conversation:', id.substring(0, 8));
 
     // Get conversation
     const conversation = conversations.find(c => c.id === id);
 
     // ✅ Mark as read on server
     if (conversation && (conversation.unreadCount ?? 0) > 0) {
-      console.log(`🧹 Marking ${conversation.unreadCount} messages as read on server`);
 
       // Clear in Redux immediately for instant UI update
       dispatch(clearUnreadCount(id));
@@ -234,7 +228,6 @@ const Home: React.FC = () => {
         const result = await chatService.markConversationRead(id);
 
         if (result.success) {
-          console.log('✅ Server marked as read, now fetching updated conversations');
           // Now the server has updated counts, safe to fetch
           await dispatch(fetchConversations());
         } else {
@@ -250,7 +243,6 @@ const Home: React.FC = () => {
   };
 
   const handleCreateExpense = (data: any) => {
-    console.log('Create expense:', data);
     alert('Expense feature coming soon!');
     setShowCreateExpenseModal(false);
   };
@@ -481,28 +473,6 @@ const Home: React.FC = () => {
 // ... Keep all other components (GroupsPage, SettingsPage, MobileBottomNav, EmptyState) same
 
 
-
-// Welcome Screen Component
-const WelcomeScreen: React.FC = () => (
-  <div className="flex items-center justify-center h-full">
-    <div className="text-center px-8">
-      <div className="w-32 h-32 mx-auto mb-6 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center shadow-card animate-scale-in">
-        <svg className="w-16 h-16 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-      </div>
-      <h2 className="text-3xl font-bold text-muted-900 mb-3">Papyris Web</h2>
-      <p className="text-muted-500 max-w-md leading-relaxed mb-4">
-        Send and receive messages without keeping your phone online.
-        <br />
-        Use Papyris on multiple devices at the same time.
-      </p>
-      <p className="text-sm text-primary-600 font-medium">
-        ← Select a conversation to start chatting
-      </p>
-    </div>
-  </div>
-);
 
 // Groups Page Component  
 const GroupsPage: React.FC<{

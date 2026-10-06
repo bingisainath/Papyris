@@ -134,7 +134,6 @@ const chatSlice = createSlice({
           state.conversations.splice(index, 1);
           state.conversations.unshift(conversation);
         }
-        console.log(`✅ Updated last message for ${conversation.name}`);
       }
     },
 
@@ -148,38 +147,13 @@ const chatSlice = createSlice({
     ) => {
       const { userId, isOnline } = action.payload;
       const currentUserId = localStorage.getItem('userId');
-
-      let updated = 0;
+      if (userId === currentUserId) return;
 
       state.conversations.forEach(conv => {
-
-        if (
-          !conv.isGroup &&
-          conv.members &&
-          Array.isArray(conv.members) &&
-          conv.members.includes(userId) &&
-          userId !== currentUserId
-        ) {
-          const oldStatus = conv.isOnline;
+        if (!conv.isGroup && conv.members?.includes(userId)) {
           conv.isOnline = isOnline;
-          updated++;
-
-          console.log(`     ✅ UPDATED: ${oldStatus} → ${isOnline}`);
-        } else {
-          console.log(`     ⏭️ SKIPPED`);
         }
       });
-
-      console.log(`  📊 Updated ${updated} conversations`);
-
-      if (updated === 0) {
-        console.log(`  ⚠️ No conversations updated!`);
-        console.log(`  📋 Current conversations:`, state.conversations.map(c => ({
-          name: c.name,
-          members: c.members,
-          isGroup: c.isGroup
-        })));
-      }
     },
 
     // Messages
@@ -329,7 +303,6 @@ const chatSlice = createSlice({
       if (index !== -1) {
         // Replace optimistic with real
         state.messages[conversationId][index] = message;
-        console.log(`✅ Replaced temp message ${tempId} with real ${message.id}`);
       } else {
         // Not found, just add it
         state.messages[conversationId].push(message);
@@ -362,7 +335,6 @@ const chatSlice = createSlice({
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         );
       } else {
-        console.log(`⏭️ Message ${message.id} already exists, skipping`);
       }
     },
 
@@ -425,7 +397,6 @@ const chatSlice = createSlice({
       const exists = state.conversations.some(c => c.id === conversationId);
       if (exists) return;
 
-      console.log('🆕 Creating placeholder conversation:', conversationId.substring(0, 8));
 
       // Create placeholder
       const placeholder: Conversation = {
@@ -445,20 +416,8 @@ const chatSlice = createSlice({
       // Add to top of list
       state.conversations.unshift(placeholder);
 
-      console.log('✅ Placeholder conversation created');
     },
 
-
-
-    // incrementUnreadCount: (state, action: PayloadAction<string>) => {
-    //   const conversationId = action.payload;
-    //   const conversation = state.conversations.find(c => c.id === conversationId);
-
-    //   if (conversation) {
-    //     conversation.unreadCount = (conversation.unreadCount || 0) + 1;
-    //     console.log(`📬 Unread count for ${conversation.name}: ${conversation.unreadCount}`);
-    //   }
-    // },
 
     incrementUnreadCount: (state, action: PayloadAction<string>) => {
       const conversation = state.conversations.find(c => c.id === action.payload);

@@ -15,14 +15,6 @@ export interface LoginResponse {
   expires_in?: number; // optional (if backend adds it)
 }
 
-// export interface UserResponse {
-//   id: string;
-//   username: string;
-//   email: string;
-//   is_active: boolean;
-//   created_at: string;
-// }
-
 
 export interface LoginResponse {
   success: boolean;

@@ -284,7 +284,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <button
               onClick={() => {
                 // TODO: Open expense modal
-                console.log('Add expense');
               }}
               disabled={disabled}
               className="p-2 hover:bg-accent-50 rounded-lg transition-colors disabled:opacity-50"

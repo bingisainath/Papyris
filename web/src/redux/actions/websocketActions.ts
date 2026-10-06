@@ -62,7 +62,6 @@ export const connectWebSocket = (token: string) => async (dispatch: AppDispatch)
     await wsService.connect(token);
 
     dispatch(setConnected(true));
-    console.log('✅ WebSocket connected and Redux updated');
 
     // Setup event listeners
     setupWebSocketListeners(dispatch);
@@ -85,7 +84,6 @@ export const connectWebSocket = (token: string) => async (dispatch: AppDispatch)
 export const disconnectWebSocket = () => (dispatch: AppDispatch) => {
   wsService.disconnect();
   dispatch(resetWebSocket());
-  console.log('👋 WebSocket disconnected');
 };
 
 /**
@@ -235,21 +233,17 @@ export const markAsRead = (conversationId: string, lastMessageId: string) => () 
  */
 function setupWebSocketListeners(dispatch: AppDispatch) {
 
-  console.log('🎧 Setting up WebSocket listeners');
 
   // getStateRef = getState;
 
   if (listenersInitialized) {
-    console.log('⏭️ Listeners already initialized, skipping');
     return;
   }
 
-  console.log('🎧 Setting up WebSocket listeners');
   listenersInitialized = true;  // ✅ Mark as initialized
 
   // Message received (also the echo of our own messages)
   wsService.on('message', async (data) => {
-    console.log('📨 Message event received:', data);
 
     if (data.roomId && data.messageId) {
       const message = {
@@ -338,7 +332,6 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   // Read receipt
   wsService.on('read', (data) => {
-    // console.log('✅ Message read:', data);
 
     // readUpTo: every member has read up to this time, so our older messages are read
     if (data.roomId && data.readUpTo) {
@@ -352,11 +345,8 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // User came online
   wsService.on('online', (data) => {
 
-    console.log('%c🟢 ONLINE EVENT', 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px;');
-    console.log('  User ID:', data.userId);
 
     if (data.userId) {
-      console.log('🟢 User online:', data.userId);
       dispatch(addOnlineUser(data.userId));
       dispatch(updateUserOnlineStatus({ userId: data.userId, isOnline: true }));
     }
@@ -426,11 +416,8 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // User went offline
   wsService.on('offline', (data) => {
 
-    console.log('%c🔴 OFFLINE EVENT', 'background: #9E9E9E; color: white; padding: 2px 5px; border-radius: 3px;');
-    console.log('  User ID:', data.userId);
 
     if (data.userId) {
-      console.log('🔴 User offline:', data.userId);
       dispatch(removeOnlineUser(data.userId));
       dispatch(updateUserOnlineStatus({ userId: data.userId, isOnline: false }));
     }
@@ -438,12 +425,10 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   // Joined conversation
   wsService.on('joined', (data) => {
-    console.log('✅ Joined conversation:', data.roomId);
   });
 
   // Left conversation
   wsService.on('left', (data) => {
-    console.log('👋 Left conversation:', data.roomId);
   });
 
   // Error
@@ -470,7 +455,6 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   let missedEvents = false;
 
   wsService.on('connected', () => {
-    console.log('✅ WebSocket connected event');
     dispatch(setConnected(true));
 
     if (missedEvents) {
@@ -483,7 +467,6 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   wsService.on('disconnected', () => {
     missedEvents = true;
-    console.log('🔌 WebSocket disconnected event');
     dispatch(setConnected(false));
   });
 }

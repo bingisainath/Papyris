@@ -71,13 +71,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const logout = useCallback(() => {
     // ✅ ADD: Disconnect WebSocket before logout
-    console.log("[AUTH] 🔌 Disconnecting WebSocket...");
     dispatch(disconnectWebSocket());
 
     tokenStore.clear();
     setUser(null);
     setError(null);
-    console.log("[AUTH] Logged out");
   }, [dispatch]);
 
 
@@ -128,9 +126,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         setUser(res.data);
-        console.log("[AUTH] Session restored:", res.data.email);
 
-        console.log("[AUTH] 🔌 Reconnecting WebSocket after refresh...");
         dispatch(connectWebSocket(token));
 
       } catch (err) {
@@ -149,7 +145,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setError(null);
       setIsLoading(true);
 
-      console.log("[AUTH] Login attempt for:", identifier);
 
       try {
         // Validate inputs
@@ -181,10 +176,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(meRes.data);
         setError(null);
-        console.log("[AUTH] ✅ LOGIN SUCCESS:", meRes.data.email);
 
         // Connect WebSocket immediately after successful login
-        console.log("[AUTH] 🔌 Connecting WebSocket...");
         dispatch(connectWebSocket(res.data.access_token));
 
       } catch (err) {
@@ -231,7 +224,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         setError(null);
-        console.log("[AUTH] ✅ REGISTER SUCCESS:", res.data?.email ?? email);
 
         // Note: No WebSocket connection here - user needs to login first
 
@@ -256,7 +248,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error("Username or email is required");
         }
 
-        console.log('forget password called : ', identifier);
 
         const response = await authService.forgotPassword(identifier);
 
@@ -264,7 +255,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error(response.message || "Failed to send reset email");
         }
 
-        console.log("[AUTH] ✅ Password reset email sent");
 
       } catch (err) {
         const msg = parseApiError(err);
@@ -290,7 +280,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error(response.message || "Invalid or expired token");
         }
 
-        console.log("[AUTH] ✅ Token verified");
         return {
           email: response.data.email,
           username: response.data.username
@@ -328,7 +317,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error(response.message || "Failed to reset password");
         }
 
-        console.log("[AUTH] ✅ Password reset successful");
 
       } catch (err) {
         const msg = parseApiError(err);

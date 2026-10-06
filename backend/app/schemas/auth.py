@@ -1,15 +1,4 @@
-# from pydantic import BaseModel
-# from typing import Optional
-
-# class Token(BaseModel):
-#     access_token: str
-#     token_type: str = "bearer"
-
-# class TokenData(BaseModel):
-#     user_id: Optional[str] = None
-
-
-# backend/app/schemas/auth.py - UPDATED
+# backend/app/schemas/auth.py
 
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional

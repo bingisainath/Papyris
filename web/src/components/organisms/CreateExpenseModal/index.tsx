@@ -1,8 +1,7 @@
 // src/components/organisms/CreateExpenseModal.tsx
 import React, { useState, useMemo } from 'react';
-import { Button, Input, Textarea, Typography } from '../../atoms';
+import { Button, Input, Typography } from '../../atoms';
 import Icon from '../../atoms/Icon';
-import { UserCard } from '../../molecules';
 
 interface User {
   id: string;

@@ -36,18 +36,14 @@ const AuthenticationPage: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    console.log('login called 1');
 
     setLoginError(null);
 
     try {
-      // console.log("Attempting login...");
       // const loginMail = loginEmail.toLocaleLowerCase();
-      // console.log('login called 2', loginMail);
       // await login(loginMail, loginPassword);
       await login(loginIdentifier.trim(), loginPassword);
       toast.success("Logged in successfully");
-      console.log("Login successful, navigating...");
       navigate("/", { replace: true });
     } catch (err: any) {
       console.error("Login error caught:", err);
@@ -79,13 +75,11 @@ const AuthenticationPage: React.FC = () => {
       );
 
       toast.success("Registered successfully");
-      console.log("[UI] Registered");
       setIsActive(false);
 
     } catch (err: any) {
       toast.error(err.message || "Register failed");
       setRegisterError(err.message || "Register failed");
-      console.log("[UI] Register error:", err.message);
     }
   };
 

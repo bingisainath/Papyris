@@ -18,12 +18,9 @@ const ForgotPassword: React.FC = () => {
         setError('');
         setLoading(true);
         try {
-            console.log('1');
             await forgotPassword(identifier);
-            console.log('2');
             setSubmitted(true);
         } catch (err: any) {
-            console.log('catched called', err.message);
             setError(err.message || 'Something went wrong. Please try again.');
         } finally {
             setLoading(false);

@@ -27,15 +27,6 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
       const onlineUsers = state.websocket.onlineUsers || [];
       const currentUserId = localStorage.getItem('userId');
 
-      // ✅ CRITICAL: Get existing unread counts from Redux
-      const existingConversations = state.chat.conversations;
-      const unreadMap = new Map(
-        existingConversations.map(c => [c.id, c.unreadCount || 0])
-      );
-      
-      // const existingIds = new Set(existingConversations.map(c => c.id));
-
-      console.log('💾 Preserving unread counts:', Array.from(unreadMap.entries()).map(([id, count]) => `${id.substring(0, 8)}: ${count}`));
 
       const conversationsWithOnline = response.data.map((conv: any) => {
         let isOnline = false;
@@ -53,17 +44,7 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
 
         }
 
-        // ✅ Get existing unread count, or 0 for new conversations
-        // const existingUnread = unreadMap.get(conv.id) || 0;
-        // const isNewConversation = !existingIds.has(conv.id)
-        
-        // const unreadCount = existingUnread !== undefined ? existingUnread : conv.unreadCount || 0;
-        
-        // if (isNewConversation) {
-        //   console.log(`🆕 New conversation detected: ${conv.name} - unread: ${unreadCount}`);
-        // }
 
-        console.log('unread count :', conv.unreadCount);
         
 
         // The open chat is being read live (if the tab is visible); its read receipt may still be in flight
@@ -78,7 +59,6 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
         };
       });
 
-      // console.log('✅ Conversations with online status:', conversationsWithOnline.length);
       dispatch(setConversations(conversationsWithOnline));
 
 
