@@ -46,13 +46,20 @@ export function fileProblem(type: string, size?: number | null): string | null {
 
 export async function uploadFile(
   file: LocalFile,
-  options: { quality?: UploadQuality; onProgress?: (percent: number) => void; signal?: AbortSignal } = {},
+  options: {
+    quality?: UploadQuality;
+    onProgress?: (percent: number) => void;
+    signal?: AbortSignal;
+    encrypted?: 'image' | 'video' | 'audio' | 'file'; // end-to-end encrypted by the app (crypto/media.ts)
+  } = {},
 ): Promise<Uploaded> {
   const form = new FormData();
   form.append('file', { uri: file.uri, type: file.type, name: file.name } as any);
   const response = await api.post('/media/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    params: options.quality ? { quality: options.quality } : undefined,
+    params: options.encrypted
+      ? { encrypted: true, kind: options.encrypted }
+      : options.quality ? { quality: options.quality } : undefined,
     signal: options.signal,
     timeout: 10 * 60 * 1000, // big videos on slow connections (the server also compresses them)
     onUploadProgress: (e) => {

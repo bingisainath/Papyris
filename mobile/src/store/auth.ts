@@ -8,6 +8,7 @@ import { errorMessage, setSessionExpiredHandler } from '../api/client';
 import { tokens } from '../auth/tokens';
 import { socket } from '../ws/socket';
 import { disablePush, enablePush } from '../notifications/push';
+import { e2eSession } from '../crypto/session';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -117,6 +118,7 @@ export const useAuth = create<AuthState>((set) => {
       await disablePush(); // while still signed in, so the server accepts it
       socket.stop();
       await tokens.clear();
+      await e2eSession.clear(); // signing in here again means linking it again
       set({ user: null, status: 'signedOut' });
     },
   };

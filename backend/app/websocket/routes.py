@@ -35,6 +35,8 @@ PRESENCE_KEY = "papyris:presence"
 LEGACY_ONLINE_SET_KEY = "papyris:online_users"
 
 MAX_TEXT_LENGTH = 5000
+# An encrypted envelope carries the sealed key for every member plus base64 overhead
+MAX_ENCRYPTED_LENGTH = 200_000
 
 # How long a read receipt waits for the worker to persist the message it refers to
 READ_WAIT_ATTEMPTS = 15
@@ -187,7 +189,8 @@ async def ws_chat(ws: WebSocket):
                 media_url = data.get("mediaUrl") or None
                 media_type = data.get("mediaType") or None
 
-                if len(text) > MAX_TEXT_LENGTH:
+                encrypted = media_storage.is_encrypted(text)
+                if len(text) > (MAX_ENCRYPTED_LENGTH if encrypted else MAX_TEXT_LENGTH):
                     await reject(f"Message too long (max {MAX_TEXT_LENGTH} characters)")
                     continue
 
@@ -216,8 +219,16 @@ async def ws_chat(ws: WebSocket):
                 duration = data.get("mediaDuration")
                 media_duration = int(duration) if isinstance(duration, (int, float)) and media_type in ("audio", "video") and 0 < duration <= 36000 else None
                 media_thumbnail = data.get("mediaThumbnail") or None
-                if media_thumbnail and (media_type != "video" or not media_storage.is_stored_image_url(media_thumbnail)):
+                # (encrypted posters are opaque uploads; the server can't check they're images)
+                thumbnail_ok = bool(media_thumbnail) and (
+                    media_storage.is_stored_media_url(media_thumbnail) if encrypted else media_storage.is_stored_image_url(media_thumbnail)
+                )
+                if media_thumbnail and (media_type != "video" or not thumbnail_ok):
                     media_thumbnail = None
+                if encrypted:
+                    # Size, name and dimensions travel inside the envelope; don't store them in the clear
+                    media_size = media_filename = media_width = media_height = media_duration = None
+                has_link = encrypted and data.get("hasLink") is True
 
                 # Store plain URLs; every response signs them for the people who may see them
                 media_url = media_storage.unsigned(media_url)
@@ -282,6 +293,7 @@ async def ws_chat(ws: WebSocket):
                     "mediaWidth": media_width,
                     "mediaHeight": media_height,
                     "mediaDuration": media_duration,
+                    "hasLink": has_link,
                     "replyToId": reply_to["id"] if reply_to else None,
                     "timestamp": timestamp,
                 })

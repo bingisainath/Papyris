@@ -10,6 +10,8 @@ import { downloadMedia, formatDuration, formatFileSize, resolveMediaUrl } from '
 import VoiceNotePlayer from '../../molecules/VoiceNotePlayer';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
+import { openText } from '../../../crypto/messages';
+import { downloadDecrypted, useMediaSrc } from '../../../crypto/media';
 
 export type SharedKind = 'media' | 'docs' | 'links';
 
@@ -26,12 +28,54 @@ export interface SharedItem {
   media_duration?: number | null;
   url?: string;
   text?: string | null;
+  encrypted?: boolean;
+  // End-to-end encrypted items (from the decrypted message)
+  media_key?: string;
+  media_mime?: string;
+  thumb_key?: string;
+}
+
+const URL_RE = /https?:\/\/[^\s<>"']+/gi;
+
+/** Fill in what the server can't see for end-to-end encrypted items (names, keys, links). */
+function decryptItems(conversationId: string, items: SharedItem[]): SharedItem[] {
+  return items.flatMap((item) => {
+    const opened = openText(item.text, conversationId, item.sender_id);
+    if (!opened) return [item];
+    if (!opened.ok) return item.encrypted ? [] : [item]; // links we can't read: leave them out
+    if (item.encrypted) {
+      const urls = Array.from(new Set(opened.text.match(URL_RE) || [])).map((u) => u.replace(/[.,);!?]+$/, ''));
+      return urls.map((url) => ({ ...item, url, text: opened.text }));
+    }
+    const m = opened.media;
+    return [m ? {
+      ...item, text: opened.text, media_key: m.key, media_mime: m.mime, thumb_key: m.tk,
+      media_filename: m.name ?? null, media_size: m.size ?? null, media_duration: m.d ?? null,
+    } : item];
+  });
 }
 
 export async function fetchShared(conversationId: string, kind: SharedKind, before?: string) {
   const { data } = await api.get(`/api/v1/conversations/${conversationId}/shared`, { params: { kind, before, limit: 60 } });
-  return { items: data.data as SharedItem[], hasMore: !!data.has_more };
+  return { items: decryptItems(conversationId, data.data as SharedItem[]), hasMore: !!data.has_more };
 }
+
+/** A photo or video thumbnail, decrypted first if it's end-to-end encrypted. */
+const Thumb: React.FC<{ item: SharedItem; className: string }> = ({ item, className }) => {
+  const video = item.media_type === 'video';
+  const { src } = useMediaSrc(
+    resolveMediaUrl(video ? item.media_thumbnail || undefined : item.media_url),
+    video ? item.thumb_key : item.media_key,
+    video ? 'image/jpeg' : item.media_mime,
+  );
+  return src ? <img src={src} alt="" loading="lazy" className={className} /> : <span className={`block ${className}`} />;
+};
+
+const SharedVoiceNote: React.FC<{ item: SharedItem }> = ({ item }) => {
+  const { src, failed } = useMediaSrc(resolveMediaUrl(item.media_url), item.media_key, item.media_mime);
+  if (!src) return <p className="text-xs text-muted-500">{failed ? "Couldn't decrypt this voice message" : 'Decrypting…'}</p>;
+  return <VoiceNotePlayer src={src} duration={item.media_duration || undefined} isSent={false} />;
+};
 
 const TABS: { kind: SharedKind; label: string }[] = [
   { kind: 'media', label: 'Media' },
@@ -70,6 +114,8 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
     .map((i) => ({
       id: i.message_id,
       url: resolveMediaUrl(i.media_url)!,
+      mediaKey: i.media_key,
+      mediaMime: i.media_mime,
       filename: i.media_filename || undefined,
       senderName: i.sender_id === currentUserId ? 'You' : i.sender_name || undefined,
       timestamp: i.created_at,
@@ -110,7 +156,7 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
               const item = items.find((i) => i.message_id === m.id)!;
               return (
                 <button key={m.id} type="button" onClick={() => setViewer(index)} className="relative aspect-square bg-muted-100 overflow-hidden" aria-label={`Open ${m.type}`}>
-                  <img src={resolveMediaUrl(m.type === 'video' ? item.media_thumbnail || undefined : item.media_url)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  <Thumb item={item} className="w-full h-full object-cover" />
                   {m.type === 'video' && (
                     <span className="absolute bottom-1 left-1 inline-flex items-center gap-0.5 px-1 rounded bg-black/60 text-white text-[10px]">
                       <Play className="w-3 h-3" fill="currentColor" /> {formatDuration(item.media_duration)}
@@ -128,7 +174,7 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
               <li key={i.message_id} className="px-4 py-3">
                 <p className="text-xs text-muted-500 mb-1">{i.sender_id === currentUserId ? 'You' : i.sender_name} · {dateLabel(i.created_at)}</p>
                 {i.media_type === 'audio' ? (
-                  <VoiceNotePlayer src={resolveMediaUrl(i.media_url)} duration={i.media_duration || undefined} isSent={false} />
+                  <SharedVoiceNote item={i} />
                 ) : (
                   <div className="flex items-center gap-3">
                     <span className="w-10 h-10 rounded-lg bg-primary-50 text-primary-700 flex items-center justify-center"><FileText className="w-5 h-5" strokeWidth={1.75} /></span>
@@ -138,7 +184,9 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
                     </span>
                     <button
                       type="button"
-                      onClick={() => downloadMedia(i.media_url!, i.media_filename || 'file').catch(() => toast.error("Couldn't download it"))}
+                      onClick={() => (i.media_key
+                        ? downloadDecrypted(i.media_url!, i.media_key, i.media_mime, i.media_filename || 'file')
+                        : downloadMedia(i.media_url!, i.media_filename || 'file')).catch(() => toast.error("Couldn't download it"))}
                       className="p-2 rounded-lg text-primary-700 hover:bg-primary-50"
                       aria-label={`Download ${i.media_filename || 'file'}`}
                     >
@@ -202,12 +250,7 @@ export const SharedMediaRow: React.FC<{ conversationId: string; onOpen: () => vo
       {preview.length > 0 && (
         <span className="mt-3 grid grid-cols-4 gap-1.5">
           {preview.map((i) => (
-            <img
-              key={i.message_id}
-              src={resolveMediaUrl(i.media_type === 'video' ? i.media_thumbnail || undefined : i.media_url)}
-              alt=""
-              className="aspect-square w-full rounded-md object-cover bg-muted-100"
-            />
+            <Thumb key={i.message_id} item={i} className="aspect-square w-full rounded-md object-cover bg-muted-100" />
           ))}
         </span>
       )}

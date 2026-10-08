@@ -1,5 +1,6 @@
 // src/api/chat.ts
 import { api, data } from './client';
+import { decryptMessage, previewText } from '../crypto/messages';
 
 export interface Conversation {
   id: string;
@@ -7,6 +8,7 @@ export interface Conversation {
   avatar?: string | null;
   lastMessage: string;
   lastMessageTime: string | null;
+  lastMessageSenderId?: string | null;
   unreadCount: number;
   isGroup: boolean;
   members: string[];
@@ -54,6 +56,13 @@ export interface Message {
   replyTo?: ReplyPreview | null;
   reactions: Reaction[];
   expenseId?: string | null;
+  // End-to-end encryption (src/crypto): 'encrypted' = decrypted fine, 'unreadable' = not for this phone
+  e2e?: 'encrypted' | 'unreadable';
+  e2eUnverified?: boolean; // signed with a key that isn't the sender's
+  senderSignKey?: string;
+  mediaKey?: string;
+  mediaMime?: string;
+  thumbKey?: string;
 }
 
 export interface MemberInfo {
@@ -84,7 +93,7 @@ export interface UserSummary {
 }
 
 /** API message (snake_case) -> app message */
-export const toMessage = (m: any): Message => ({
+export const toMessage = (m: any): Message => decryptMessage({
   id: m.id,
   conversationId: m.conversation_id,
   senderId: m.sender_id,
@@ -116,10 +125,15 @@ export const toMessage = (m: any): Message => ({
     : null,
   reactions: (m.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.user_ids || r.userIds || [] })),
   expenseId: m.expense_id || null,
-});
+} as Message);
 
 export const chatApi = {
-  conversations: () => data<Conversation[]>(api.get('/conversations')),
+  // Last-message previews of encrypted chats are decrypted here
+  conversations: async () =>
+    (await data<Conversation[]>(api.get('/conversations'))).map((c) => ({
+      ...c,
+      lastMessage: previewText(c.lastMessage, c.id, c.lastMessageSenderId),
+    })),
   messages: async (conversationId: string, before?: string) => {
     const r = await api.get(`/conversations/${conversationId}/messages`, { params: { limit: 50, before } });
     return { messages: (r.data.data as any[]).map(toMessage), hasMore: !!r.data.has_more };
@@ -131,7 +145,8 @@ export const chatApi = {
     data<{ id: string }>(api.post('/conversations', { kind: 'group', title, participant_ids: memberIds })),
   searchUsers: (search: string) => data<UserSummary[]>(api.get('/users', { params: { search } })),
   pin: (conversationId: string, pinned: boolean) => api.put(`/conversations/${conversationId}/pin`, { pinned }),
-  editMessage: (messageId: string, text: string) => api.patch(`/messages/${messageId}`, { text }),
+  /** hasLink: encrypted edits tell the server whether there's a link (for the Links tab) */
+  editMessage: (messageId: string, text: string, hasLink?: boolean) => api.patch(`/messages/${messageId}`, { text, has_link: !!hasLink }),
   deleteMessage: (messageId: string) => api.delete(`/messages/${messageId}`),
   /** Toggle your reaction (same emoji again removes it) */
   react: (messageId: string, emoji: string) => api.put(`/messages/${messageId}/reaction`, { emoji }),

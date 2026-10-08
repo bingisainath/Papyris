@@ -6,6 +6,7 @@ import { Avatar } from '../atoms';
 import Icon from '../atoms/Icon';
 import { formatMessageTime } from '../../utils/dateFormat';
 import { resolveMediaUrl } from '../../utils/media';
+import { useMediaSrc } from '../../crypto/media';
 import type { Message } from '../../redux/slices/chatSlice';
 
 interface Props {
@@ -29,7 +30,7 @@ const AlbumGrid: React.FC<Props> = ({ messages, isSent, isGroup, onOpen, onMedia
           <div className="relative grid grid-cols-2 gap-0.5 w-64 sm:w-72 rounded-[13px] overflow-hidden" role="group" aria-label={`${messages.length} photos`}>
             {messages.slice(0, 4).map((m, i) => (
               <button key={m.id} type="button" onClick={() => onOpen(m.id)} className="relative aspect-square overflow-hidden bg-muted-100" aria-label={`Open photo ${i + 1} of ${messages.length}`}>
-                <img src={resolveMediaUrl(m.mediaUrl)} alt={m.mediaFilename || 'Photo'} loading="lazy" onError={onMediaError} className="w-full h-full object-cover" />
+                <AlbumPhoto message={m} onMediaError={onMediaError} />
                 {i === 3 && extra > 0 && (
                   <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-2xl font-semibold">+{extra}</span>
                 )}
@@ -48,12 +49,19 @@ const AlbumGrid: React.FC<Props> = ({ messages, isSent, isGroup, onOpen, onMedia
   );
 };
 
+const AlbumPhoto: React.FC<{ message: Message; onMediaError?: () => void }> = ({ message: m, onMediaError }) => {
+  const { src } = useMediaSrc(resolveMediaUrl(m.mediaUrl), m.mediaKey, m.mediaMime);
+  return src
+    ? <img src={src} alt={m.mediaFilename || 'Photo'} loading="lazy" onError={m.mediaKey ? undefined : onMediaError} className="w-full h-full object-cover" />
+    : <span className="block w-full h-full animate-pulse" />;
+};
+
 /** Split a chat into single messages and albums (4+ captionless photos from one person in a row). */
 export type ChatItem = { kind: 'message'; message: Message } | { kind: 'album'; messages: Message[] };
 
 const ALBUM_GAP_MS = 2 * 60 * 1000;
 const isAlbumPhoto = (m: Message) =>
-  m.mediaType === 'image' && !!m.mediaUrl && !m.text && !m.isDeleted && !m.replyTo
+  m.mediaType === 'image' && !!m.mediaUrl && !m.text && !m.isDeleted && !m.replyTo && m.e2e !== 'unreadable'
   && m.uploadProgress === undefined && !m.uploadFailed && m.messageType !== 'system' && !(m.reactions?.length);
 
 export function groupAlbums(messages: Message[]): ChatItem[] {

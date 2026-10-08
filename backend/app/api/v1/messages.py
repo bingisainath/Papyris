@@ -15,7 +15,7 @@ from app.models.message_reaction import MessageReaction
 from app.models.user import User
 from app.services import media_storage
 from app.services.message_service import MessageService
-from app.websocket.routes import MAX_TEXT_LENGTH, publish_users
+from app.websocket.routes import MAX_ENCRYPTED_LENGTH, MAX_TEXT_LENGTH, publish_users
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
 
@@ -26,12 +26,16 @@ ALLOWED_REACTIONS = {"👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "
 
 
 class EditMessageRequest(BaseModel):
-    text: str = Field(..., max_length=MAX_TEXT_LENGTH)
+    text: str = Field(..., max_length=MAX_ENCRYPTED_LENGTH)
+    has_link: bool = False  # encrypted edits: whether the new text contains a link
 
     @field_validator("text")
     @classmethod
     def strip_text(cls, v: str) -> str:
-        return v.strip()
+        v = v.strip()
+        if not media_storage.is_encrypted(v) and len(v) > MAX_TEXT_LENGTH:
+            raise ValueError(f"Message too long (max {MAX_TEXT_LENGTH} characters)")
+        return v
 
 
 class ReactRequest(BaseModel):
@@ -64,6 +68,7 @@ async def edit_message(
         raise HTTPException(status_code=400, detail="Message can't be empty")
 
     message.text = payload.text
+    message.has_link = media_storage.is_encrypted(payload.text) and payload.has_link
     message.updated_at = datetime.now(timezone.utc)
     await db.commit()
 

@@ -19,6 +19,7 @@ import type { AppDispatch, RootState } from '../../../redux/store';
 import { togglePinConversation } from '../../../redux/actions/chatActions';
 import { ChatExpenseSettings } from '../../expenses/ExpenseSettingsSections';
 import SharedMedia, { SharedMediaRow } from '../SharedMedia';
+import EncryptionInfo from '../EncryptionInfo';
 
 interface ConversationInfoPanelProps {
   conversationId: string;
@@ -333,6 +334,12 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
                 </p>
               )}
             </section>
+
+            {/* End-to-end encryption, and the security code for direct chats */}
+            <EncryptionInfo
+              conversationId={conversationId}
+              other={!isGroup && other ? { id: other.id, name: other.name || other.username } : undefined}
+            />
 
             {/* Photos, videos, files, voice notes and links shared here */}
             <SharedMediaRow conversationId={conversationId} onOpen={() => setShowShared(true)} />

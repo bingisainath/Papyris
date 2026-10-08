@@ -8,6 +8,7 @@ import { Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
 import EditableField from '../../components/EditableField';
+import EncryptionInfo from '../../components/EncryptionInfo';
 import UserSearch from '../../components/UserSearch';
 import { Divider } from '../../components/ui';
 import { chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
@@ -150,6 +151,10 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
               onSave={(d) => saveGroup({ description: d })} />
           </View>
         )}
+
+        <View style={styles.section}>
+          <EncryptionInfo conversationId={conversationId} otherId={isGroup ? undefined : other?.id} otherName={other?.name || other?.username} />
+        </View>
 
         <View style={styles.section}>
           <Row icon={Images} label="Media, links and docs" onPress={() => navigation.navigate('SharedMedia', { conversationId })} />

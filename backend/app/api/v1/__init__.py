@@ -12,6 +12,8 @@ from app.api.v1.receipts import router as receipts_router
 from app.api.v1.ai_settings import router as ai_settings_router
 from app.api.v1.shared_media import router as shared_media_router
 from app.api.v1.devices import router as devices_router
+from app.api.v1.e2e_keys import router as e2e_keys_router
+from app.api.v1.e2e_v2 import router as e2e_v2_router
 
 api_router = APIRouter()
 
@@ -44,3 +46,9 @@ api_router.include_router(shared_media_router)
 
 # Phones' push notification tokens
 api_router.include_router(devices_router)
+
+# End-to-end encryption keys
+api_router.include_router(e2e_keys_router)
+
+# End-to-end encryption v2: device keys, prekeys, signed device lists, mailboxes
+api_router.include_router(e2e_v2_router)

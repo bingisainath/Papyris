@@ -3,7 +3,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CheckCheck } from 'lucide-react-native';
-import { mediaUrl } from '../config';
+import { useMediaSrc } from '../crypto/media';
 import type { Message } from '../api/chat';
 import { colors, radius, space } from '../theme';
 import { clockTime } from '../utils/time';
@@ -13,7 +13,7 @@ export type ChatItem = { kind: 'message'; message: Message } | { kind: 'album'; 
 
 const GAP_MS = 2 * 60 * 1000;
 const isAlbumPhoto = (m: Message) =>
-  m.mediaType === 'image' && !!m.mediaUrl && !m.text && !m.isDeleted && !m.replyTo
+  m.mediaType === 'image' && !!m.mediaUrl && !m.text && !m.isDeleted && !m.replyTo && m.e2e !== 'unreadable'
   && m.uploadProgress === undefined && !m.uploadFailed && m.messageType !== 'system' && !m.reactions.length;
 
 /** Split a chat (oldest first) into single messages and albums. */
@@ -52,7 +52,7 @@ const AlbumGrid: React.FC<{ messages: Message[]; mine: boolean; showSender: bool
         <View style={styles.grid} accessibilityLabel={`${messages.length} photos`}>
           {messages.slice(0, 4).map((m, i) => (
             <Pressable key={m.id} onPress={() => onOpen(m.id)} style={styles.tile} accessibilityLabel={`Open photo ${i + 1} of ${messages.length}`}>
-              <Image source={{ uri: mediaUrl(m.mediaUrl) }} style={styles.image} />
+              <AlbumPhoto message={m} />
               {i === 3 && extra > 0 && (
                 <View style={styles.more}><Text style={styles.moreText}>+{extra}</Text></View>
               )}
@@ -66,6 +66,11 @@ const AlbumGrid: React.FC<{ messages: Message[]; mine: boolean; showSender: bool
       </View>
     </View>
   );
+};
+
+const AlbumPhoto: React.FC<{ message: Message }> = ({ message: m }) => {
+  const { src } = useMediaSrc(m.mediaUrl, m.mediaKey, m.mediaMime);
+  return src ? <Image source={{ uri: src }} style={styles.image} /> : <View style={styles.image} />;
 };
 
 const TILE = 120;

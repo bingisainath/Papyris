@@ -5,7 +5,8 @@ import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, useWindowDi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Download, Forward, X } from 'lucide-react-native';
 import Video from 'react-native-video';
-import { mediaUrl } from '../config';
+import { Lock } from 'lucide-react-native';
+import { useMediaSrc } from '../crypto/media';
 import { saveToPhone } from '../utils/save';
 import { clockTime } from '../utils/time';
 
@@ -16,6 +17,8 @@ export interface ViewerItem {
   filename?: string;
   senderName?: string;
   timestamp: string;
+  mediaKey?: string; // end-to-end encrypted: decrypted on the phone
+  mediaMime?: string;
 }
 
 interface Props {
@@ -34,7 +37,7 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
   const save = async () => {
     if (!item) return;
     try {
-      await saveToPhone(item.url, item.filename || (item.type === 'video' ? 'video.mp4' : 'photo.jpg'));
+      await saveToPhone(item.url, item.filename || (item.type === 'video' ? 'video.mp4' : 'photo.jpg'), item.mediaKey, item.mediaMime);
     } catch {
       Alert.alert("Couldn't save it", 'Check your connection and try again.');
     }
@@ -53,13 +56,8 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
           keyExtractor={(i) => i.id}
           onMomentumScrollEnd={(e) => setCurrent(Math.round(e.nativeEvent.contentOffset.x / width))}
           renderItem={({ item: media, index: i }) => (
-            <View style={{ width, height, justifyContent: 'center' }}>
-              {media.type === 'video' ? (
-                <Video source={{ uri: mediaUrl(media.url)! }} style={{ width, height: height * 0.75 }} controls resizeMode="contain" paused={i !== current} />
-              ) : (
-                <Image source={{ uri: mediaUrl(media.url) }} style={{ width, height: height * 0.8 }} resizeMode="contain" />
-              )}
-            </View>
+            // Only the photo on screen and its neighbours load (videos only when shown)
+            <ViewerPage media={media} width={width} height={height} active={i === current} near={Math.abs(i - current) <= 1} />
           )}
         />
         <SafeAreaView style={styles.top} edges={['top']}>
@@ -78,7 +76,27 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
   );
 };
 
+const ViewerPage: React.FC<{ media: ViewerItem; width: number; height: number; active: boolean; near: boolean }> = ({ media, width, height, active, near }) => {
+  const load = media.type === 'video' ? active : near;
+  const { src, failed } = useMediaSrc(load ? media.url : undefined, media.mediaKey, media.mediaMime);
+  return (
+    <View style={{ width, height, justifyContent: 'center', alignItems: 'center' }}>
+      {!src ? (
+        <View style={styles.pending}>
+          <Lock size={20} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.sub}>{failed ? "Couldn't decrypt it" : load ? 'Decrypting…' : ''}</Text>
+        </View>
+      ) : media.type === 'video' ? (
+        <Video source={{ uri: src }} style={{ width, height: height * 0.75 }} controls resizeMode="contain" paused={!active} />
+      ) : (
+        <Image source={{ uri: src }} style={{ width, height: height * 0.8 }} resizeMode="contain" />
+      )}
+    </View>
+  );
+};
+
 const styles = StyleSheet.create({
+  pending: { alignItems: 'center', gap: 8 },
   backdrop: { flex: 1, backgroundColor: '#000' },
   top: { position: 'absolute', left: 0, right: 0, top: 0, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingBottom: 8, backgroundColor: 'rgba(0,0,0,0.45)' },
   icon: { padding: 10 },

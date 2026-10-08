@@ -71,12 +71,14 @@ def events(monkeypatch):
         captured.append((list(user_ids), payload))
 
     import app.api.v1.chat as chat_api
+    import app.api.v1.e2e_keys as e2e_keys_api
+    import app.api.v1.e2e_v2 as e2e_v2_api
     import app.api.v1.expenses as expenses_api
     import app.api.v1.groups as groups_api
     import app.api.v1.messages as messages_api
     import app.api.v1.receipts as receipts_api
     import app.websocket.routes as ws_routes
-    for module in (chat_api, expenses_api, groups_api, messages_api, receipts_api, ws_routes):
+    for module in (chat_api, e2e_keys_api, e2e_v2_api, expenses_api, groups_api, messages_api, receipts_api, ws_routes):
         monkeypatch.setattr(module, "publish_users", fake_publish_users)
     return captured
 

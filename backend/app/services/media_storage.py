@@ -45,6 +45,7 @@ ALLOWED_TYPES: dict[str, tuple[str, str]] = {
 }
 
 EXTENSION_MIME = {ext: mime for mime, (_, ext) in ALLOWED_TYPES.items()}
+# (".enc" end-to-end encrypted uploads are served as application/octet-stream)
 
 MEDIA_TYPES = {"image", "video", "audio", "file"}
 
@@ -164,8 +165,21 @@ def content_matches(mime: str, head: bytes) -> bool:
     return False
 
 
+ENCRYPTED_PREFIX = "e2e1:"  # end-to-end encrypted message text (web/src/crypto/e2e.ts)
+ENCRYPTED_EXTENSION = ".enc"  # end-to-end encrypted upload: opaque bytes
+
+
+def is_encrypted(text: str | None) -> bool:
+    return bool(text) and text.startswith(ENCRYPTED_PREFIX)
+
+
 def preview_text(message_type: str | None, text: str | None, filename: str | None = None) -> str:
-    """Conversation-list preview for a message."""
+    """
+    Preview for a message (push notifications). Encrypted messages can't be read here: they get a
+    label by type only ("Photo", "New message"), and the apps decrypt the real preview themselves.
+    """
+    if is_encrypted(text):
+        return {"image": "Photo", "video": "Video", "audio": "Voice message", "file": "Document"}.get(message_type or "", "New message")
     if text:
         return text
     if message_type == "image":

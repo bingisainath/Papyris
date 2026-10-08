@@ -6,6 +6,8 @@ import { Download, Forward } from 'lucide-react';
 import { toast } from 'react-toastify';
 import Icon from '../../atoms/Icon';
 import { downloadMedia } from '../../../utils/media';
+import { downloadDecrypted, useMediaSrc } from '../../../crypto/media';
+import { Lock } from 'lucide-react';
 import { formatMessageTime } from '../../../utils/dateFormat';
 
 export interface ViewerImage {
@@ -15,6 +17,8 @@ export interface ViewerImage {
   senderName?: string;
   timestamp: string;
   type?: 'image' | 'video';
+  mediaKey?: string; // end-to-end encrypted: decrypted in the browser
+  mediaMime?: string;
 }
 
 interface MediaViewerProps {
@@ -28,6 +32,7 @@ interface MediaViewerProps {
 const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange, onClose, onForward }) => {
   const image = images[index];
   const swipeStartX = useRef<number | null>(null);
+  const media = useMediaSrc(image?.url, image?.mediaKey, image?.mediaMime);
   const hasPrev = index > 0;
   const hasNext = index < images.length - 1;
 
@@ -72,8 +77,11 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange,
           </button>
         )}
         <button
-          onClick={() => downloadMedia(image.url, image.filename || (image.type === 'video' ? 'video.mp4' : 'photo.jpg'))
-            .catch(() => toast.error("Couldn't download it. Try again"))}
+          onClick={() => {
+            const name = image.filename || (image.type === 'video' ? 'video.mp4' : 'photo.jpg');
+            (image.mediaKey ? downloadDecrypted(image.url, image.mediaKey, image.mediaMime, name) : downloadMedia(image.url, name))
+              .catch(() => toast.error("Couldn't download it. Try again"));
+          }}
           className="p-2 rounded-lg hover:bg-white/10"
           title="Download"
           aria-label="Download"
@@ -92,12 +100,16 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange,
         onPointerDown={(e) => { swipeStartX.current = (e.target as HTMLElement).tagName === 'VIDEO' ? null : e.clientX; }} // video controls need drags
         onPointerUp={onPointerUp}
       >
-        {image.type === 'video' ? (
-          <video key={image.id} src={image.url} controls autoPlay playsInline className="max-w-full max-h-full rounded-lg bg-black" />
+        {!media.src ? (
+          <p className="flex items-center gap-2 text-sm text-white/70">
+            <Lock className="w-4 h-4 animate-pulse" /> {media.failed ? "Couldn't decrypt this photo" : 'Decrypting…'}
+          </p>
+        ) : image.type === 'video' ? (
+          <video key={image.id} src={media.src} controls autoPlay playsInline className="max-w-full max-h-full rounded-lg bg-black" />
         ) : (
           <img
             key={image.id}
-            src={image.url}
+            src={media.src}
             alt={image.filename || 'Photo'}
             draggable={false}
             className="max-w-full max-h-full object-contain rounded-lg shadow-elevated animate-fade-in"

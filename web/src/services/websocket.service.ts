@@ -252,7 +252,8 @@ class WebSocketService {
     clientId: string,
     text: string,
     media?: OutgoingMedia,
-    replyToId?: string
+    replyToId?: string,
+    hasLink?: boolean // encrypted messages: lets the server list it in the Links tab
   ) {
     const sent = this.send({
       type: 'message',
@@ -260,6 +261,7 @@ class WebSocketService {
       clientId,
       text,
       ...media,
+      ...(hasLink ? { hasLink: true } : {}),
       ...(replyToId ? { replyToId } : {})
     });
 

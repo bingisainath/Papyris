@@ -63,6 +63,8 @@ class MessageService:
     def preview_text(message: Message) -> str:
         if message.is_deleted:
             return DELETED_TEXT
+        if media_storage.is_encrypted(message.text):
+            return message.text  # never truncate an envelope; the apps decrypt it
         return media_storage.preview_text(
             message.message_type.value, message.text, message.media_filename
         )[:REPLY_PREVIEW_LENGTH]

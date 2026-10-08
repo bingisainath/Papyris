@@ -1,8 +1,9 @@
 // src/components/MessageBubble.tsx
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, CheckCheck, Clock, Download, FileText, Play, ReceiptText, RotateCw, X, XCircle } from 'lucide-react-native';
-import { mediaUrl } from '../config';
+import { Check, CheckCheck, Clock, Download, FileText, Lock, Play, ReceiptText, RotateCw, ShieldAlert, X, XCircle } from 'lucide-react-native';
+import { useMediaSrc } from '../crypto/media';
+import { UNREADABLE_TEXT } from '../crypto/messages';
 import type { Message } from '../api/chat';
 import { colors, radius, space } from '../theme';
 import { clockTime, formatDuration, formatSize } from '../utils/time';
@@ -29,6 +30,11 @@ const MessageBubble: React.FC<Props> = ({
   message: m, mine, showSender, currentUserId, onLongPress, onReact, onRetry, onOpenMedia, onOpenFile, onOpenExpense, onJumpToReply,
   onCancelUpload, onRetryUpload,
 }) => {
+  // End-to-end encrypted media is downloaded and decrypted on the phone first (plain media: as is)
+  const image = useMediaSrc(m.mediaType === 'image' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime);
+  const poster = useMediaSrc(m.mediaType === 'video' ? m.mediaThumbnail : undefined, m.thumbKey, 'image/jpeg');
+  const audio = useMediaSrc(m.mediaType === 'audio' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime);
+
   if (m.messageType === 'system') {
     if (m.expenseId) {
       return (
@@ -45,7 +51,8 @@ const MessageBubble: React.FC<Props> = ({
   const sub = mine ? 'rgba(255,255,255,0.75)' : colors.muted400;
   const status = mine && !m.isDeleted ? statusIcon(m.status) : null;
   // Photos and videos fill the bubble with a thin frame; with no caption the time sits on the picture
-  const visual = !m.isDeleted && !!m.mediaUrl && (m.mediaType === 'image' || m.mediaType === 'video');
+  const unreadable = m.e2e === 'unreadable';
+  const visual = !m.isDeleted && !unreadable && !!m.mediaUrl && (m.mediaType === 'image' || m.mediaType === 'video');
   const timeOnMedia = visual && !m.text;
   const box = mediaBox(m.mediaWidth, m.mediaHeight);
   const meta = (overlay: boolean) => (
@@ -84,16 +91,27 @@ const MessageBubble: React.FC<Props> = ({
                 </Pressable>
               )}
 
-              {m.mediaUrl && (m.mediaType === 'image' || m.mediaType === 'video') && (
+              {unreadable && (
+                <View style={styles.inline}>
+                  <Lock size={14} color={sub} />
+                  <Text style={[styles.deleted, { color: sub }]}>{UNREADABLE_TEXT}</Text>
+                </View>
+              )}
+
+              {visual && (
                 <Pressable onPress={onOpenMedia} style={[styles.media, { width: box.width }, timeOnMedia && styles.mediaAlone]} accessibilityLabel={m.mediaType === 'video' ? 'Play video' : 'Open photo'}>
-                  {m.mediaType === 'image' || m.mediaThumbnail ? (
+                  {(m.mediaType === 'image' ? image.src : poster.src) ? (
                     <Image
-                      source={{ uri: mediaUrl(m.mediaType === 'video' ? m.mediaThumbnail : m.mediaUrl) }}
+                      source={{ uri: (m.mediaType === 'image' ? image.src : poster.src)! }}
                       style={[styles.image, box]}
                       resizeMode="cover"
                     />
                   ) : (
-                    <View style={[styles.image, styles.videoPlaceholder, box]} />
+                    <View style={[styles.image, m.mediaType === 'video' && styles.videoPlaceholder, styles.pending, box]}>
+                      {m.mediaType === 'image' && (image.failed
+                        ? <Text style={[styles.metaText, { color: colors.muted500 }]}>Couldn't decrypt this photo</Text>
+                        : !!m.mediaKey && <Lock size={20} color={colors.muted400} />)}
+                    </View>
                   )}
                   {m.mediaType === 'video' && (
                     <View style={styles.playOverlay} pointerEvents="none">
@@ -107,13 +125,20 @@ const MessageBubble: React.FC<Props> = ({
                   {timeOnMedia && meta(true)}
                 </Pressable>
               )}
-              {m.mediaUrl && m.mediaType === 'audio' && (
+              {m.mediaUrl && !unreadable && m.mediaType === 'audio' && (
                 <View>
-                  <VoiceNote uri={mediaUrl(m.mediaUrl)!} duration={m.mediaDuration} mine={mine} />
+                  {audio.src ? (
+                    <VoiceNote uri={audio.src} duration={m.mediaDuration} mine={mine} />
+                  ) : (
+                    <View style={styles.inline}>
+                      <Lock size={14} color={sub} />
+                      <Text style={[styles.deleted, { color: sub }]}>{audio.failed ? "Couldn't decrypt this voice message" : 'Decrypting…'}</Text>
+                    </View>
+                  )}
                   {m.uploadProgress !== undefined && <UploadBadge progress={m.uploadProgress} onCancel={onCancelUpload} inline />}
                 </View>
               )}
-              {m.mediaUrl && m.mediaType === 'file' && (
+              {m.mediaUrl && !unreadable && m.mediaType === 'file' && (
                 <Pressable onPress={onOpenFile} disabled={m.uploadProgress !== undefined} style={[styles.file, mine ? styles.fileMine : styles.fileOther]}
                   accessibilityLabel={`Save ${m.mediaFilename || 'file'}`}>
                   <FileText size={22} color={fg} />
@@ -137,6 +162,13 @@ const MessageBubble: React.FC<Props> = ({
 
           {!timeOnMedia && meta(false)}
         </Pressable>
+
+        {m.e2eUnverified && (
+          <View style={styles.unverified}>
+            <ShieldAlert size={13} color={colors.warning700} />
+            <Text style={styles.unverifiedText}>Couldn't verify the sender</Text>
+          </View>
+        )}
 
         {m.status === 'failed' && mine && (
           m.uploadFailed ? (
@@ -237,6 +269,9 @@ const styles = StyleSheet.create({
   fileName: { flexShrink: 1, fontSize: 14, fontWeight: '500' },
   fileSize: { fontSize: 11, marginTop: 1 },
   videoPlaceholder: { backgroundColor: colors.muted700 },
+  pending: { alignItems: 'center', justifyContent: 'center' },
+  unverified: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  unverifiedText: { fontSize: 11, color: colors.warning700 },
   playOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   playButton: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', paddingLeft: 3 },
   videoTime: { position: 'absolute', left: 8, bottom: 6, color: colors.white, fontSize: 11, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 3 },

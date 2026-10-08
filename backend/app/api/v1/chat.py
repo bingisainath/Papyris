@@ -130,6 +130,8 @@ async def get_conversations(
                 "avatar": media_storage.sign_url(other_user.avatar if other_user else conv.avatar_url),
                 "lastMessage": MessageService.preview_text(last_message) if last_message else "",
                 "lastMessageTime": last_message.created_at.isoformat() if last_message else None,
+                "lastMessageSenderId": str(last_message.sender_id) if last_message else None,
+                "lastMessageType": last_message.message_type.value if last_message else None,
                 "unreadCount": unread_counts.get(conv.id, 0),
                 "isOnline": False,  # Will be updated by frontend based on online users
                 "isGroup": conv.kind == "group",

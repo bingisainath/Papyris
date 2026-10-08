@@ -139,8 +139,11 @@ class Socket {
     this.send({ type: 'leave', roomId });
   }
 
-  sendMessage(roomId: string, clientId: string, text: string, replyToId?: string, media?: OutgoingMedia) {
-    return this.send({ type: 'message', roomId, clientId, text, ...(replyToId ? { replyToId } : {}), ...(media || {}) });
+  /** hasLink: encrypted messages tell the server whether there's a link (for the Links tab) */
+  sendMessage(roomId: string, clientId: string, text: string, replyToId?: string, media?: OutgoingMedia, hasLink?: boolean) {
+    return this.send({
+      type: 'message', roomId, clientId, text, ...(replyToId ? { replyToId } : {}), ...(media || {}), ...(hasLink ? { hasLink: true } : {}),
+    });
   }
 
   typing(roomId: string, isTyping: boolean) {

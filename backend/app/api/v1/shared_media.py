@@ -11,7 +11,7 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
@@ -46,7 +46,9 @@ async def shared_items(
         Message.conversation_id == conversation_id, Message.is_deleted.is_(False)
     )
     if kind == "links":
-        stmt = stmt.where(Message.text.ilike("%http%"))
+        # Encrypted messages can't be searched here: the sender flags the ones with a link
+        plain = ~Message.text.startswith(media_storage.ENCRYPTED_PREFIX)
+        stmt = stmt.where(or_(and_(plain, Message.text.ilike("%http%")), Message.has_link.is_(True)))
     else:
         stmt = stmt.where(Message.message_type.in_(KINDS[kind]), Message.media_url.is_not(None))
     if before:
@@ -61,6 +63,9 @@ async def shared_items(
             "sender_name": sender_name,
             "created_at": message.created_at.isoformat(),
         }
+        if kind == "links" and media_storage.is_encrypted(message.text):
+            items.append({**base, "encrypted": True, "text": message.text})  # the app decrypts and lists the links
+            continue
         if kind == "links":
             for url in dict.fromkeys(URL_RE.findall(message.text or "")):
                 items.append({**base, "url": url.rstrip(".,);!?"), "text": message.text})

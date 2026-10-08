@@ -8,6 +8,9 @@ media, docs and links.
 
 Each run creates two "E2E Media/Forward …" groups; delete them afterwards if you like.
 
+The QA users have end-to-end encryption, so the server only holds encrypted files: photo sizes
+and metadata are checked on the decrypted copies in the browser.
+
 Needs the API, `npm start` and a worker (`python -m app.worker`) running, plus the QA users
 qa_alice / qa_bob (password Passw0rd!23).
 
@@ -24,6 +27,9 @@ from pathlib import Path
 import httpx
 from PIL import Image
 from playwright.sync_api import expect, sync_playwright
+
+sys.path.insert(0, str(Path(__file__).parent))
+from encryption_gate import pass_encryption_gate  # noqa: E402
 
 API = os.environ.get("PAPYRIS_API", "http://localhost:8000") + "/api/v1"
 BASE = os.environ.get("PAPYRIS_API", "http://localhost:8000")
@@ -55,6 +61,7 @@ def login(page, username):
     page.locator("input[name=loginPassword]").fill(PASSWORD)
     page.locator("input[name=loginPassword]").press("Enter")
     page.wait_for_url(lambda url: "/login" not in url)
+    pass_encryption_gate(page, username)
 
 
 def messages(tok, conversation_id):
@@ -102,6 +109,10 @@ def main():
         page = context.new_page()
         page.on("pageerror", lambda e: problems.append(f"page error: {e}"))
         login(page, "qa_alice")
+        # Bob signs in first: a new browser starts fresh with new keys, which must happen before
+        # anything is encrypted for him
+        bob_page = context.browser.new_page(viewport={"width": 390, "height": 844})
+        login(bob_page, "qa_bob")
         page.goto(f"{WEB}/chat/{group}")
         expect(page.get_by_label("Message", exact=True)).to_be_visible()
 
@@ -116,12 +127,20 @@ def main():
         expect(page.get_by_role("group", name="5 photos")).to_be_visible(timeout=30000)
         page.screenshot(path=SHOTS / "m2-album.png")
         sent = wait_for_messages(alice_tok, group, lambda m: m["media_type"] == "image")
-        if len(sent) != 5 or any(max(m["media_width"], m["media_height"]) > 1600 for m in sent):
-            problems.append(f"photos not shrunk: {[(m['media_width'], m['media_height']) for m in sent]}")
-        data = served(sent[0]["media_url"])
-        with Image.open(io.BytesIO(data)) as img:
-            if img.getexif() or b"PhoneMaker" in data:
-                problems.append("photo still has camera/location data")
+        if len(sent) != 5 or not all(".enc?" in m["media_url"] for m in sent):
+            problems.append(f"photos not sent encrypted: {[m["media_url"].split("?")[0][-12:] for m in sent]}")
+        # The server can't see them: check the decrypted photos in the page
+        album_imgs = page.get_by_role("group", name="5 photos").locator("img")
+        expect(album_imgs).to_have_count(4, timeout=20000)
+        checked = page.evaluate("""async () => Promise.all(
+            [...document.querySelectorAll('[aria-label="5 photos"] img')].map(async (img) => {
+                await img.decode();
+                const bytes = new Uint8Array(await (await fetch(img.src)).arrayBuffer());
+                const text = new TextDecoder('latin1').decode(bytes);
+                return { w: img.naturalWidth, h: img.naturalHeight, meta: text.includes('PhoneMaker') };
+            }))""")
+        if any(max(c["w"], c["h"]) > 1600 or c["meta"] for c in checked):
+            problems.append(f"photos not shrunk or still carry camera data: {checked}")
 
         # ---- document keeps full resolution (but not location)
         page.get_by_label("Attach").click()
@@ -129,11 +148,13 @@ def main():
             page.get_by_role("menuitem", name=re.compile("Document")).click()
         chooser.value.set_files(str(document))
         page.get_by_label("Send", exact=True).click()
-        doc = wait_for_messages(alice_tok, group, lambda m: m["media_type"] == "file" and m["media_filename"] == "scan.jpg")
+        doc = wait_for_messages(alice_tok, group, lambda m: m["media_type"] == "file")
         if not doc:
             problems.append("document not sent")
         else:
-            data = served(doc[0]["media_url"])
+            with page.expect_download() as download:
+                page.get_by_role("button", name=re.compile("scan.jpg")).last.click()
+            data = Path(download.value.path()).read_bytes()
             with Image.open(io.BytesIO(data)) as img:
                 if img.size != (2400, 1800) or b"PhoneMaker" in data:
                     problems.append(f"document changed: {img.size}")
@@ -178,8 +199,9 @@ def main():
         expect(cancel).to_have_count(0)
         cdp.send("Network.emulateNetworkConditions", {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1})
         page.wait_for_timeout(1500)
-        if any(m.get("media_filename") == "big.bin.mp4" for m in messages(alice_tok, group)):
-            problems.append("cancelled upload was sent anyway")
+        files = [m for m in messages(alice_tok, group) if m["media_type"] == "file"]
+        if len(files) != 2:  # scan.jpg and the retried document only
+            problems.append(f"cancelled upload was sent anyway ({len(files)} files)")
 
         # ---- a link, then forward it to another chat
         page.get_by_label("Message", exact=True).fill("Menu: https://example.com/menu")
@@ -194,8 +216,8 @@ def main():
         dialog.get_by_role("button", name=other_title).click()
         page.screenshot(path=SHOTS / "m7-forward.png")
         dialog.get_by_label("Send forward").click()
-        if not wait_for_messages(alice_tok, other, lambda m: "example.com/menu" in (m["text"] or "")):
-            problems.append("forward didn't arrive")
+        if not wait_for_messages(alice_tok, other, lambda m: (m["text"] or "").startswith("e2e1:")):
+            problems.append("forward didn't arrive (encrypted)")
 
         # ---- download from the viewer
         page.get_by_role("group", name="5 photos").get_by_role("button").first.click()
@@ -222,8 +244,6 @@ def main():
         page.screenshot(path=SHOTS / "m9-links.png")
 
         # ---- Bob sees the album and voice note
-        bob_page = context.browser.new_page(viewport={"width": 390, "height": 844})
-        login(bob_page, "qa_bob")
         bob_page.goto(f"{WEB}/chat/{group}")
         expect(bob_page.get_by_role("group", name="5 photos")).to_be_visible(timeout=15000)
         expect(bob_page.get_by_label("Play voice message").first).to_be_visible()

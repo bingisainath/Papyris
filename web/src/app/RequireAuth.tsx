@@ -3,6 +3,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 import { Loading } from '../components/atoms';
+import { E2EGate } from './E2EGate';
 
 interface RequireAuthProps {
   children: React.ReactNode;
@@ -26,6 +27,6 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Render protected content
-  return <>{children}</>;
+  // Render protected content once this browser has the account's encryption keys
+  return <E2EGate>{children}</E2EGate>;
 };

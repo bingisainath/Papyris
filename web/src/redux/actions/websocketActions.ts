@@ -31,11 +31,17 @@ import type { Message, ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
-import { compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
+import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
+import { decryptedFields, decryptMessage, openText, recipientsFor, sealFor } from '../../crypto/messages';
+import { e2eSession } from '../../crypto/session';
+import { encryptForUpload, rememberDecrypted } from '../../crypto/media';
+import type { E2EMedia } from '../../crypto/e2e';
+import { e2eService } from '../../services/e2e.service';
+import { E2E_DIRECTORY_EVENT } from '../../crypto/useChatEncryption';
 import type { UploadQuality } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
-import { fetchConversations, fetchMessages } from './chatActions';
+import { fetchConversations, fetchMessages, flagUnverified } from './chatActions';
 import { NAVIGATE_EVENT, CONVERSATION_UPDATED_EVENT, EXPENSE_CHANGED_EVENT, RECEIPT_READY_EVENT } from '../../utils/events';
 import { notifyNewMessage } from '../../utils/notifications';
 
@@ -204,7 +210,15 @@ export const sendMessage = (
   }));
 
   if (!file) {
-    if (!wsService.sendMessage(conversationId, clientId, text, undefined, replyTo?.id)) {
+    let outgoing = { text, hasLink: false };
+    try {
+      outgoing = (await sealFor(conversationId, { t: text })) || outgoing;
+    } catch (error) {
+      dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
+      toast.error(parseApiError(error));
+      return;
+    }
+    if (!wsService.sendMessage(conversationId, clientId, outgoing.text, undefined, replyTo?.id, outgoing.hasLink)) {
       dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
       toast.error('Message not sent: connection lost.');
     }
@@ -242,8 +256,42 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
     : Promise.resolve(null);
 
   let media: OutgoingMedia;
+  let outgoing = { text, hasLink: false };
   try {
     const toUpload = kind === 'image' ? await compressImage(file, quality) : file;
+    if (await recipientsFor(conversationId)) {
+      // End-to-end encrypted chat: encrypt the file (and a video's poster) before it leaves the page.
+      // The server can't compress or look at it; name, size and the key go inside the message.
+      const [dims, poster] = await Promise.all([dimensionsPromise, kind === 'video' ? captureVideoPoster(file) : null]);
+      const sealedFile = await encryptForUpload(toUpload);
+      const uploaded = await mediaService.upload(sealedFile.file, (percent) => {
+        dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: Math.min(percent, 99) } }));
+      }, { signal: controller.signal, encrypted: kind });
+      let posterUrl: string | undefined;
+      let posterKey: string | undefined;
+      if (poster) {
+        const sealedPoster = await encryptForUpload(poster);
+        posterUrl = (await mediaService.upload(sealedPoster.file, undefined, { signal: controller.signal, encrypted: 'image' })).url;
+        posterKey = sealedPoster.key;
+        rememberDecrypted(posterUrl, posterKey, poster);
+      }
+      rememberDecrypted(uploaded.url, sealedFile.key, toUpload); // no need to download our own file again
+      const m: E2EMedia = {
+        key: sealedFile.key,
+        type: kind,
+        mime: toUpload.type || 'application/octet-stream',
+        name: toUpload.name || file.name,
+        size: toUpload.size,
+        w: dims?.width,
+        h: dims?.height,
+        d: options.duration,
+        tk: posterKey,
+      };
+      const sealed = await sealFor(conversationId, { t: text, m });
+      if (!sealed) throw new Error("This chat isn't encrypted any more. Send the file again.");
+      outgoing = sealed;
+      media = { mediaUrl: uploaded.url, mediaType: kind, mediaThumbnail: posterUrl };
+    } else {
     const uploaded = await mediaService.upload(toUpload, (percent) => {
       // Past 100% the server is still compressing a video; keep the bar just short of full
       dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: Math.min(percent, 99) } }));
@@ -259,6 +307,7 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
       mediaHeight: uploaded.height || dims?.height,
       mediaDuration: options.duration || uploaded.duration || undefined,
     };
+    }
   } catch (error) {
     if (controller.signal.aborted) return; // cancelled: cancelUpload already removed it
     // Keep the bubble with Retry / Remove instead of losing what the person picked
@@ -272,7 +321,7 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
   }
 
   uploads.delete(clientId);
-  if (!wsService.sendMessage(conversationId, clientId, text, media, replyTo?.id)) {
+  if (!wsService.sendMessage(conversationId, clientId, outgoing.text, media, replyTo?.id, outgoing.hasLink)) {
     dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
     toast.error('Message not sent: connection lost.');
   }
@@ -291,9 +340,22 @@ export const cancelUpload = (conversationId: string, clientId: string) => (dispa
 /** Try a failed upload again with the same file, caption and settings. */
 export const retryUpload = (clientId: string) => (dispatch: AppDispatch) => dispatch(uploadAndSend(clientId));
 
-/** Send copies of a message (text and/or media) to other chats, like WhatsApp's Forward. */
-export const forwardMessage = (message: Message, conversationIds: string[]) => () => {
-  const media: OutgoingMedia | undefined = message.mediaUrl && message.mediaType
+/** The encrypted-file part of a message, to put in a new envelope (forward, edit). */
+export const mediaPayloadOf = (m: Message): E2EMedia | undefined =>
+  m.mediaKey && m.mediaType
+    ? {
+        key: m.mediaKey, type: m.mediaType, mime: m.mediaMime || 'application/octet-stream', name: m.mediaFilename,
+        size: m.mediaSize, w: m.mediaWidth, h: m.mediaHeight, d: m.mediaDuration, tk: m.thumbKey,
+      }
+    : undefined;
+
+/**
+ * Send copies of a message (text and/or media) to other chats, like WhatsApp's Forward.
+ * Encrypted files are re-used as they are: only their key is sealed again for the new chat.
+ */
+export const forwardMessage = (message: Message, conversationIds: string[]) => async () => {
+  const encryptedMedia = mediaPayloadOf(message);
+  const plainMedia: OutgoingMedia | undefined = message.mediaUrl && message.mediaType
     ? {
         mediaUrl: message.mediaUrl, // the server drops the signature and checks it's one of ours
         mediaType: message.mediaType,
@@ -306,11 +368,25 @@ export const forwardMessage = (message: Message, conversationIds: string[]) => (
       }
     : undefined;
   let sent = 0;
+  let skipped = 0;
   for (const conversationId of conversationIds) {
-    if (wsService.sendMessage(conversationId, newClientId(), message.text || '', media)) sent += 1;
+    try {
+      const sealed = await sealFor(conversationId, { t: message.text || '', m: encryptedMedia });
+      if (!sealed && encryptedMedia) {
+        skipped += 1; // an encrypted file can't go to a chat that isn't encrypted
+        continue;
+      }
+      const media = encryptedMedia
+        ? { mediaUrl: message.mediaUrl!, mediaType: message.mediaType!, mediaThumbnail: message.mediaThumbnail }
+        : plainMedia;
+      if (wsService.sendMessage(conversationId, newClientId(), sealed?.text ?? (message.text || ''), media, undefined, sealed?.hasLink)) sent += 1;
+    } catch (error) {
+      toast.error(parseApiError(error));
+    }
   }
+  if (skipped) toast.info(`Not forwarded to ${skipped === 1 ? 'a chat' : `${skipped} chats`} that isn't end-to-end encrypted yet`);
   if (sent) toast.success(sent === 1 ? 'Message forwarded' : `Forwarded to ${sent} chats`);
-  else toast.error('Not connected. Please try again.');
+  else if (!skipped) toast.error('Not connected. Please try again.');
 };
 
 /**
@@ -353,7 +429,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   wsService.on('message', async (data) => {
 
     if (data.roomId && data.messageId) {
-      const message = {
+      const message = decryptMessage({
         id: data.messageId,
         clientId: data.clientId || undefined,
         conversationId: data.roomId,
@@ -377,9 +453,10 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         expenseId: data.expenseId || null,
         replyTo: data.replyTo || null,
         reactions: [],
-      };
+      } as Message);
 
       dispatch(upsertMessage({ conversationId: data.roomId, message }));
+      flagUnverified(dispatch, data.roomId, [message]);
 
       // Our optimistic copy now points at the server URL; free the local preview
       if (data.clientId && pendingPreviews.has(data.clientId)) {
@@ -390,7 +467,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       // Update last message
       dispatch(updateConversationLastMessage({
         conversationId: data.roomId,
-        lastMessage: messagePreview(data.text, data.mediaType, data.mediaFilename),
+        lastMessage: messagePreview(message.text, message.mediaType, message.mediaFilename),
         timestamp: data.timestamp || new Date().toISOString()
       }));
 
@@ -405,7 +482,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         dispatch((_: AppDispatch, getState: () => RootState) => {
           const conversation = getState().chat.conversations.find(c => c.id === roomId);
           const sender = data.senderName || 'Someone';
-          const preview = messagePreview(data.text, data.mediaType, data.mediaFilename);
+          const preview = message.e2e === 'unreadable' ? 'New message' : messagePreview(message.text, message.mediaType, message.mediaFilename);
           notifyNewMessage({
             conversationId: roomId,
             title: conversation?.name || sender,
@@ -470,13 +547,24 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // A message was edited or deleted
   wsService.on('message_updated', (data) => {
     if (!data.roomId || !data.messageId) return;
-    dispatch(applyMessageUpdate({
-      conversationId: data.roomId,
-      messageId: data.messageId,
-      text: data.text,
-      editedAt: data.editedAt,
-      isDeleted: data.isDeleted,
-    }));
+    const roomId: string = data.roomId;
+    const messageId: string = data.messageId;
+    // An edited encrypted message comes as a new envelope: decrypt it with the original sender
+    dispatch((_: AppDispatch, getState: () => RootState) => {
+      const senderId = getState().chat.messages[roomId]?.find(m => m.id === messageId)?.senderId;
+      const opened = senderId && !data.isDeleted ? openText(data.text, roomId, senderId) : null;
+      if (opened) {
+        dispatch(updateMessage({ conversationId: roomId, messageId, updates: { ...decryptedFields(opened), editedAt: data.editedAt } }));
+      } else {
+        dispatch(applyMessageUpdate({
+          conversationId: roomId,
+          messageId,
+          text: data.text,
+          editedAt: data.editedAt,
+          isDeleted: data.isDeleted,
+        }));
+      }
+    });
     dispatch(fetchConversations()); // last-message preview may have changed
   });
 
@@ -510,8 +598,20 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     }
   });
 
+  // Someone set up or reset their encryption keys
+  wsService.on('keys_changed', (data) => {
+    e2eService.forgetUser(data.userId);
+    window.dispatchEvent(new CustomEvent(E2E_DIRECTORY_EVENT));
+    if (data.userId === localStorage.getItem('userId')) {
+      // Our own keys were reset on another device: this browser's copy is out of date
+      e2eSession.reportStale();
+    }
+  });
+
   // Group renamed / photo / members changed
   wsService.on('conversation_updated', (data) => {
+    if (data.conversationId) e2eService.forgetConversation(data.conversationId);
+    window.dispatchEvent(new CustomEvent(E2E_DIRECTORY_EVENT));
     dispatch(fetchConversations());
     window.dispatchEvent(new CustomEvent(CONVERSATION_UPDATED_EVENT, { detail: data.conversationId }));
   });

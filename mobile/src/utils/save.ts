@@ -5,6 +5,7 @@
 import { Platform } from 'react-native';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { mediaUrl } from '../config';
+import { decryptedFile } from '../crypto/media';
 
 const MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
@@ -15,10 +16,31 @@ const MIME: Record<string, string> = {
 
 const safeName = (name: string) => name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120) || 'papyris-file';
 
-export async function saveToPhone(url: string, filename: string): Promise<void> {
+/** key/mime: end-to-end encrypted files are decrypted on the phone, then saved. */
+export async function saveToPhone(url: string, filename: string, key?: string, fileMime?: string): Promise<void> {
   const name = safeName(filename);
   const source = mediaUrl(url)!;
-  const mime = MIME[name.split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream';
+  const mime = fileMime || MIME[name.split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream';
+  if (key) {
+    const local = (await decryptedFile(url, key, fileMime)).replace(/^file:\/\//, '');
+    if (Platform.OS === 'android') {
+      if (Number(Platform.Version) >= 29) {
+        await ReactNativeBlobUtil.MediaCollection.copyToMediaStore({ name, parentFolder: '', mimeType: mime }, 'Download', local);
+      } else {
+        const target = `${ReactNativeBlobUtil.fs.dirs.DownloadDir}/${name}`;
+        await ReactNativeBlobUtil.fs.cp(local, target);
+        await ReactNativeBlobUtil.android.addCompleteDownload({
+          title: name, description: 'Saved from Papyris', mime, path: target, showNotification: true,
+        });
+      }
+      return;
+    }
+    const target = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${name}`;
+    await ReactNativeBlobUtil.fs.unlink(target).catch(() => undefined);
+    await ReactNativeBlobUtil.fs.cp(local, target);
+    await ReactNativeBlobUtil.ios.openDocument(target);
+    return;
+  }
   if (Platform.OS === 'android') {
     await ReactNativeBlobUtil.config({
       addAndroidDownloads: {

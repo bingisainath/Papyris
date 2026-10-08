@@ -42,6 +42,13 @@ export interface Message {
   isDeleted?: boolean;
   editedAt?: string | null;
   expenseId?: string | null; // system message shown as an expense card
+  // End-to-end encryption (src/crypto): 'encrypted' = decrypted fine, 'unreadable' = not for this device
+  e2e?: 'encrypted' | 'unreadable';
+  e2eUnverified?: boolean; // signed with a key that isn't the sender's
+  senderSignKey?: string;
+  mediaKey?: string; // the encrypted file's key (base64)
+  mediaMime?: string;
+  thumbKey?: string; // key of the encrypted video poster
 }
 
 const byTimestamp = (a: Message, b: Message) =>
@@ -53,6 +60,7 @@ interface Conversation {
   avatar?: string;
   lastMessage?: string;
   lastMessageTime?: string;
+  lastMessageSenderId?: string | null;
   unreadCount?: number;
   isOnline?: boolean;
   isTyping?: boolean;

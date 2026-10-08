@@ -33,6 +33,7 @@ import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
 import ConnectionBanner from '../../components/molecules/ConnectionBanner';
 import { ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
+import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -586,6 +587,8 @@ const SettingsPage: React.FC<{
             </div>
           </div>
         </div>
+
+        <EncryptionSettings />
 
         <NotificationSettings />
 

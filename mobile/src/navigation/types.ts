@@ -26,4 +26,5 @@ export type AppStackParams = {
   Profile: undefined;
   ReceiptScanning: undefined;
   StoreDiscounts: undefined;
+  Encryption: undefined;
 };

@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Papyris uses the camera to photograph receipts so they can be split.</string>
+	<string>Papyris uses the camera to take photos, photograph receipts and scan codes to link your devices.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Papyris uses the microphone to record voice messages.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

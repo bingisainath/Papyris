@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { cameraAllowed } from '../../utils/camera';
 import { Camera, Images, X } from 'lucide-react-native';
 import Avatar from '../../components/Avatar';
 import { Banner, Button } from '../../components/ui';
@@ -66,6 +67,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   // ---- 1. photos
   const add = async (source: 'camera' | 'library') => {
     const options = { mediaType: 'photo' as const, quality: 0.8 as const, maxWidth: 2600, maxHeight: 2600 };
+    if (source === 'camera' && !(await cameraAllowed())) return;
     const result = source === 'camera'
       ? await launchCamera({ ...options, saveToPhotos: false })
       : await launchImageLibrary({ ...options, selectionLimit: MAX_PHOTOS - photos.length });

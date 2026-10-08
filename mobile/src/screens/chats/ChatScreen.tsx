@@ -6,7 +6,8 @@ import {
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Pencil, ReceiptText, Trash2, X } from 'lucide-react-native';
+import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Trash2, X } from 'lucide-react-native';
+import { useChatEncryption } from '../../crypto/useChatEncryption';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
 import MessageBubble from '../../components/MessageBubble';
@@ -19,7 +20,8 @@ import { chatApi, Message, ReplyPreview } from '../../api/chat';
 import { errorMessage } from '../../api/client';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
-import { typingNames, useChat } from '../../store/chat';
+import { mediaPayloadOf, typingNames, useChat } from '../../store/chat';
+import { sealFor } from '../../crypto/messages';
 import { socket } from '../../ws/socket';
 import { colors, radius, space } from '../../theme';
 import { dayLabel } from '../../utils/time';
@@ -76,13 +78,19 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     ? conversation?.isGroup ? `${typers.length > 1 ? `${typers.length} people are` : `${typers[0]} is`} typing…` : 'typing…'
     : conversation?.isGroup ? `${conversation.members.length} members` : otherId && online.includes(otherId) ? 'Online' : 'Offline';
 
+  const encryption = useChatEncryption(conversationId);
+  const encrypted = encryption.state === 'encrypted';
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerTitle: () => (
         <Pressable onPress={() => navigation.navigate('ChatInfo', { conversationId })} style={styles.headerTitle} accessibilityLabel="Chat info">
           <Avatar uri={conversation?.avatar} name={conversation?.name} size={36} online={!!otherId && online.includes(otherId)} />
           <View style={styles.headerText}>
-            <Text style={styles.headerName} numberOfLines={1}>{conversation?.name || 'Chat'}</Text>
+            <View style={styles.headerNameRow}>
+              <Text style={styles.headerName} numberOfLines={1}>{conversation?.name || 'Chat'}</Text>
+              {encrypted && <Lock size={12} color={colors.muted400} accessibilityLabel="End-to-end encrypted" />}
+            </View>
             <Text style={[styles.headerStatus, typers.length > 0 && { color: colors.primary700 }]} numberOfLines={1}>{status}</Text>
           </View>
         </Pressable>
@@ -98,7 +106,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         </View>
       ),
     });
-  }, [navigation, conversation, conversationId, status, typers.length, otherId, online]);
+  }, [navigation, conversation, conversationId, status, typers.length, otherId, online, encrypted]);
 
   // Newest first for the inverted list, with a day label above each day's first message
   const rows = useMemo<Row[]>(() => {
@@ -121,7 +129,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   const media = useMemo<ViewerItem[]>(() => messages
     .filter((m) => (m.mediaType === 'image' || m.mediaType === 'video') && m.mediaUrl && !m.isDeleted && !m.id.startsWith('temp-'))
     .map((m) => ({
-      id: m.id, url: m.mediaUrl!, type: m.mediaType as 'image' | 'video', filename: m.mediaFilename,
+      id: m.id, url: m.mediaUrl!, type: m.mediaType as 'image' | 'video', filename: m.mediaFilename, mediaKey: m.mediaKey, mediaMime: m.mediaMime,
       senderName: m.senderId === me.id ? 'You' : m.senderName, timestamp: m.timestamp,
     })), [messages, me.id]);
   const openMedia = (id: string) => {
@@ -131,7 +139,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   const save = async (m: Message) => {
     try {
-      await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`);
+      await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`, m.mediaKey, m.mediaMime);
       if (Platform.OS === 'android') Alert.alert('Saving to Downloads', 'You\'ll get a notification when it\'s done.');
     } catch {
       Alert.alert("Couldn't save it", 'Check your connection and try again.');
@@ -160,7 +168,9 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       setText('');
       if (!value || value === original.text) return;
       try {
-        await chatApi.editMessage(original.id, value);
+        // Encrypted chat: the edit is a new envelope (keeping the attached file's key)
+        const sealed = await sealFor(conversationId, { t: value, m: mediaPayloadOf(original) });
+        await chatApi.editMessage(original.id, sealed?.text ?? value, sealed?.hasLink);
       } catch (e) {
         Alert.alert("Couldn't edit message", errorMessage(e));
       }
@@ -226,6 +236,16 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <View ref={keyboard.ref} style={[styles.flex, { paddingBottom: keyboard.offset }]}>
+        {encryption.state === 'not-encrypted' && (
+          <View style={styles.notEncrypted}>
+            <LockOpen size={14} color={colors.warning700} />
+            <Text style={styles.notEncryptedText}>
+              {conversation?.isGroup
+                ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. New messages will be encrypted once everyone has.`
+                : `Not end-to-end encrypted yet: ${conversation?.name || 'they'} hasn't set up encryption. New messages will be encrypted once they do.`}
+            </Text>
+          </View>
+        )}
         {loading ? (
           <View style={styles.center}><ActivityIndicator color={colors.primary700} /></View>
         ) : (
@@ -312,9 +332,14 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       <ForwardSheet
         visible={!!forwarding}
         onClose={() => setForwarding(null)}
-        onSend={(ids) => {
-          const sent = forwarding ? forward(forwarding, ids) : 0;
-          Alert.alert(sent ? (sent === 1 ? 'Forwarded' : `Forwarded to ${sent} chats`) : 'Not connected. Try again.');
+        onSend={async (ids) => {
+          if (!forwarding) return;
+          const { sent, skipped } = await forward(forwarding, ids).catch(() => ({ sent: 0, skipped: 0 }));
+          const notes = [
+            sent ? (sent === 1 ? 'Forwarded' : `Forwarded to ${sent} chats`) : '',
+            skipped ? `Not forwarded to ${skipped === 1 ? 'a chat' : `${skipped} chats`} that isn't end-to-end encrypted yet` : '',
+          ].filter(Boolean);
+          Alert.alert(notes.join('. ') || 'Not connected. Try again.');
         }}
       />
     </SafeAreaView>
@@ -336,8 +361,11 @@ const styles = StyleSheet.create({
   flipped: { transform: [{ scaleY: -1 }] },
   day: { alignSelf: 'center', marginVertical: space(2), paddingHorizontal: space(3), paddingVertical: 3, borderRadius: radius.full, backgroundColor: colors.muted100, fontSize: 12, color: colors.muted600, overflow: 'hidden' },
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: space(2.5), maxWidth: 230 },
+  headerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  notEncrypted: { flexDirection: 'row', gap: space(2), paddingHorizontal: space(4), paddingVertical: space(2), backgroundColor: colors.warning50 },
+  notEncryptedText: { flex: 1, fontSize: 12, color: colors.warning700 },
   headerText: { flexShrink: 1 },
-  headerName: { fontSize: 16, fontWeight: '600', color: colors.muted900 },
+  headerName: { flexShrink: 1, fontSize: 16, fontWeight: '600', color: colors.muted900 },
   headerStatus: { fontSize: 12, color: colors.muted500 },
   headerActions: { flexDirection: 'row', gap: space(5), alignItems: 'center' },
   banner: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginHorizontal: space(3), marginBottom: space(2), padding: space(2.5), borderLeftWidth: 4, borderLeftColor: colors.primary600, backgroundColor: colors.primary50, borderRadius: radius.md },

@@ -1,0 +1,215 @@
+// src/crypto/media.ts
+// End-to-end encrypted photos, videos, voice notes and documents on the phone.
+//
+// Files are encrypted before upload and decrypted after download in 64 KiB pieces, streamed
+// to and from the app's cache folder, so a 50 MB video never has to fit in memory at once.
+// Decrypted copies are kept in the cache (named by a hash of the file's address and key) so
+// photos don't download again every time a chat opens; the phone clears that cache when short
+// on space.
+
+import { useEffect, useState } from 'react';
+import ReactNativeBlobUtil from 'react-native-blob-util';
+import { sha256 } from '@noble/hashes/sha2';
+import {
+  FILE_CHUNK, FILE_HEADER, FileDecryptor, FileEncryptor, fromBase64, jpegOrientation, newFileKey, stripJpegMetadata, toBase64, utf8,
+} from './e2e';
+import { mediaUrl } from '../config';
+
+const fs = ReactNativeBlobUtil.fs;
+const DIR = `${fs.dirs.CacheDir}/e2e`;
+const TAG = 16;
+const SMALL = 8 * 1024 * 1024; // up to this size, a file is processed in one go
+
+const plainPath = (uri: string) => decodeURIComponent(uri.replace(/^file:\/\//, ''));
+const hex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+async function ensureDir() {
+  if (!(await fs.isDir(DIR))) await fs.mkdir(DIR).catch(() => undefined);
+}
+
+/**
+ * Read a file in pieces of exactly `size` bytes (the last may be shorter), handing each to `handle`
+ * in order; `handle` gets `last` = true for the final piece. The first `skip` bytes go to `onSkipped`
+ * instead (an encrypted file's header).
+ */
+async function readPieces(
+  path: string, size: number, skip: number, handle: (piece: Uint8Array, last: boolean) => Promise<void>,
+  onSkipped?: (bytes: Uint8Array) => void,
+) {
+  const total = (await fs.stat(path)).size;
+  let pending = new Uint8Array(0);
+  let consumed = 0; // bytes of the file handed out so far (after skip)
+  let skipped = 0;
+  const head = new Uint8Array(skip);
+  let chain = Promise.resolve();
+  const stream = await fs.readStream(path, 'base64', 3 * 21845); // a multiple of 3: no padding mid-file
+  await new Promise<void>((resolve, reject) => {
+    let failed = false;
+    const fail = (e: unknown) => {
+      if (!failed) {
+        failed = true;
+        reject(e);
+      }
+    };
+    stream.onData((chunk) => {
+      chain = chain.then(async () => {
+        if (failed) return;
+        let bytes = fromBase64(chunk as string);
+        if (skipped < skip) {
+          const drop = Math.min(skip - skipped, bytes.length);
+          head.set(bytes.subarray(0, drop), skipped);
+          skipped += drop;
+          bytes = bytes.subarray(drop);
+          if (skipped === skip) onSkipped?.(head);
+        }
+        const merged = new Uint8Array(pending.length + bytes.length);
+        merged.set(pending);
+        merged.set(bytes, pending.length);
+        let offset = 0;
+        while (merged.length - offset >= size && consumed + size < total - skip) {
+          await handle(merged.subarray(offset, offset + size), false);
+          offset += size;
+          consumed += size;
+        }
+        pending = merged.slice(offset);
+      }).catch(fail);
+    });
+    stream.onError(fail);
+    stream.onEnd(() => {
+      chain = chain.then(async () => {
+        if (!failed) await handle(pending, true);
+      }).then(resolve, fail);
+    });
+    stream.open();
+  });
+}
+
+/** Encrypt a local file for upload. Returns the encrypted file (in the cache) and its key. */
+export async function encryptForUpload(file: { uri: string; type: string }): Promise<{ uri: string; key: string; size: number }> {
+  await ensureDir();
+  const key = newFileKey();
+  const source = plainPath(file.uri);
+  const target = `${DIR}/up-${Date.now()}-${Math.random().toString(36).slice(2)}.enc`;
+  const encryptor = new FileEncryptor(key);
+  const { size } = await fs.stat(source);
+
+  if (size <= SMALL) {
+    let data = fromBase64(await fs.readFile(source, 'base64'));
+    // Photos keep no location/camera data (only stripped when already upright, so they don't turn sideways)
+    if (file.type === 'image/jpeg' && jpegOrientation(data) === 1) data = stripJpegMetadata(data);
+    const parts: Uint8Array[] = [encryptor.header()];
+    if (data.length === 0) parts.push(encryptor.push(data, true));
+    for (let offset = 0; offset < data.length; offset += FILE_CHUNK) {
+      const end = Math.min(offset + FILE_CHUNK, data.length);
+      parts.push(encryptor.push(data.subarray(offset, end), end === data.length));
+    }
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0;
+    for (const p of parts) {
+      out.set(p, o);
+      o += p.length;
+    }
+    await fs.writeFile(target, toBase64(out), 'base64');
+    return { uri: `file://${target}`, key: toBase64(key), size: data.length };
+  }
+
+  const writer = await fs.writeStream(target, 'base64', false);
+  try {
+    await writer.write(toBase64(encryptor.header()));
+    await readPieces(source, FILE_CHUNK, 0, async (piece, last) => {
+      await writer.write(toBase64(encryptor.push(piece, last)));
+    });
+  } finally {
+    await writer.close();
+  }
+  return { uri: `file://${target}`, key: toBase64(key), size };
+}
+
+const EXT: Record<string, string> = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm',
+  'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/mpeg': 'mp3', 'audio/webm': 'weba', 'audio/ogg': 'ogg',
+  'application/pdf': 'pdf', 'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+};
+
+const inFlight = new Map<string, Promise<string>>();
+
+/**
+ * Download an encrypted file, decrypt it into the cache and return its file:// URI.
+ * The same file (address + key) is only downloaded and decrypted once.
+ */
+export function decryptedFile(url: string, key: string, mime?: string): Promise<string> {
+  const id = hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
+  const existing = inFlight.get(id);
+  if (existing) return existing;
+  const work = (async () => {
+    await ensureDir();
+    const target = `${DIR}/${id}.${EXT[mime || ''] || 'bin'}`;
+    if (await fs.exists(target)) return `file://${target}`;
+    const download = `${DIR}/${id}.download`;
+    const response = await ReactNativeBlobUtil.config({ path: download }).fetch('GET', mediaUrl(url)!);
+    if (response.info().status !== 200) {
+      await fs.unlink(download).catch(() => undefined);
+      throw new Error(`Download failed (${response.info().status})`);
+    }
+    const partial = `${target}.part`;
+    try {
+      let decryptor: FileDecryptor | null = null;
+      const writer = await fs.writeStream(partial, 'base64', false);
+      try {
+        await readPieces(download, FILE_CHUNK + TAG, FILE_HEADER, async (piece, last) => {
+          if (!decryptor) throw new Error('File too short');
+          const plain = decryptor.push(piece, last);
+          if (plain.length) await writer.write(toBase64(plain));
+        }, (header) => {
+          decryptor = new FileDecryptor(fromBase64(key), header);
+        });
+      } finally {
+        await writer.close();
+      }
+      await fs.mv(partial, target);
+      return `file://${target}`;
+    } catch (e) {
+      await fs.unlink(partial).catch(() => undefined);
+      throw e;
+    } finally {
+      await fs.unlink(download).catch(() => undefined);
+    }
+  })();
+  inFlight.set(id, work);
+  work.catch(() => inFlight.delete(id));
+  return work;
+}
+
+/** We just encrypted and uploaded this file ourselves: show it from the local copy instead of downloading. */
+export async function rememberDecrypted(url: string, key: string, localUri: string, mime?: string): Promise<void> {
+  const id = hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
+  await ensureDir();
+  const target = `${DIR}/${id}.${EXT[mime || ''] || 'bin'}`;
+  await fs.cp(plainPath(localUri), target).catch(() => undefined);
+}
+
+/**
+ * The URI to show a media file: the server address for plain media, or a decrypted local copy
+ * for encrypted media (undefined while it downloads). `failed` if it couldn't be decrypted.
+ */
+export function useMediaSrc(url?: string, key?: string, mime?: string): { src?: string; failed: boolean } {
+  const [state, setState] = useState<{ src?: string; failed: boolean; for?: string }>({ failed: false });
+  const id = url && key ? `${url.split('?')[0]}#${key}` : undefined;
+
+  useEffect(() => {
+    if (!url || !key) return;
+    let alive = true;
+    decryptedFile(url, key, mime)
+      .then((src) => alive && setState({ src, failed: false, for: id }))
+      .catch(() => alive && setState({ failed: true, for: id }));
+    return () => {
+      alive = false;
+    };
+  }, [url, key, mime, id]);
+
+  if (!url) return { failed: false };
+  if (!key) return { src: mediaUrl(url), failed: false };
+  return state.for === id ? { src: state.src, failed: state.failed } : { failed: false };
+}

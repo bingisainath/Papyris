@@ -23,7 +23,11 @@ import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { useSearchParams } from 'react-router-dom';
-import { UserPlus } from 'lucide-react';
+import { Lock, LockOpen, UserPlus } from 'lucide-react';
+import { downloadDecrypted } from '../../../crypto/media';
+import { sealFor } from '../../../crypto/messages';
+import { useChatEncryption } from '../../../crypto/useChatEncryption';
+import { mediaPayloadOf } from '../../../redux/actions/websocketActions';
 import AddExpenseSheet from '../../expenses/AddExpenseSheet';
 import ExpenseCard from '../../expenses/ExpenseCard';
 import ExpenseDetail from '../../expenses/ExpenseDetail';
@@ -58,6 +62,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 }) => {
   const dispatch = useDispatch<AppDispatch>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const encryption = useChatEncryption(conversationId);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastRenderedMessageId = useRef<string | undefined>(undefined);
   const scrollHeightBeforePrepend = useRef<number | null>(null);
@@ -195,7 +200,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         return;
       }
       try {
-        const result = await chatService.editMessage(original.id, text);
+        // Encrypted chat: the edit is a new envelope (keeping the attached file's key)
+        const sealed = await sealFor(conversationId, { t: text, m: mediaPayloadOf(original) });
+        const result = await chatService.editMessage(original.id, sealed?.text ?? text, sealed?.hasLink);
         dispatch(applyMessageUpdate({
           conversationId,
           messageId: original.id,
@@ -232,7 +239,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const handleDownload = (message: Message) => {
     if (!message.mediaUrl) return;
-    downloadMedia(message.mediaUrl, message.mediaFilename || 'download')
+    (message.mediaKey
+      ? downloadDecrypted(message.mediaUrl, message.mediaKey, message.mediaMime, message.mediaFilename || 'download')
+      : downloadMedia(message.mediaUrl, message.mediaFilename || 'download'))
       .catch(() => toast.error("Couldn't download it. Try again"));
   };
 
@@ -281,6 +290,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       .map(m => ({
         id: m.id,
         url: resolveMediaUrl(m.mediaUrl)!,
+        mediaKey: m.mediaKey,
+        mediaMime: m.mediaMime,
         filename: m.mediaFilename,
         senderName: m.senderId === currentUserId ? 'You' : m.senderName,
         timestamp: m.timestamp,
@@ -356,6 +367,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 mediaThumbnail={resolveMediaUrl(message.mediaThumbnail)}
                 mediaWidth={message.mediaWidth}
                 mediaHeight={message.mediaHeight}
+                mediaKey={message.mediaKey}
+                mediaMime={message.mediaMime}
+                thumbKey={message.thumbKey}
+                e2e={message.e2e}
+                e2eUnverified={message.e2eUnverified}
                 uploadProgress={message.uploadProgress}
                 isGroup={isGroup}
                 isDeleted={message.isDeleted}
@@ -412,8 +428,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
         {/* Info */}
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowInfo(true)}>
-          <h2 className="text-lg font-semibold text-muted-900 truncate">
-            {conversationName}
+          <h2 className="flex items-center gap-1.5 text-lg font-semibold text-muted-900 min-w-0">
+            <span className="truncate">{conversationName}</span>
+            {encryption.state === 'encrypted' && (
+              <span title="End-to-end encrypted: only the people in this chat can read its messages" aria-label="End-to-end encrypted">
+                <Lock className="w-3.5 h-3.5 text-muted-400 flex-shrink-0" />
+              </span>
+            )}
           </h2>
 
           {/* Status */}
@@ -460,6 +481,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Not end-to-end encrypted yet: say why */}
+      {encryption.state === 'not-encrypted' && (
+        <div className="flex items-start gap-2 px-4 sm:px-6 py-2 text-xs bg-warning-50 text-warning-800 border-b border-warning-100">
+          <LockOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <span>
+            {isGroup
+              ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. New messages will be encrypted once everyone has.`
+              : `Not end-to-end encrypted yet: ${conversationName} hasn't set up encryption. New messages will be encrypted once they do.`}
+          </span>
+        </div>
+      )}
 
       {/* Messages Area */}
       <div

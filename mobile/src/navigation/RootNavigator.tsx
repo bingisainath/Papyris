@@ -28,6 +28,8 @@ import SettingsScreen from '../screens/settings/SettingsScreen';
 import ProfileScreen from '../screens/settings/ProfileScreen';
 import ReceiptScanningScreen from '../screens/settings/ReceiptScanningScreen';
 import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
+import E2EGate from '../screens/auth/E2EGate';
+import EncryptionScreen from '../screens/settings/EncryptionScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
 const AppStack = createNativeStackNavigator<AppStackParams>();
@@ -127,76 +129,83 @@ const RootNavigator: React.FC = () => {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <AppStack.Navigator screenOptions={headerStyle}>
-        <AppStack.Screen
-          name="Tabs"
-          component={Tabs}
-          options={{ headerShown: false }}
-        />
-        <AppStack.Screen
-          name="Chat"
-          component={ChatScreen}
-          options={{ title: '' }}
-        />
-        <AppStack.Screen
-          name="ChatInfo"
-          component={ChatInfoScreen}
-          options={{ title: 'Info' }}
-        />
-        <AppStack.Screen
-          name="SharedMedia"
-          component={SharedMediaScreen}
-          options={{ title: 'Media, links and docs' }}
-        />
-        <AppStack.Screen
-          name="NewChat"
-          component={NewChatScreen}
-          options={{ title: 'New chat' }}
-        />
-        <AppStack.Screen
-          name="NewGroup"
-          component={NewGroupScreen}
-          options={{ title: 'New group' }}
-        />
-        <AppStack.Screen
-          name="ChatExpenses"
-          component={ChatExpensesScreen}
-          options={{ title: 'Balances & expenses' }}
-        />
-        <AppStack.Screen
-          name="AddExpense"
-          component={AddExpenseScreen}
-          options={{ title: 'Add expense', presentation: 'modal' }}
-        />
-        <AppStack.Screen
-          name="ScanReceipt"
-          component={ScanReceiptScreen}
-          options={{ title: 'Scan receipt' }}
-        />
-        <AppStack.Screen
-          name="ExpenseDetail"
-          component={ExpenseDetailScreen}
-          options={{ title: 'Expense' }}
-        />
-        <AppStack.Screen
-          name="Profile"
-          component={ProfileScreen}
-          options={{ title: 'Profile' }}
-        />
-        <AppStack.Screen
-          name="ReceiptScanning"
-          component={ReceiptScanningScreen}
-          options={{ title: 'Receipt scanning' }}
-        />
-        <AppStack.Screen
-          name="StoreDiscounts"
-          component={StoreDiscountsScreen}
-          options={{ title: 'Store discounts' }}
-        />
-      </AppStack.Navigator>
-      <OfflineBanner />
-    </View>
+    <E2EGate>
+      <View style={{ flex: 1 }}>
+        <AppStack.Navigator screenOptions={headerStyle}>
+          <AppStack.Screen
+            name="Tabs"
+            component={Tabs}
+            options={{ headerShown: false }}
+          />
+          <AppStack.Screen
+            name="Chat"
+            component={ChatScreen}
+            options={{ title: '' }}
+          />
+          <AppStack.Screen
+            name="ChatInfo"
+            component={ChatInfoScreen}
+            options={{ title: 'Info' }}
+          />
+          <AppStack.Screen
+            name="SharedMedia"
+            component={SharedMediaScreen}
+            options={{ title: 'Media, links and docs' }}
+          />
+          <AppStack.Screen
+            name="NewChat"
+            component={NewChatScreen}
+            options={{ title: 'New chat' }}
+          />
+          <AppStack.Screen
+            name="NewGroup"
+            component={NewGroupScreen}
+            options={{ title: 'New group' }}
+          />
+          <AppStack.Screen
+            name="ChatExpenses"
+            component={ChatExpensesScreen}
+            options={{ title: 'Balances & expenses' }}
+          />
+          <AppStack.Screen
+            name="AddExpense"
+            component={AddExpenseScreen}
+            options={{ title: 'Add expense', presentation: 'modal' }}
+          />
+          <AppStack.Screen
+            name="ScanReceipt"
+            component={ScanReceiptScreen}
+            options={{ title: 'Scan receipt' }}
+          />
+          <AppStack.Screen
+            name="ExpenseDetail"
+            component={ExpenseDetailScreen}
+            options={{ title: 'Expense' }}
+          />
+          <AppStack.Screen
+            name="Profile"
+            component={ProfileScreen}
+            options={{ title: 'Profile' }}
+          />
+          <AppStack.Screen
+            name="ReceiptScanning"
+            component={ReceiptScanningScreen}
+            options={{ title: 'Receipt scanning' }}
+          />
+          <AppStack.Screen
+            name="StoreDiscounts"
+            component={StoreDiscountsScreen}
+            options={{ title: 'Store discounts' }}
+          />
+          <AppStack.Screen
+            name="Encryption"
+            component={EncryptionScreen}
+            options={{ title: 'End-to-end encryption' }}
+          />
+        </AppStack.Navigator>
+        <OfflineBanner />
+      </View>
+    </E2EGate>
   );
 };
 

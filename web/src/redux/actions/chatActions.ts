@@ -13,7 +13,10 @@ import {
   setMessagesLoading,
   setError,
   addConversation,
+  updateMessage,
 } from '../slices/chatSlice';
+import { decryptMessage, previewText, unverifiedMessages } from '../../crypto/messages';
+import type { Message } from '../slices/chatSlice';
 
 /**
  * Fetch all conversations
@@ -56,6 +59,7 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
 
         return {
           ...conv,
+          lastMessage: previewText(conv.lastMessage, conv.id, conv.lastMessageSenderId),
           isOnline,
           members: conv.members || [],
           unreadCount: isActive ? 0 : conv.unreadCount || 0,
@@ -74,7 +78,7 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
   }
 };
 
-const toMessage = (msg: any) => ({
+const toMessage = (msg: any) => decryptMessage({
   id: msg.id,
   conversationId: msg.conversation_id,
   senderId: msg.sender_id,
@@ -106,7 +110,14 @@ const toMessage = (msg: any) => ({
       }
     : null,
   reactions: (msg.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.user_ids })),
-});
+} as Message);
+
+/** Mark encrypted messages whose signature isn't from their sender's key (checked in the background). */
+export function flagUnverified(dispatch: AppDispatch, conversationId: string, messages: Message[]) {
+  unverifiedMessages(messages)
+    .then(ids => ids.forEach(id => dispatch(updateMessage({ conversationId, messageId: id, updates: { e2eUnverified: true } }))))
+    .catch(() => undefined); // offline: checked again next time the chat loads
+}
 
 /**
  * Fetch the newest page of messages for a conversation
@@ -118,11 +129,9 @@ export const fetchMessages = (conversationId: string) => async (dispatch: AppDis
     const response = await chatService.getMessages(conversationId);
 
     if (response.success && response.data) {
-      dispatch(setMessages({
-        conversationId,
-        messages: response.data.map(toMessage),
-        hasMore: !!response.has_more,
-      }));
+      const messages = response.data.map(toMessage);
+      dispatch(setMessages({ conversationId, messages, hasMore: !!response.has_more }));
+      flagUnverified(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch messages:', error);
@@ -145,11 +154,9 @@ export const fetchOlderMessages = (conversationId: string) => async (
   try {
     const response = await chatService.getMessages(conversationId, 50, oldest.id);
     if (response.success && response.data) {
-      dispatch(prependMessages({
-        conversationId,
-        messages: response.data.map(toMessage),
-        hasMore: !!response.has_more,
-      }));
+      const messages = response.data.map(toMessage);
+      dispatch(prependMessages({ conversationId, messages, hasMore: !!response.has_more }));
+      flagUnverified(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch older messages:', error);

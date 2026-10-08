@@ -112,6 +112,45 @@ python scripts/encrypt_media.py --dry-run   # count
 python scripts/encrypt_media.py             # encrypt (safe to run again)
 ```
 
+### End-to-end encryption
+
+Messages, photos, videos, voice notes and documents are end-to-end encrypted in chats where every
+member has set up encryption. The server stores and forwards them but can't read them.
+
+- **Keys.** Nothing is asked at sign-up. The first device creates an X25519 key (encryption) and
+  an Ed25519 key (signing) and only publishes the public halves. Private keys never reach the
+  server. They stay on the device (Keychain/Keystore on phones, IndexedDB in browsers) until logout.
+- **Linking another device (like WhatsApp Web).** A new phone or browser shows a QR code and a
+  16-character code. On a signed-in device, go to Settings → End-to-end encryption → **Link a
+  device**, then scan the QR (phone camera) or type the code. That device sends the keys encrypted
+  for a one-off key of the new device, so the server only relays them.
+  - The QR carries that one-off key, so the server can't swap it.
+  - A typed code is checked against the key's fingerprint (80 bits).
+  - Requests expire after 10 minutes and only work within one account.
+- **Messages.** Each message is encrypted once with a fresh key (XChaCha20-Poly1305). That key is
+  sealed separately for every member, the sender included. The sender also signs the message, so
+  the server can't alter it, move it to another chat or forge a sender. Edits and forwards are new
+  encrypted copies.
+- **Files.** Files are encrypted on the device in 64 KiB chunks with their own random key, which
+  travels inside the encrypted message. The server keeps opaque `.enc` files and can't compress
+  them or make previews, so the apps resize photos, strip photo metadata and make video posters
+  themselves.
+- **Not encrypted.**
+  - Expenses and receipt scans: the server calculates balances and reads receipts.
+  - Group names, descriptions and photos, and profiles.
+  - Who talks to whom and when.
+  - Messages sent before encryption existed.
+  - Chats with someone who hasn't set up encryption: the chat says so, and it switches over once
+    everyone has.
+- **Notifications.** Push notifications say "New message" (or "Photo", etc.), never the text.
+- **No other device to hand.** "Start fresh" creates new keys. Older encrypted messages can't be
+  read with them, and contacts' apps notice the new key.
+- **Security code.** Chat info → "Verify security code" shows 60 digits. Two people who see the
+  same code know the server didn't swap their keys.
+- **Code.** The core (`src/crypto/e2e.ts`) and the message logic (`src/crypto/messages.ts`) are
+  shared word for word by the web and phone apps. Check with `npm run check:e2e` in either app.
+  The libraries are @noble/curves, @noble/ciphers and @noble/hashes.
+
 ### Receipt scanning (optional)
 
 Without a key everything else works, including manual expenses. To read receipts with AI, add
@@ -173,8 +212,11 @@ cd backend && source venv/bin/activate && python ../e2e/fake_ai_server.py   # te
 cd web && npm start                                                         # terminal 2
 python e2e/expenses_e2e.py /tmp/papyris-shots                               # terminal 3
 python e2e/media_e2e.py /tmp/papyris-shots                                  # photos, videos, voice notes
+python e2e/encryption_e2e.py /tmp/papyris-shots                             # end-to-end encryption
 ```
 
-The media test also needs the worker (`python -m app.worker`) running.
+The media and encryption tests also need the worker (`python -m app.worker`) running. `encryption_e2e.py` resets the QA
+users' keys at the start (it also needs `pip install psycopg2-binary` and the database at
+`PAPYRIS_DB`). The other tests start fresh when a browser is asked to link.
 
 Each run creates an "E2E Flat …" group; delete them afterwards if you like.

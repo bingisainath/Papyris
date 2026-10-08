@@ -205,10 +205,10 @@ class ChatService {
   /**
    * Edit the text of your own message
    */
-  async editMessage(messageId: string, text: string) {
+  async editMessage(messageId: string, text: string, hasLink?: boolean) {
     const response = await axios.patch(
       `${API_URL}/messages/${messageId}`,
-      { text },
+      { text, has_link: !!hasLink },
       { headers: getAuthHeader() }
     );
     return response.data;

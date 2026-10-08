@@ -20,6 +20,9 @@ import httpx
 from PIL import Image, ImageDraw
 from playwright.sync_api import expect, sync_playwright
 
+sys.path.insert(0, str(Path(__file__).parent))
+from encryption_gate import pass_encryption_gate  # noqa: E402
+
 API = os.environ.get("PAPYRIS_API", "http://localhost:8000") + "/api/v1"
 WEB = os.environ.get("PAPYRIS_WEB", "http://localhost:3000")
 PASSWORD = "Passw0rd!23"
@@ -66,6 +69,7 @@ def login(page, username: str) -> None:
     page.locator("input[name=loginPassword]").fill(PASSWORD)
     page.locator("input[name=loginPassword]").press("Enter")
     page.wait_for_url(lambda url: "/login" not in url)
+    pass_encryption_gate(page, username)
 
 
 def main() -> None:

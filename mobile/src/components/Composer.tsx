@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { cameraAllowed } from '../utils/camera';
 import { keepLocalCopy, pick, types } from '@react-native-documents/picker';
 import { Camera, FileText, Image as ImageIcon, Mic, Paperclip, Play, SendHorizontal, Trash2, X } from 'lucide-react-native';
 import { ALLOWED, fileProblem, UploadQuality } from '../api/media';
@@ -77,6 +78,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
       maxHeight: hd ? 4096 : 1600,
       quality: (hd ? 0.9 : 0.8) as 0.9 | 0.8,
     };
+    if (source === 'camera' && !(await cameraAllowed())) return;
     const result = source === 'camera'
       ? await launchCamera(options)
       : await launchImageLibrary({ ...options, selectionLimit: MAX - drafts.length });

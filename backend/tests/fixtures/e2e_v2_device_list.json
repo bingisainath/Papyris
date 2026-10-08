@@ -1,0 +1,22 @@
+{
+  "list": {
+    "user": "user-é",
+    "aik": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w=",
+    "version": 3,
+    "devices": [
+      {
+        "id": 1,
+        "sign": "gTl3Dqh9F19Wo1Rmw0x+zMuNipG07jeiXfYPW4/Js5Q=",
+        "dh": "Xf7dO2vUf2+ijuFdlp1bsOpTd01Ii9r53xxuASSz7yI=",
+        "dhSig": "NFllGzPACQ96wZDIshn0Bs+KzSWjRKoLg3sehgfbeab8eHTvcAyEPAZNUiloNhu4H+MVeNMYebM2BsTYKwqqDg==",
+        "created": 1760000000000,
+        "cert": "PIppOJQylXrwNt0tPclTfevws1JWJC62X2LfzFVGyJSUaVANwyNn88Wbc3JrW08iNnCbzncYvMBxGBrmtfvhCQ=="
+      }
+    ],
+    "sig": "w4ycJXXRg0L5CBO5lih5nO/b6dvWRP7TU0TOC6ueU2spy0IjdelstSWHD5GocV7dIPvoIBWwQC99A974zx3FCQ=="
+  },
+  "link": {
+    "ek": "rAGyIJ6GNU+4UyN7XeD0+rE8f8v0M6YcAZNpYX/s8Qs=",
+    "code": "BYHNZ22DG5K7VMXV"
+  }
+}

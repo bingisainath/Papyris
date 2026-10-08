@@ -7,7 +7,8 @@ import { Download, FileText, Link2, Play } from 'lucide-react-native';
 import MediaViewer, { ViewerItem } from '../../components/MediaViewer';
 import VoiceNote from '../../components/VoiceNote';
 import { api, errorMessage } from '../../api/client';
-import { mediaUrl } from '../../config';
+import { openText } from '../../crypto/messages';
+import { useMediaSrc } from '../../crypto/media';
 import { useAuth } from '../../store/auth';
 import { colors, space } from '../../theme';
 import { formatDuration, formatSize } from '../../utils/time';
@@ -28,7 +29,46 @@ interface Item {
   media_size?: number | null;
   media_duration?: number | null;
   url?: string;
+  text?: string | null;
+  encrypted?: boolean;
+  // End-to-end encrypted items (from the decrypted message)
+  media_key?: string;
+  media_mime?: string;
+  thumb_key?: string;
 }
+
+const URL_RE = /https?:\/\/[^\s<>"']+/gi;
+
+/** Fill in what the server can't see for end-to-end encrypted items (names, keys, links). */
+function decryptItems(conversationId: string, items: Item[]): Item[] {
+  return items.flatMap((item) => {
+    const opened = openText(item.text, conversationId, item.sender_id);
+    if (!opened) return [item];
+    if (!opened.ok) return item.encrypted ? [] : [item];
+    if (item.encrypted) {
+      const urls = Array.from(new Set(opened.text.match(URL_RE) || [])).map((u) => u.replace(/[.,);!?]+$/, ''));
+      return urls.map((url) => ({ ...item, url, text: opened.text }));
+    }
+    const m = opened.media;
+    return [m ? {
+      ...item, text: opened.text, media_key: m.key, media_mime: m.mime, thumb_key: m.tk,
+      media_filename: m.name ?? null, media_size: m.size ?? null, media_duration: m.d ?? null,
+    } : item];
+  });
+}
+
+/** A photo or video thumbnail, decrypted first if it's end-to-end encrypted. */
+const Thumb: React.FC<{ item: Item; size: number }> = ({ item, size }) => {
+  const video = item.media_type === 'video';
+  const { src } = useMediaSrc(video ? item.media_thumbnail || undefined : item.media_url, video ? item.thumb_key : item.media_key, video ? 'image/jpeg' : item.media_mime);
+  return src ? <Image source={{ uri: src }} style={{ width: size, height: size }} /> : <View style={{ width: size, height: size }} />;
+};
+
+const SharedVoiceNote: React.FC<{ item: Item }> = ({ item }) => {
+  const { src, failed } = useMediaSrc(item.media_url, item.media_key, item.media_mime);
+  if (!src) return <Text style={styles.sub}>{failed ? "Couldn't decrypt this voice message" : 'Decrypting…'}</Text>;
+  return <VoiceNote uri={src} duration={item.media_duration || undefined} mine={false} />;
+};
 
 const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'SharedMedia'>> = ({ route }) => {
   const { conversationId } = route.params;
@@ -45,7 +85,8 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
     try {
       const before = more ? items[items.length - 1]?.created_at : undefined;
       const r = await api.get(`/conversations/${conversationId}/shared`, { params: { kind, before, limit: 60 } });
-      setItems((current) => (more ? [...current, ...r.data.data] : r.data.data));
+      const page = decryptItems(conversationId, r.data.data);
+      setItems((current) => (more ? [...current, ...page] : page));
       setHasMore(!!r.data.has_more);
     } catch (e) {
       Alert.alert("Couldn't load", errorMessage(e));
@@ -61,6 +102,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
     .filter((i) => i.media_type === 'image' || i.media_type === 'video')
     .map((i) => ({
       id: i.message_id, url: i.media_url!, type: i.media_type as 'image' | 'video', filename: i.media_filename || undefined,
+      mediaKey: i.media_key, mediaMime: i.media_mime,
       senderName: i.sender_id === me.id ? 'You' : i.sender_name || undefined, timestamp: i.created_at,
     }));
   const tile = (width - 4) / 3;
@@ -88,7 +130,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
             const index = viewerItems.findIndex((v) => v.id === item.message_id);
             return (
               <Pressable onPress={() => setViewer(index)} style={{ width: tile, height: tile, backgroundColor: colors.muted100 }}>
-                <Image source={{ uri: mediaUrl(item.media_type === 'video' ? item.media_thumbnail : item.media_url) }} style={{ width: tile, height: tile }} />
+                <Thumb item={item} size={tile} />
                 {item.media_type === 'video' && (
                   <View style={styles.videoBadge}><Play size={11} color={colors.white} fill={colors.white} /><Text style={styles.videoText}>{formatDuration(item.media_duration)}</Text></View>
                 )}
@@ -111,7 +153,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
               {item.media_type === 'audio' ? (
                 <View style={{ flex: 1 }}>
                   <Text style={styles.sub}>{who(item)}</Text>
-                  <VoiceNote uri={mediaUrl(item.media_url)!} duration={item.media_duration || undefined} mine={false} />
+                  <SharedVoiceNote item={item} />
                 </View>
               ) : (
                 <>
@@ -120,7 +162,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
                     <Text style={styles.name} numberOfLines={1}>{item.media_filename || 'File'}</Text>
                     <Text style={styles.sub}>{formatSize(item.media_size)} · {who(item)}</Text>
                   </View>
-                  <Pressable onPress={() => saveToPhone(item.media_url!, item.media_filename || 'file').catch(() => Alert.alert("Couldn't save it"))}
+                  <Pressable onPress={() => saveToPhone(item.media_url!, item.media_filename || 'file', item.media_key, item.media_mime).catch(() => Alert.alert("Couldn't save it"))}
                     hitSlop={10} accessibilityLabel="Save to phone">
                     <Download size={20} color={colors.primary700} />
                   </Pressable>

@@ -15,6 +15,7 @@ import { AxiosError } from "axios";
 import type { ProfileUpdate } from "../api/auth.api";
 import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
+import { e2eSession } from "../crypto/session";
 import { refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
@@ -77,6 +78,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     dispatch(disconnectWebSocket());
 
     tokenStore.clear();
+    e2eSession.clear(); // signing in here again means linking it again
     setUser(null);
     setError(null);
   }, [dispatch]);

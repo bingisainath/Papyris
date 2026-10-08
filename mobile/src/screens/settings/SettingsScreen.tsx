@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, LogOut, ScanLine, Store } from 'lucide-react-native';
+import { Bell, ChevronRight, LogOut, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
@@ -60,6 +60,8 @@ const SettingsScreen: React.FC = () => {
         </Pressable>
 
         <View style={styles.section}>
+          <Row icon={ShieldCheck} label="End-to-end encryption" hint="On · link a new device" onPress={() => navigation.navigate('Encryption')} />
+          <Divider />
           <Row icon={Bell} label="Notifications" onPress={notifications}
             value={push === null ? '' : push === 'on' ? 'On' : push === 'off' ? 'Off' : 'Not set up'} />
         </View>
