@@ -9,6 +9,7 @@ import { tokens } from '../auth/tokens';
 import { socket } from '../ws/socket';
 import { disablePush, enablePush } from '../notifications/push';
 import { e2eSession } from '../crypto/session';
+import { stopV2 } from '../crypto/v2-platform/runtime';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -116,6 +117,7 @@ export const useAuth = create<AuthState>((set) => {
 
     logout: async () => {
       await disablePush(); // while still signed in, so the server accepts it
+      await stopV2().catch(() => undefined); // v2: the server forgets this device; local data is wiped
       socket.stop();
       await tokens.clear();
       await e2eSession.clear(); // signing in here again means linking it again

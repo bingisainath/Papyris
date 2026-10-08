@@ -367,6 +367,8 @@ export const onServerEvent = (listener: Extra) => {
 };
 
 // ---- live events
+// This module loads lazily (on first use, after the encryption check): the socket may already be open
+useChat.setState({ connected: socket.connected });
 socket.onStatus((connected) => {
   useChat.setState({ connected });
   if (connected) {

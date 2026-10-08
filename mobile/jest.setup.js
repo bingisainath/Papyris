@@ -8,3 +8,8 @@ jest.mock('react-native-keychain', () => {
     resetGenericPassword: jest.fn(async () => { saved = null; return true; }),
   };
 });
+
+// Native-only libraries the stores import (never called in these tests)
+jest.mock('react-native-create-thumbnail', () => ({ createThumbnail: jest.fn() }));
+jest.mock('@op-engineering/op-sqlite', () => ({ open: jest.fn() }));
+jest.mock('react-native-blob-util', () => ({ __esModule: true, default: { fs: { dirs: {} }, config: jest.fn() } }));

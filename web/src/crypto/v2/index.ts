@@ -11,3 +11,5 @@ export * from './body';
 export * from './media';
 export * from './link';
 export * from './packets';
+export * from './storage';
+export * from './device';

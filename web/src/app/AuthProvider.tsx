@@ -16,6 +16,7 @@ import type { ProfileUpdate } from "../api/auth.api";
 import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
 import { e2eSession } from "../crypto/session";
+import { stopV2 } from "../crypto/v2-platform/runtime";
 import { refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
@@ -44,7 +45,7 @@ type AuthContextType = {
   forgotPassword: (identifier: string) => Promise<void>;
   verifyResetToken: (token: string) => Promise<{ email: string; username: string }>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void> | void;
   clearError: () => void;
   updateProfile: (data: ProfileUpdate) => Promise<void>;
 };
@@ -73,10 +74,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [user]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     // ✅ ADD: Disconnect WebSocket before logout
     dispatch(disconnectWebSocket());
 
+    // v2: the server forgets this device and its local data is wiped (while still signed in)
+    await stopV2().catch(() => undefined);
     tokenStore.clear();
     e2eSession.clear(); // signing in here again means linking it again
     setUser(null);

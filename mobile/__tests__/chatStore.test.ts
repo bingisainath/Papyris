@@ -17,6 +17,8 @@ jest.mock('../src/api/chat', () => ({
 import { typingNames, useChat } from '../src/store/chat';
 
 const emit = (e: any) => listeners.forEach((l) => l(e));
+// Sending first checks whether the chat is end-to-end encrypted (async)
+const settle = () => new Promise<void>((r) => setTimeout(() => r(), 0));
 const conversation = { id: 'c1', name: 'Flat', lastMessage: '', lastMessageTime: null, unreadCount: 0, isGroup: true, members: ['me', 'bob'], isPinned: false, pinnedAt: null };
 
 beforeEach(() => {
@@ -24,11 +26,13 @@ beforeEach(() => {
   useChat.setState({ conversations: [conversation], messages: { c1: [] }, typing: {}, online: [], activeId: null });
 });
 
-test('sending shows the message at once and the server copy replaces it', () => {
+test('sending shows the message at once and the server copy replaces it', async () => {
   useChat.getState().send('c1', 'hi', { id: 'me', username: 'me' });
   const [pending] = useChat.getState().messages.c1;
   expect(pending.status).toBe('sending');
-  expect(sent[0]).toEqual(['c1', pending.id, 'hi', undefined]);
+  await settle();
+  // No encryption keys in this test: sent as plain text (no media, no link flag)
+  expect(sent[0]).toEqual(['c1', pending.id, 'hi', undefined, undefined, undefined]);
 
   emit({ type: 'message', roomId: 'c1', messageId: 'm1', clientId: pending.id, senderId: 'me', text: 'hi', timestamp: new Date().toISOString(), status: 'sent' });
   const list = useChat.getState().messages.c1;
@@ -72,13 +76,15 @@ test('read receipts, reactions, edits, deletes, typing and presence', () => {
   expect(useChat.getState().online).toEqual(['carol']);
 });
 
-test('a rejected send is marked failed and can be retried', () => {
+test('a rejected send is marked failed and can be retried', async () => {
   useChat.getState().send('c1', 'oops', { id: 'me', username: 'me' });
+  await settle();
   const [pending] = useChat.getState().messages.c1;
   emit({ type: 'error', roomId: 'c1', clientId: pending.id, message: 'Not a member' });
   expect(useChat.getState().messages.c1[0].status).toBe('failed');
   useChat.getState().retry('c1', pending.id);
   expect(useChat.getState().messages.c1[0].status).toBe('sending');
+  await settle();
   expect(sent).toHaveLength(2);
 });
 

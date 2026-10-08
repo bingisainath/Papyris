@@ -18,6 +18,7 @@ import type { PendingLink } from '../../crypto/linking';
 import { e2eService } from '../../services/e2e.service';
 import type { MyKeys } from '../../services/e2e.service';
 import { errorMessage } from '../../api/client';
+import { startV2 } from '../../crypto/v2-platform/runtime';
 import { useAuth } from '../../store/auth';
 import { colors, radius, space } from '../../theme';
 
@@ -62,6 +63,11 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }, [userId]);
 
   useEffect(() => { check(); }, [check]);
+
+  // Encryption v2 starts in the background once this phone is ready (registers, uploads prekeys)
+  useEffect(() => {
+    if (stage.name === 'ready' && userId) startV2(userId).catch((e) => console.warn('Encryption v2 setup failed (will retry next start):', e?.message || e));
+  }, [stage.name, userId]);
 
   // Our keys were replaced on another device: link again
   useEffect(() => e2eSession.onStale(() => { e2eSession.clear().then(check); }), [check]);
