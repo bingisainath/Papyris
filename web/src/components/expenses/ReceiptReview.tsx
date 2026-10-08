@@ -244,6 +244,9 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
     || (totals && totals.unassigned_item_indexes.length > 0
       ? `Choose who ${totals.unassigned_item_indexes.length === 1 ? 'the highlighted item is' : 'the highlighted items are'} for`
       : null)
+    || (difference
+      ? `The items add up to ${formatMinor((totals?.computed_total_minor || 0) - (totals?.outside_receipt_minor || 0), currency)}, but the receipt total is ${formatMinor(totals?.printed_total_minor, currency)}. Fix a price, a discount or the receipt total.`
+      : null)
     || payersProblem;
 
   return (

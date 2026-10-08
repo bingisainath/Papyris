@@ -299,3 +299,43 @@ def test_workspace_header_only_for_the_server_key(monkeypatch):
     response = httpx2.Response(400, request=request)
     error = anthropic.BadRequestError("This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header", response=response, body=None)
     assert claude.is_workspace_error(error)
+
+
+async def test_excel_export_summary_and_discounted_products(client, six, fake_ai, make_user):
+    import io
+    from openpyxl import load_workbook
+
+    people, group = await six()
+    p1, p2, p3, p4, p5, p6 = people
+    receipt = await scan(client, p1, group)
+    assign = {0: [p1.id], 1: [p2.id, p3.id], 2: [p.id for p in people], 3: [p4.id], 4: [p5.id]}
+    r = await client.put(f"/api/v1/receipts/{receipt['id']}", json=review_body(receipt, assign), headers=p1.headers)
+    assert r.status_code == 200, r.text
+    assert (await client.post(f"/api/v1/receipts/{receipt['id']}/save", json={}, headers=p1.headers)).status_code == 200
+
+    r = await client.get(f"/api/v1/conversations/{group}/expenses/export", headers=p2.headers)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/vnd.openxmlformats")
+    assert 'filename="Flat-expenses-' in r.headers["content-disposition"]
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Summary", "Expenses", "Discounts"]
+
+    summary = [[c for c in row if c is not None] for row in wb["Summary"].iter_rows(values_only=True)]
+    assert summary[0] == ["Flat · expenses"]
+    assert ["EUR · total spent", 18.2] in summary
+    assert ["Saved with discounts", 3.7, "on 2 products (see Discounts)"] in summary
+    assert "To settle up" in [row[0] for row in summary if row]
+
+    expenses = list(wb["Expenses"].iter_rows(min_row=2, values_only=True))
+    assert len(expenses) == 1 and expenses[0][1] == "TESCO Ireland" and expenses[0][3] == 18.2
+
+    discounts = list(wb["Discounts"].iter_rows(min_row=2, values_only=True))
+    assert [(d[2], d[3], d[4], d[5], d[7]) for d in discounts] == [
+        ("Bread", 1.6, 0.4, 1.2, "Reduced"),
+        ("Croissants", 2.5, 0, 2.5, "Reduced"),
+    ]
+    assert discounts[1][6] == 1.0  # 100% off
+
+    outsider = await make_user("outsider")
+    r = await client.get(f"/api/v1/conversations/{group}/expenses/export", headers=outsider.headers)
+    assert r.status_code == 404

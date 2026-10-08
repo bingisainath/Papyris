@@ -7,7 +7,7 @@ import { expenseService } from '../../services/expense.service';
 import type { Balances, Expense } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { toMajorString } from '../../utils/money';
-import { CheckCircle2, Lock, ScrollText } from 'lucide-react';
+import { CheckCircle2, Download, Lock, ScrollText } from 'lucide-react';
 import { Avatar } from '../atoms';
 import CategoryIcon from './CategoryIcon';
 import { displayName, Money, MoneyInput, Sheet, useExpenseChanges } from './shared';
@@ -45,6 +45,17 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, onOpenEx
   useEffect(() => { load(); }, [load]);
   useExpenseChanges(conversationId, load);
 
+  const [downloading, setDownloading] = useState(false);
+  const download = async () => {
+    setDownloading(true);
+    try {
+      await expenseService.downloadExcel(conversationId);
+    } catch (e) {
+      toast.error(parseApiError(e));
+    } finally {
+      setDownloading(false);
+    }
+  };
   const name = (id: string) => (id === currentUserId ? 'You' : displayName(balances?.users[id]));
 
   const recordPayment = async () => {
@@ -123,6 +134,12 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, onOpenEx
             <label className="flex items-center gap-1 text-xs text-muted-500">
               <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Deleted
             </label>
+            {expenses.length > 0 && (
+              <button type="button" onClick={download} disabled={downloading} title="Download as Excel" aria-label="Download as Excel"
+                className="p-1.5 rounded-lg text-muted-600 hover:bg-muted-100 disabled:opacity-50">
+                <Download size={18} />
+              </button>
+            )}
             <button type="button" onClick={onAddExpense} className="px-3 py-1.5 text-sm rounded-lg bg-primary-600 text-white font-medium">+ Add</button>
           </div>
         </div>

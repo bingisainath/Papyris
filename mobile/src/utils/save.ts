@@ -16,6 +16,27 @@ const MIME: Record<string, string> = {
 
 const safeName = (name: string) => name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120) || 'papyris-file';
 
+/** Copy a file already on the phone to Downloads (Android) or open its preview to save or share it (iPhone). */
+export async function saveLocalFile(local: string, filename: string, mime: string): Promise<void> {
+  const name = safeName(filename);
+  if (Platform.OS === 'android') {
+    if (Number(Platform.Version) >= 29) {
+      await ReactNativeBlobUtil.MediaCollection.copyToMediaStore({ name, parentFolder: '', mimeType: mime }, 'Download', local);
+    } else {
+      const target = `${ReactNativeBlobUtil.fs.dirs.DownloadDir}/${name}`;
+      await ReactNativeBlobUtil.fs.cp(local, target);
+      await ReactNativeBlobUtil.android.addCompleteDownload({
+        title: name, description: 'Saved from Papyris', mime, path: target, showNotification: true,
+      });
+    }
+    return;
+  }
+  const target = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${name}`;
+  await ReactNativeBlobUtil.fs.unlink(target).catch(() => undefined);
+  await ReactNativeBlobUtil.fs.cp(local, target);
+  await ReactNativeBlobUtil.ios.openDocument(target);
+}
+
 /** key/mime: end-to-end encrypted files are decrypted on the phone, then saved. */
 export async function saveToPhone(url: string, filename: string, key?: string, fileMime?: string, v2?: { sha256: string; size: number }): Promise<void> {
   const name = safeName(filename);
@@ -23,22 +44,7 @@ export async function saveToPhone(url: string, filename: string, key?: string, f
   const mime = fileMime || MIME[name.split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream';
   if (key) {
     const local = (await decryptedFile(url, key, fileMime, v2)).replace(/^file:\/\//, '');
-    if (Platform.OS === 'android') {
-      if (Number(Platform.Version) >= 29) {
-        await ReactNativeBlobUtil.MediaCollection.copyToMediaStore({ name, parentFolder: '', mimeType: mime }, 'Download', local);
-      } else {
-        const target = `${ReactNativeBlobUtil.fs.dirs.DownloadDir}/${name}`;
-        await ReactNativeBlobUtil.fs.cp(local, target);
-        await ReactNativeBlobUtil.android.addCompleteDownload({
-          title: name, description: 'Saved from Papyris', mime, path: target, showNotification: true,
-        });
-      }
-      return;
-    }
-    const target = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${name}`;
-    await ReactNativeBlobUtil.fs.unlink(target).catch(() => undefined);
-    await ReactNativeBlobUtil.fs.cp(local, target);
-    await ReactNativeBlobUtil.ios.openDocument(target);
+    await saveLocalFile(local, name, mime);
     return;
   }
   if (Platform.OS === 'android') {

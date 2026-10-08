@@ -221,6 +221,17 @@ export const expenseService = {
   history: (id: string) => data<HistoryEntry[]>(api.get(`${V1}/expenses/${id}/history`)),
 
   balances: (conversationId: string) => data<Balances>(api.get(`${V1}/conversations/${conversationId}/balances`)),
+  /** The chat's expenses as an Excel file (summary, expenses, discounted products), saved by the browser. */
+  downloadExcel: async (conversationId: string) => {
+    const res = await api.get(`${V1}/conversations/${conversationId}/expenses/export`, { responseType: 'blob' });
+    const name = /filename="([^"]+)"/.exec(res.headers['content-disposition'] || '')?.[1] || 'expenses.xlsx';
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
   settle: (conversationId: string, body: { from_user: string; to_user: string; currency: string; amount: string; note?: string }) =>
     data(api.post(`${V1}/conversations/${conversationId}/settlements`, body)),
   settings: (conversationId: string) => data<ExpenseSettings>(api.get(`${V1}/conversations/${conversationId}/expense-settings`)),

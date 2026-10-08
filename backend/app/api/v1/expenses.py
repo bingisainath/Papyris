@@ -6,12 +6,13 @@ Amounts come in as decimal strings in major units ("12.30") and are stored as in
 """
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from app.models.ai import AIModel
 from app.models.expense import Expense, ExpenseEvent, Settlement
 from app.models.receipt import Receipt
 from app.models.user import User
+from app.services import expense_export
 from app.services import expense_service as svc
 from app.services import media_storage
 from app.services.message_service import MessageService
@@ -582,3 +584,26 @@ async def update_expense_settings(
     member_ids = await MessageService.member_ids(db, conversation_id)
     await publish_users(member_ids, {"type": "expense_changed", "conversationId": str(conversation_id), "action": "settings"})
     return _ok(data, "Settings saved")
+
+
+@router.get("/conversations/{conversation_id}/expenses/export")
+async def export_expenses(
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The chat's expenses as an Excel file: summary, expenses and discounted products."""
+    access = await svc.load_access(db, conversation_id, current_user)
+    settings = await svc.get_settings(db, conversation_id)
+    title = access.conversation.title
+    if not title:
+        others = [u.name or u.username for uid, u in (await svc.member_users(db, conversation_id)).items() if uid != str(current_user.id)]
+        title = " & ".join(others) or "Chat"
+    data = await expense_export.build_workbook(db, conversation_id, title, settings.simplify_debts)
+    await db.commit()  # settings row may have just been created
+    filename = re.sub(r"[^A-Za-z0-9 _-]+", "", title).strip().replace(" ", "-")[:40] or "chat"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}-expenses-{datetime.now(timezone.utc):%Y-%m-%d}.xlsx"'},
+    )

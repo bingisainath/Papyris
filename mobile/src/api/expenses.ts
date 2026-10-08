@@ -1,5 +1,9 @@
 // src/api/expenses.ts (adapted from web/src/services/expense.service.ts)
-import { api } from './client';
+import ReactNativeBlobUtil from 'react-native-blob-util';
+import { api, refreshAccessToken } from './client';
+import { tokens } from '../auth/tokens';
+import { API_V1_URL } from '../config';
+import { saveLocalFile } from '../utils/save';
 import type { CurrencyInfo } from '../utils/money';
 
 const V1 = '';
@@ -221,6 +225,23 @@ export const expenseService = {
   history: (id: string) => data<HistoryEntry[]>(api.get(`${V1}/expenses/${id}/history`)),
 
   balances: (conversationId: string) => data<Balances>(api.get(`${V1}/conversations/${conversationId}/balances`)),
+  /** The chat's expenses as an Excel file (summary, expenses, discounted products), saved to Downloads (Android)
+   *  or opened to save/share (iPhone). Returns the file name. */
+  saveExcel: async (conversationId: string): Promise<string> => {
+    const url = `${API_V1_URL}${V1}/conversations/${conversationId}/expenses/export`;
+    const path = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/expenses-${conversationId}.xlsx`;
+    const get = () => ReactNativeBlobUtil.config({ path }).fetch('GET', url, { Authorization: `Bearer ${tokens.access}` });
+    let res = await get();
+    if (res.info().status === 401 && (await refreshAccessToken())) res = await get();
+    if (res.info().status !== 200) {
+      await ReactNativeBlobUtil.fs.unlink(path).catch(() => undefined);
+      throw new Error(res.info().status === 404 ? 'Chat not found' : 'Couldn\'t make the Excel file. Try again.');
+    }
+    const header = Object.entries(res.info().headers).find(([k]) => k.toLowerCase() === 'content-disposition')?.[1] || '';
+    const name = /filename="([^"]+)"/.exec(String(header))?.[1] || 'expenses.xlsx';
+    await saveLocalFile(path, name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return name;
+  },
   settle: (conversationId: string, body: { from_user: string; to_user: string; currency: string; amount: string; note?: string }) =>
     data(api.post(`${V1}/conversations/${conversationId}/settlements`, body)),
   settings: (conversationId: string) => data<ExpenseSettings>(api.get(`${V1}/conversations/${conversationId}/expense-settings`)),

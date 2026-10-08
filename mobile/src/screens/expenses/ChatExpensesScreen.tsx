@@ -1,9 +1,9 @@
 // src/screens/expenses/ChatExpensesScreen.tsx
 // One chat's money: balances per currency, settle up, and its expenses.
 import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { CheckCircle2, Lock, Plus, ScrollText } from 'lucide-react-native';
+import { CheckCircle2, Download, Lock, Plus, ScrollText } from 'lucide-react-native';
 import Avatar from '../../components/Avatar';
 import { Button } from '../../components/ui';
 import { Balances, Expense, expenseService } from '../../api/expenses';
@@ -39,15 +39,38 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
   useEffect(() => { load(); }, [load]);
   useExpenseChanges(conversationId, load);
 
+  const [downloading, setDownloading] = useState(false);
+  const hasExpenses = expenses.length > 0;
+  const download = useCallback(async () => {
+    setDownloading(true);
+    try {
+      const name = await expenseService.saveExcel(conversationId);
+      if (Platform.OS === 'android') Alert.alert('Saved to Downloads', name);
+    } catch (e) {
+      Alert.alert('Couldn\'t download', errorMessage(e));
+    } finally {
+      setDownloading(false);
+    }
+  }, [conversationId]);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <Pressable onPress={() => navigation.navigate('AddExpense', { conversationId })} hitSlop={8} accessibilityLabel="Add expense">
-          <Plus size={24} color={colors.primary700} />
-        </Pressable>
+        <View style={styles.headerButtons}>
+          {hasExpenses && (
+            downloading ? <ActivityIndicator color={colors.primary700} /> : (
+              <Pressable onPress={download} hitSlop={8} accessibilityLabel="Download as Excel">
+                <Download size={22} color={colors.primary700} />
+              </Pressable>
+            )
+          )}
+          <Pressable onPress={() => navigation.navigate('AddExpense', { conversationId })} hitSlop={8} accessibilityLabel="Add expense">
+            <Plus size={24} color={colors.primary700} />
+          </Pressable>
+        </View>
       ),
     });
-  }, [navigation, conversationId]);
+  }, [navigation, conversationId, hasExpenses, downloading, download]);
 
   const name = (id: string) => (id === me.id ? 'You' : balances?.users[id]?.name || balances?.users[id]?.username || 'Someone');
 
@@ -154,6 +177,7 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
 };
 
 const styles = StyleSheet.create({
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: space(4) },
   container: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   settled: { flexDirection: 'row', gap: space(2), alignItems: 'center', justifyContent: 'center', margin: space(4), padding: space(4), borderRadius: radius.lg, backgroundColor: colors.success50 },

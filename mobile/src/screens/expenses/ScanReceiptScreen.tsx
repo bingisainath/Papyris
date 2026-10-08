@@ -17,6 +17,8 @@ import { formatMinor, parseMajor, toMajorString } from '../../utils/money';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import { memberName, useChatMoney } from './useMembers';
+import CurrencyPicker from './CurrencyPicker';
+import { ChevronDown, Pencil } from 'lucide-react-native';
 
 const MAX_PHOTOS = 4;
 const DISCOUNT_KINDS = ['item_discount', 'promotion', 'store_discount', 'coupon'];
@@ -57,6 +59,8 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   const [receiptId, setReceiptId] = useState<string | undefined>(route.params.receiptId);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [draft, setDraft] = useState<ReceiptUpdate | null>(null);
+  const [pickingCurrency, setPickingCurrency] = useState(false);
+  const [editingTotal, setEditingTotal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -197,18 +201,39 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   const unassigned = new Set(totals?.unassigned_item_indexes || []);
   const nameOf = (id: string) => (id === me.id ? 'You' : memberName(members.find((m) => m.id === id)));
   const single = draft.payers?.length === 1 ? draft.payers[0].user_id : receipt.uploaded_by || me.id;
-  const blocking = receipt.calc_error || (unassigned.size ? 'Choose who the highlighted items are for' : null);
   const difference = totals?.difference_minor;
+  const linesTotal = totals ? totals.computed_total_minor - (totals.outside_receipt_minor || 0) : 0;
+  // Save only when every item has someone and the lines add up to the receipt's total
+  const blocking = receipt.calc_error
+    || (unassigned.size ? 'Choose who the highlighted items are for' : null)
+    || (difference ? `The items add up to ${formatMinor(linesTotal, currency)}, but the receipt total is ${formatMinor(totals!.printed_total_minor, currency)}. Fix a price, a discount or the receipt total.` : null);
 
   return (
     <View style={styles.flex}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.store}>{receipt.store_name || 'Receipt'}</Text>
-        {(receipt.warnings.length > 0 || (difference !== null && difference !== undefined && difference !== 0)) && (
-          <Banner tone="info" text={[
-            difference ? `Lines add up to ${formatMinor((totals!.computed_total_minor) - (totals!.outside_receipt_minor || 0), currency)}, the receipt says ${formatMinor(totals!.printed_total_minor, currency)}.` : '',
-            ...receipt.warnings.filter((w) => !w.startsWith('The lines add up')),
-          ].filter(Boolean).join('\n')} />
+        <View style={styles.header}>
+          <Text style={styles.store} numberOfLines={1}>{receipt.store_name || 'Receipt'}</Text>
+          <Pressable onPress={() => setPickingCurrency(true)} style={styles.currency} accessibilityLabel={`Currency ${currency}, change`}>
+            <Text style={styles.currencyText}>{currency}</Text>
+            <ChevronDown size={16} color={colors.primary700} />
+          </Pressable>
+        </View>
+        <View style={[styles.totalRow, !!difference && styles.totalRowWrong]}>
+          <Text style={styles.totalLabel}>Receipt total</Text>
+          {editingTotal ? (
+            <TextInput autoFocus keyboardType="decimal-pad" defaultValue={draft.printed_total || ''} style={styles.totalInput} accessibilityLabel="Receipt total"
+              onEndEditing={(e) => { setEditingTotal(false); change((d) => ({ ...d, printed_total: e.nativeEvent.text.trim() || null })); }} />
+          ) : (
+            <Pressable onPress={() => setEditingTotal(true)} style={styles.totalValue} accessibilityLabel="Edit the receipt total">
+              <Text style={[styles.totalAmount, !!difference && { color: colors.danger600 }]}>
+                {totals?.printed_total_minor !== null && totals?.printed_total_minor !== undefined ? formatMinor(totals.printed_total_minor, currency) : 'Not read'}
+              </Text>
+              <Pencil size={14} color={colors.muted500} />
+            </Pressable>
+          )}
+        </View>
+        {receipt.warnings.filter((w) => !w.startsWith('The lines add up')).length > 0 && (
+          <Banner tone="info" text={receipt.warnings.filter((w) => !w.startsWith('The lines add up')).join('\n')} />
         )}
 
         <View style={styles.quick}>
@@ -239,7 +264,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
                 </View>
               </View>
               {!voided && (
-                <View style={styles.people}>
+                <View style={styles.chips}>
                   {members.map((m) => {
                     const on = item.assignments.some((a) => a.user_id === m.id);
                     return (
@@ -249,9 +274,9 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
                           ...it,
                           assignments: on ? it.assignments.filter((a) => a.user_id !== m.id) : [...it.assignments, { user_id: m.id, value: '1' }],
                         })),
-                      }))} style={[styles.personToggle, !on && styles.personOff]} accessibilityState={{ selected: on }} accessibilityLabel={`${nameOf(m.id)} for ${item.name}`}>
-                        <View style={[styles.ring, on && styles.ringOn]}><Avatar uri={m.avatar} name={memberName(m)} size={30} /></View>
-                        <Text style={styles.personLabel} numberOfLines={1}>{nameOf(m.id).split(' ')[0]}</Text>
+                      }))} style={[styles.chip, on && styles.chipOn]} accessibilityState={{ selected: on }} accessibilityLabel={`${nameOf(m.id)} for ${item.name}`}>
+                        <Avatar uri={m.avatar} name={memberName(m)} size={20} />
+                        <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>{nameOf(m.id).split(' ')[0]}</Text>
                       </Pressable>
                     );
                   })}
@@ -329,6 +354,8 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
           )}
         </View>
       </ScrollView>
+      <CurrencyPicker visible={pickingCurrency} value={currency} onClose={() => setPickingCurrency(false)}
+        onPick={(code) => { setPickingCurrency(false); change((d) => ({ ...d, currency: code })); }} />
       <View style={styles.footer}>
         {blocking && <Text style={styles.blocking}>{blocking}</Text>}
         <Button title={`Save expense${totals ? ` · ${formatMinor(totals.computed_total_minor, currency)}` : ''}`} onPress={save} loading={saving} disabled={!!blocking} />
@@ -349,11 +376,25 @@ const styles = StyleSheet.create({
   pickRow: { flexDirection: 'row', gap: space(2) },
   waitTitle: { marginTop: space(4), fontSize: 17, fontWeight: '600', color: colors.muted900, textAlign: 'center' },
   waitText: { marginTop: space(1), fontSize: 14, color: colors.muted500, textAlign: 'center' },
-  store: { fontSize: 20, fontWeight: '700', color: colors.muted900, marginBottom: space(3) },
+  store: { flex: 1, fontSize: 20, fontWeight: '700', color: colors.muted900 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: space(2), marginBottom: space(2) },
+  currency: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.full, borderWidth: 1, borderColor: colors.primary200, backgroundColor: colors.primary50 },
+  currencyText: { fontSize: 14, fontWeight: '700', color: colors.primary800 },
+  totalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space(3), paddingVertical: space(2), marginBottom: space(3), borderRadius: radius.md, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.muted200 },
+  totalRowWrong: { borderColor: colors.danger500, backgroundColor: colors.danger50 },
+  totalLabel: { fontSize: 14, color: colors.muted600 },
+  totalValue: { flexDirection: 'row', alignItems: 'center', gap: space(1.5) },
+  totalAmount: { fontSize: 16, fontWeight: '700', color: colors.muted900 },
+  totalInput: { minWidth: 90, height: 36, borderWidth: 1, borderColor: colors.primary500, borderRadius: radius.sm, paddingHorizontal: space(2), textAlign: 'right', fontSize: 16, color: colors.muted900 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space(1.5), marginTop: space(2) },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: 2, paddingRight: space(2), paddingVertical: 2, borderRadius: radius.full, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white },
+  chipOn: { borderColor: colors.primary600, backgroundColor: colors.primary50 },
+  chipText: { fontSize: 12, color: colors.muted500, maxWidth: 80 },
+  chipTextOn: { color: colors.primary800, fontWeight: '600' },
   quick: { flexDirection: 'row', gap: space(2), marginBottom: space(3) },
   quickButton: { paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.full, backgroundColor: colors.muted100 },
   quickText: { fontSize: 13, color: colors.muted700 },
-  item: { backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.muted200, padding: space(3), marginBottom: space(2) },
+  item: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted200, paddingHorizontal: space(3), paddingVertical: space(2.5), marginBottom: space(1.5) },
   itemMissing: { borderColor: colors.danger500, backgroundColor: colors.danger50 },
   itemTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space(2) },
   itemName: { fontSize: 15, fontWeight: '600', color: colors.muted900 },
