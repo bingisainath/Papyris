@@ -5,6 +5,8 @@ A chat's expenses as an Excel workbook, small and to the point:
 
   Summary    who paid what, each person's share and balance (per currency), how to settle up,
              and how much discounts saved
+  Split      every expense with one column per person: for scanned receipts every product (price,
+             discount, final price) and what each person pays for it, plus extras split separately
   Expenses   one row per expense: date, what, total, who paid, how it was split
   Discounts  every product that got cheaper on a scanned receipt: price before and after,
              what was saved (and %), which discount did it, and who the product was for
@@ -94,6 +96,7 @@ async def build_workbook(db: AsyncSession, conversation_id: uuid.UUID, title: st
     debts = simplify(nets) if simplified else pairwise(plain, paid_back)
 
     discount_rows = []  # filled below, also summed here
+    splits = {}  # expense id -> (receipt, split result) for scanned receipts
     for e in expenses:
         receipt = receipts.get(e.receipt_id) if e.receipt_id else None
         if receipt is None:
@@ -101,6 +104,7 @@ async def build_workbook(db: AsyncSession, conversation_id: uuid.UUID, title: st
         result, _ = compute(receipt)
         if result is None:
             continue
+        splits[e.id] = (receipt, result)
         adjustments = {a.id: a for a in receipt.adjustments}
         for item in receipt.items:
             net = result.item_net.get(item.id)
@@ -157,6 +161,76 @@ async def build_workbook(db: AsyncSession, conversation_id: uuid.UUID, title: st
             row += 1
         row += 2
     _widths(ws, [28, 14, 14, 14, 12])
+
+    # ---------------- Split: every item and who pays what for it
+    ws = wb.create_sheet("Split")
+    people = sorted({str(s.user_id) for e in expenses for s in e.shares if s.amount_minor}, key=lambda u: name(u).lower())
+    headers = ["Date", "Expense / item", "Qty", "Price", "Discount", "Final"] + [name(u) for u in people]
+    row = _table(ws, 1, headers)
+    first_person = 7
+    expense_fill = PatternFill("solid", fgColor="F6F4FB")
+    for e in expenses:
+        fmt = _fmt(e.currency)
+
+        def put(r: int, col: int, minor: int | None, font=None) -> None:
+            if minor is None:
+                return
+            cell = ws.cell(row=r, column=col, value=_money(minor, e.currency))
+            cell.number_format = fmt
+            if font:
+                cell.font = font
+
+        # The expense itself: total and each person's share of it
+        payers = ", ".join(name(p.user_id) for p in e.payers if p.amount_minor)
+        ws.cell(row=row, column=1, value=e.spent_at.replace(tzinfo=None)).number_format = "dd mmm yyyy"
+        ws.cell(row=row, column=2, value=f"{e.description} · paid by {payers}" if payers else e.description)
+        put(row, 6, e.total_minor, BOLD)
+        shares = {str(s.user_id): s.amount_minor for s in e.shares}
+        for n, uid in enumerate(people):
+            put(row, first_person + n, shares.get(uid) or None, BOLD)
+        for col in range(1, len(headers) + 1):
+            ws.cell(row=row, column=col).fill = expense_fill
+            if col != 1:
+                ws.cell(row=row, column=col).font = BOLD
+        row += 1
+
+        if e.id not in splits:
+            if e.split_mode != "equal":
+                ws.cell(row=row, column=2, value=f"  split {e.split_mode}").font = MUTED
+                row += 1
+            continue
+        receipt, result = splits[e.id]
+        per_item: dict[int, dict[str, int]] = {}
+        per_extra: dict[int, dict[str, int]] = {}
+        for uid, parts in result.person_breakdown.items():
+            for part in parts:
+                target = per_item if part["type"] == "item" else per_extra
+                target.setdefault(part["id"], {})[uid] = target.get(part["id"], {}).get(uid, 0) + part["amount"]
+        for item in receipt.items:
+            if item.id not in result.item_net:
+                continue  # voided
+            net = result.item_net[item.id]
+            ws.cell(row=row, column=2, value=f"  {item.name}")
+            quantity = Decimal(item.quantity or 1).normalize()
+            ws.cell(row=row, column=3, value=int(quantity) if quantity == quantity.to_integral() else float(quantity))
+            put(row, 4, item.gross_minor)
+            put(row, 5, (net - item.gross_minor) or None, GOOD if net < item.gross_minor else None)
+            put(row, 6, net)
+            for n, uid in enumerate(people):
+                put(row, first_person + n, per_item.get(item.id, {}).get(uid))
+            row += 1
+        labels = {a.id: f"{a.label or a.kind.replace('_', ' ').capitalize()} (split separately)" for a in receipt.adjustments}
+        labels[None] = "Rounding to the cent"
+        for adj_id, amounts in per_extra.items():
+            ws.cell(row=row, column=2, value=f"  {labels.get(adj_id, 'Extra')}").font = MUTED
+            put(row, 6, sum(amounts.values()))
+            for n, uid in enumerate(people):
+                put(row, first_person + n, amounts.get(uid))
+            row += 1
+    if not expenses:
+        ws.cell(row=2, column=1, value="No expenses yet").font = MUTED
+    ws.freeze_panes = "C2"
+    _widths(ws, [13, 34, 6, 10, 10, 10] + [12] * len(people))
 
     # ---------------- Expenses
     ws = wb.create_sheet("Expenses")

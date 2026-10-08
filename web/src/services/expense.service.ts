@@ -99,7 +99,7 @@ export interface ReceiptAdjustment {
   percent: string | null;
   scope: 'item' | 'group' | 'bill';
   item_indexes: number[];
-  allocation: 'proportional' | 'equal' | 'assign';
+  allocation: 'proportional' | 'per_unit' | 'equal' | 'assign';
   assignee_ids: string[];
   source: 'printed' | 'store_rule' | 'manual';
   enabled: boolean;

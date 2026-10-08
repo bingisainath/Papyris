@@ -18,10 +18,10 @@ import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import { memberName, useChatMoney } from './useMembers';
 import CurrencyPicker from './CurrencyPicker';
-import { ChevronDown, Pencil } from 'lucide-react-native';
+import { ChevronDown, Pencil, Plus } from 'lucide-react-native';
+import { AdjustmentDraft, AdjustmentEditor, DISCOUNT_KINDS, ItemDraft, ItemEditor, kindLabel } from './ReceiptEditors';
 
 const MAX_PHOTOS = 4;
-const DISCOUNT_KINDS = ['item_discount', 'promotion', 'store_discount', 'coupon'];
 const PRESETS = [10, 15, 20];
 
 async function uploadPhoto(asset: Asset): Promise<string> {
@@ -61,6 +61,8 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   const [draft, setDraft] = useState<ReceiptUpdate | null>(null);
   const [pickingCurrency, setPickingCurrency] = useState(false);
   const [editingTotal, setEditingTotal] = useState(false);
+  const [editingItem, setEditingItem] = useState<number | 'new' | null>(null);
+  const [editingAdjustment, setEditingAdjustment] = useState<number | 'new' | null>(null);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -149,6 +151,38 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
       setSaving(false);
     }
   };
+
+  // ---- manual corrections
+  const lineDiscounts = (d: ReceiptUpdate, n: number) =>
+    d.adjustments.filter((a) => DISCOUNT_KINDS.includes(a.kind) && a.item_indexes.length === 1 && a.item_indexes[0] === n);
+
+  const saveItem = (n: number | 'new', item: ItemDraft, saved: string) => change((d) => {
+    const index = n === 'new' ? d.items.length : n;
+    const items = n === 'new' ? [...d.items, item] : d.items.map((it, i) => (i === n ? item : it));
+    const old = lineDiscounts(d, index);
+    const keep = d.adjustments.filter((a) => !old.includes(a));
+    const amount = Number(saved) || 0;
+    const adjustments = amount > 0 ? [...keep, {
+      kind: old[0]?.kind || 'item_discount', label: old[0]?.label || 'Discount', amount: String(amount), percent: null,
+      item_indexes: [index], allocation: 'proportional' as const, assignee_ids: [], source: 'printed' as const, enabled: true,
+    }] : keep;
+    return { ...d, items, adjustments };
+  });
+
+  const removeItem = (n: number) => change((d) => ({
+    ...d,
+    items: d.items.filter((_, i) => i !== n),
+    // Re-point discounts at the remaining lines; drop ones that only belonged to this line
+    adjustments: d.adjustments.flatMap((a) => {
+      if (!a.item_indexes.length) return [a];
+      const indexes = a.item_indexes.filter((i) => i !== n).map((i) => (i > n ? i - 1 : i));
+      return indexes.length ? [{ ...a, item_indexes: indexes }] : [];
+    }),
+  }));
+
+  const saveAdjustment = (n: number | 'new', a: AdjustmentDraft) => change((d) => ({
+    ...d, adjustments: n === 'new' ? [...d.adjustments, a] : d.adjustments.map((x, i) => (i === n ? a : x)),
+  }));
 
   // ---------- render
   if (stage === 'pick') {
@@ -252,7 +286,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
           const voided = item.flags.includes('voided');
           return (
             <View key={n} style={[styles.item, unassigned.has(n) && styles.itemMissing, voided && { opacity: 0.5 }]}>
-              <View style={styles.itemTop}>
+              <Pressable onPress={() => setEditingItem(n)} style={styles.itemTop} accessibilityLabel={`Edit ${item.name}`}>
                 <View style={styles.flex}>
                   <Text style={[styles.itemName, voided && { textDecorationLine: 'line-through' }]}>{item.quantity !== '1' ? `${item.quantity}× ` : ''}{item.name}</Text>
                   {item.flags.includes('reduced') && <Text style={styles.flag}>Reduced</Text>}
@@ -262,7 +296,8 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
                   {net !== gross && <Text style={styles.strike}>{formatMinor(gross, currency)}</Text>}
                   <Text style={styles.price}>{formatMinor(net, currency)}</Text>
                 </View>
-              </View>
+                <Pencil size={14} color={colors.muted400} />
+              </Pressable>
               {!voided && (
                 <View style={styles.chips}>
                   {members.map((m) => {
@@ -286,9 +321,12 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
           );
         })}
 
-        {draft.adjustments.some((a) => !(a.item_indexes.length === 1 && DISCOUNT_KINDS.includes(a.kind) && a.source === 'printed')) && (
-          <Text style={styles.section}>Discounts, tax and fees</Text>
-        )}
+        <Pressable onPress={() => setEditingItem('new')} style={styles.addButton} accessibilityLabel="Add a line">
+          <Plus size={16} color={colors.primary700} />
+          <Text style={styles.addText}>Add a line the scan missed</Text>
+        </Pressable>
+
+        <Text style={styles.section}>Discounts, deals, tax and fees</Text>
         {draft.adjustments.map((a, idx) => {
           if (a.item_indexes.length === 1 && DISCOUNT_KINDS.includes(a.kind) && a.source === 'printed') return null;
           const usesPercent = a.percent !== null && DISCOUNT_KINDS.includes(a.kind);
@@ -298,11 +336,19 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
             <View key={idx} style={[styles.adjustment, !a.enabled && styles.adjustmentOff]}>
               <View style={styles.itemTop}>
                 <Switch value={a.enabled} onValueChange={(enabled) => set({ enabled })} trackColor={{ true: colors.primary600, false: colors.muted300 }} thumbColor={colors.white} />
-                <View style={styles.flex}>
-                  <Text style={styles.itemName}>{a.label}</Text>
-                  {a.source === 'store_rule' && <Text style={styles.suggestion}>Your saved discount, not printed on the receipt</Text>}
-                </View>
-                <Text style={[styles.price, !a.enabled && { color: colors.muted400, textDecorationLine: 'line-through' }]}>{formatMinor(amount, currency)}</Text>
+                <Pressable onPress={() => setEditingAdjustment(idx)} style={[styles.flex, styles.itemTop]} accessibilityLabel={`Edit ${a.label}`}>
+                  <View style={styles.flex}>
+                    <Text style={styles.itemName}>{a.label}</Text>
+                    <Text style={styles.hintText}>
+                      {kindLabel(a.kind)}{a.item_indexes.length ? ` · ${a.item_indexes.length} item${a.item_indexes.length === 1 ? '' : 's'}` : ' · whole bill'}
+                      {a.allocation === 'per_unit' && a.item_indexes.length > 1 ? ' · each costs the same' : ''}
+                      {a.allocation === 'equal' ? ' · equally' : a.allocation === 'assign' ? ` · ${a.assignee_ids.map(nameOf).join(', ')}` : ''}
+                    </Text>
+                    {a.source === 'store_rule' && <Text style={styles.suggestion}>Your saved discount, not printed on the receipt</Text>}
+                  </View>
+                  <Text style={[styles.price, !a.enabled && { color: colors.muted400, textDecorationLine: 'line-through' }]}>{formatMinor(amount, currency)}</Text>
+                  <Pencil size={14} color={colors.muted400} />
+                </Pressable>
               </View>
               {usesPercent && (
                 <View style={styles.presets}>
@@ -323,6 +369,11 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
             </View>
           );
         })}
+
+        <Pressable onPress={() => setEditingAdjustment('new')} style={styles.addButton} accessibilityLabel="Add discount, tax or fee">
+          <Plus size={16} color={colors.primary700} />
+          <Text style={styles.addText}>Add discount, deal, tax or fee</Text>
+        </Pressable>
 
         <Text style={styles.section}>Paid by</Text>
         <View style={styles.people}>
@@ -354,6 +405,37 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
           )}
         </View>
       </ScrollView>
+      {editingItem !== null && (
+        <ItemEditor
+          isNew={editingItem === 'new'}
+          item={editingItem === 'new'
+            ? { id: null, name: '', quantity: '1', unit: 'each', price: '', category: null, flags: [], split_mode: 'equal', assignments: members.map((m) => ({ user_id: m.id, value: '1' })) }
+            : draft.items[editingItem]}
+          discount={editingItem === 'new' ? '' : (() => {
+            const total = lineDiscounts(draft, editingItem).reduce((sum, a) => sum + Math.abs(Number(a.amount) || 0), 0);
+            return total ? total.toFixed(2) : '';
+          })()}
+          members={members}
+          nameOf={nameOf}
+          onSave={(item, saved) => { saveItem(editingItem, item, saved); setEditingItem(null); }}
+          onRemove={() => { if (editingItem !== 'new') removeItem(editingItem); setEditingItem(null); }}
+          onClose={() => setEditingItem(null)}
+        />
+      )}
+      {editingAdjustment !== null && (
+        <AdjustmentEditor
+          isNew={editingAdjustment === 'new'}
+          adjustment={editingAdjustment === 'new'
+            ? { kind: 'store_discount', label: 'Discount', amount: '', percent: null, item_indexes: [], allocation: 'proportional', assignee_ids: [], source: 'printed', enabled: true }
+            : draft.adjustments[editingAdjustment]}
+          items={draft.items}
+          members={members}
+          nameOf={nameOf}
+          onSave={(a) => { saveAdjustment(editingAdjustment, a); setEditingAdjustment(null); }}
+          onRemove={() => { if (editingAdjustment !== 'new') change((d) => ({ ...d, adjustments: d.adjustments.filter((_, i) => i !== editingAdjustment) })); setEditingAdjustment(null); }}
+          onClose={() => setEditingAdjustment(null)}
+        />
+      )}
       <CurrencyPicker visible={pickingCurrency} value={currency} onClose={() => setPickingCurrency(false)}
         onPick={(code) => { setPickingCurrency(false); change((d) => ({ ...d, currency: code })); }} />
       <View style={styles.footer}>
@@ -417,6 +499,8 @@ const styles = StyleSheet.create({
   presetText: { fontSize: 13, color: colors.muted700, fontWeight: '600' },
   percent: { width: 56, height: 36, borderWidth: 1, borderColor: colors.muted300, borderRadius: radius.sm, textAlign: 'right', paddingHorizontal: space(2), color: colors.muted900 },
   hintText: { fontSize: 12, color: colors.muted500 },
+  addButton: { flexDirection: 'row', alignItems: 'center', gap: space(1.5), alignSelf: 'flex-start', paddingVertical: space(2), paddingHorizontal: space(1) },
+  addText: { fontSize: 14, fontWeight: '600', color: colors.primary700 },
   summary: { marginTop: space(4), padding: space(4), borderRadius: radius.lg, backgroundColor: colors.white, gap: space(2) },
   summaryName: { fontSize: 15, color: colors.muted700 },
   summaryAmount: { fontSize: 15, fontWeight: '600', color: colors.muted900 },

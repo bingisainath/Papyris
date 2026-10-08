@@ -9,12 +9,20 @@ Order of application (see docs/expenses-design in the PR):
   2. Store-wide / coupon bill discounts -> eligible items, by their price after step 1
   3. Tax added on top of prices         -> taxed items, by price
   4. Fees, service charges, tips, ...   -> by item price, equally per person, or to chosen people
-Then each item's net price is split among the people it's for. Every split uses the
-largest-remainder method, so the parts always add up exactly.
+Then each item's net price is split among the people it's for.
+
+A deal across several items ("any 3 for 2") can be shared by price (every item gets the same
+% off) or per unit (every item in the deal ends up costing the same: per_unit).
+
+Item prices are rounded per item (largest-remainder, so they add up exactly). What each person
+pays is worked out exactly and rounded to the cent only once, at the end, so nobody collects
+the leftover cents of every item: nobody pays more than 1 cent above their exact share.
 """
 
+import math
 from dataclasses import dataclass, field
 from decimal import Decimal
+from fractions import Fraction
 
 from app.services.money import MoneyError, allocate
 
@@ -30,7 +38,7 @@ STAGES = {
     "rounding": 4,
 }
 ADJUSTMENT_KINDS = set(STAGES)
-ALLOCATIONS = {"proportional", "equal", "assign"}
+ALLOCATIONS = {"proportional", "per_unit", "equal", "assign"}
 ITEM_SPLIT_MODES = {"equal", "quantity", "weight"}
 
 
@@ -39,6 +47,7 @@ class EngineItem:
     id: int
     gross: int
     split_mode: str = "equal"
+    quantity: Decimal = Decimal(1)
     # (user_id, value): value is ignored for equal, units for quantity, weight for weight
     assignments: list[tuple[str, Decimal]] = field(default_factory=list)
     voided: bool = False
@@ -86,6 +95,20 @@ def _people(items: list[EngineItem]) -> list[str]:
     return seen
 
 
+def _round_once(exact: dict[str, Fraction]) -> dict[str, int]:
+    """Round everyone's exact amount to whole cents so they add up exactly to the (whole-cent) total:
+    round down, then the leftover cents go one each to the largest remainders (ties: first listed)."""
+    total = sum(exact.values(), Fraction(0))
+    if total.denominator != 1:
+        raise MoneyError("split doesn't add up to whole cents")
+    floors = {u: math.floor(v) for u, v in exact.items()}
+    leftover = int(total) - sum(floors.values())
+    order = sorted(exact, key=lambda u: -(exact[u] - floors[u]))  # stable: ties keep their order
+    for u in order[:leftover]:
+        floors[u] += 1
+    return floors
+
+
 def split_receipt(
     items: list[EngineItem],
     adjustments: list[EngineAdjustment],
@@ -113,12 +136,18 @@ def split_receipt(
         targets = [i for i in adj.item_ids if i in by_id] if adj.item_ids else list(by_id)
         if not targets:
             raise MoneyError(f"'{adj.kind}' doesn't apply to any item on the receipt")
-        weights = [max(net[t], 0) for t in targets]
-        for target, part in zip(targets, allocate(adj.amount, weights)):
+        if adj.allocation == "per_unit" and len(targets) > 1:
+            # Every unit in the deal ends up costing the same
+            units = [max(by_id[t].quantity, Decimal(0)) for t in targets]
+            new_nets = allocate(sum(net[t] for t in targets) + adj.amount, units)
+            parts = [new - net[t] for t, new in zip(targets, new_nets)]
+        else:
+            parts = allocate(adj.amount, [max(net[t], 0) for t in targets])
+        for target, part in zip(targets, parts):
             net[target] += part
             item_adjustments[target].append((adj.id, part))
 
-    person_totals: dict[str, int] = {}
+    exact: dict[str, Fraction] = {}  # what each person owes before rounding to the cent
     breakdown: dict[str, list[dict]] = {}
     unassigned: list[int] = []
     unassigned_amount = 0
@@ -128,17 +157,27 @@ def split_receipt(
             unassigned_amount += net[item.id]
             continue
         if item.split_mode == "equal":
-            weights = [1] * len(item.assignments)
+            weights = [Decimal(1)] * len(item.assignments)
         else:
             weights = [max(Decimal(v), Decimal(0)) for _, v in item.assignments]
-        for (user_id, _), part in zip(item.assignments, allocate(net[item.id], weights)):
-            person_totals[user_id] = person_totals.get(user_id, 0) + part
+            if not any(weights):
+                weights = [Decimal(1)] * len(item.assignments)
+        weight_sum = Fraction(sum(weights))
+        for (user_id, _), weight, part in zip(item.assignments, weights, allocate(net[item.id], weights)):
+            exact[user_id] = exact.get(user_id, Fraction(0)) + Fraction(net[item.id]) * Fraction(weight) / weight_sum
             breakdown.setdefault(user_id, []).append({"type": "item", "id": item.id, "amount": part})
 
     for user_id, extras in person_extra.items():
         for adj_id, part in extras:
-            person_totals[user_id] = person_totals.get(user_id, 0) + part
+            exact[user_id] = exact.get(user_id, Fraction(0)) + part
             breakdown.setdefault(user_id, []).append({"type": "adjustment", "id": adj_id, "amount": part})
+
+    person_totals = _round_once(exact)
+    for user_id, total in person_totals.items():
+        # The per-item parts above are rounded item by item; the difference to the fair total is a cent or two
+        diff = total - sum(p["amount"] for p in breakdown[user_id])
+        if diff:
+            breakdown[user_id].append({"type": "rounding", "id": None, "amount": diff})
 
     computed_total = sum(i.gross for i in active_items) + sum(a.amount for a in ordered)
     assert sum(person_totals.values()) + unassigned_amount == computed_total, "split doesn't add up"

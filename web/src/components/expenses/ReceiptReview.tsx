@@ -193,7 +193,7 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
       adjustments: [...d.adjustments, {
         kind, label: KIND_LABELS[kind], amount: '', percent: kind === 'store_discount' ? '10' : null, item_indexes: [],
         allocation: kind === 'tip' || kind === 'service_charge' || kind === 'fee' ? 'equal' : 'proportional',
-        assignee_ids: [], source: 'manual', enabled: true,
+        assignee_ids: [], source: kind === 'tip' ? 'manual' : 'printed', enabled: true,
       }],
     }));
 
@@ -528,7 +528,7 @@ const AdjustmentRow: React.FC<{
     : a.allocation === 'assign'
       ? `Charged to ${a.assignee_ids.map(nameOf).join(', ') || 'nobody yet'}`
       : a.item_indexes.length && a.item_indexes.length < itemCount
-        ? `On ${a.item_indexes.length} item${a.item_indexes.length === 1 ? '' : 's'}, by price`
+        ? `On ${a.item_indexes.length} item${a.item_indexes.length === 1 ? '' : 's'}${a.allocation === 'per_unit' && a.item_indexes.length > 1 ? '' : ', by price'}`
         : 'Whole bill, by price';
 
   return (
@@ -563,7 +563,25 @@ const AdjustmentRow: React.FC<{
             <option value="assign">To specific people</option>
           </select>
         )}
-        {a.source !== 'printed' && <button type="button" onClick={onRemove} className="text-accent-600 hover:underline">Remove</button>}
+        {discount && a.item_indexes.length > 1 && (
+          // A deal over several items ("any 3 for 2"): share it per item, or the same % off each
+          <select
+            value={a.allocation === 'per_unit' ? 'per_unit' : 'proportional'}
+            aria-label="How to share this deal"
+            onChange={(e) => onChange({ allocation: e.target.value as AdjustmentDraft['allocation'] })}
+            className="ml-auto px-1.5 py-0.5 rounded border border-muted-200 bg-white"
+          >
+            <option value="per_unit">Each item costs the same</option>
+            <option value="proportional">Same % off each item</option>
+          </select>
+        )}
+        {a.source !== 'store_rule' && (
+          <label className="flex items-center gap-1" title="Off for your own extras (e.g. a tip you add): they aren't compared with the receipt total">
+            <input type="checkbox" checked={a.source === 'printed'} onChange={(e) => onChange({ source: e.target.checked ? 'printed' : 'manual' })} />
+            On the receipt
+          </label>
+        )}
+        <button type="button" onClick={onRemove} className="text-accent-600 hover:underline">Remove</button>
       </div>
       {usesPercent && (
         // Same store, different rate this time (e.g. colleague discount 10%, 15% or 20%)

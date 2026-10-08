@@ -318,7 +318,20 @@ async def test_excel_export_summary_and_discounted_products(client, six, fake_ai
     assert r.headers["content-type"].startswith("application/vnd.openxmlformats")
     assert 'filename="Flat-expenses-' in r.headers["content-disposition"]
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Summary", "Expenses", "Discounts"]
+    assert wb.sheetnames == ["Summary", "Split", "Expenses", "Discounts"]
+
+    split = list(wb["Split"].iter_rows(values_only=True))
+    people_cols = split[0][6:]
+    assert len(people_cols) == 6
+    head = split[1]
+    assert head[1].startswith("TESCO Ireland · paid by") and head[5] == 18.2 and round(sum(v for v in head[6:] if v), 2) == 18.2
+    rows = {r[1].strip(): r for r in split[2:]}
+    assert list(rows) == ["Milk", "Cheese", "Rice", "Bread", "Croissants"]
+    assert rows["Rice"][3:6] == (12, None, 12) and sorted(v for v in rows["Rice"][6:] if v) == [2] * 6
+    assert sorted(v for v in rows["Cheese"][6:] if v) == [2, 2]
+    assert rows["Bread"][3:6] == (1.6, -1.2, 0.4) and [v for v in rows["Bread"][6:] if v] == [0.4]
+    for p_col in range(6, 12):  # each person's column adds up to their share in the expense row
+        assert round(sum(r[p_col] or 0 for r in split[2:]), 2) == (head[p_col] or 0)
 
     summary = [[c for c in row if c is not None] for row in wb["Summary"].iter_rows(values_only=True)]
     assert summary[0] == ["Flat · expenses"]

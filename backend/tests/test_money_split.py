@@ -90,6 +90,30 @@ def test_multibuy_spread_by_price_across_deal_items():
     assert result.person_totals == {"p1": 225, "p2": 75}
 
 
+def test_multibuy_per_unit_every_item_in_the_deal_costs_the_same():
+    # Any 3 for 2: vitamin D 3.00 (for p2) + 2 multivitamins 7.90 (one each for p1 and p2), 3.00 off
+    items = [EngineItem(1, 300, assignments=everyone("p2")),
+             EngineItem(2, 790, quantity=Decimal(2), assignments=everyone("p1", "p2"))]
+    deal = EngineAdjustment(1, "promotion", -300, scope="group", item_ids=[1, 2], allocation="per_unit")
+    r = split_receipt(items, [deal])
+    assert r.item_net == {1: 263, 2: 527}  # 7.90 for 3 units
+    assert r.person_totals == {"p2": 527, "p1": 263}  # 2 of the 3 units for p2
+    by_price = split_receipt(items, [EngineAdjustment(1, "promotion", -300, scope="group", item_ids=[1, 2])])
+    assert by_price.person_totals == {"p2": 504, "p1": 286}
+
+
+def test_cents_rounded_once_so_nobody_collects_every_leftover_cent():
+    # Six cheap items shared by six people: rounding per item gave p1 an extra cent each time
+    items = [EngineItem(i, price, assignments=everyone()) for i, price in enumerate([134, 80, 198, 134, 900, 61], 1)]
+    r = split_receipt(items, [])
+    exact = sum([134, 80, 198, 134, 900, 61]) / 6
+    assert sum(r.person_totals.values()) == 1507
+    assert all(abs(v - exact) < 1 for v in r.person_totals.values())
+    assert max(r.person_totals.values()) - min(r.person_totals.values()) <= 1
+    for person, parts in r.person_breakdown.items():  # the breakdown still adds up to each total
+        assert sum(p["amount"] for p in parts) == r.person_totals[person]
+
+
 def test_quantity_split():
     eggs = EngineItem(1, 600, split_mode="quantity", assignments=[("p1", Decimal(2)), ("p4", Decimal(4))])
     assert split_receipt([eggs], []).person_totals == {"p1": 200, "p4": 400}

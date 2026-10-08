@@ -266,7 +266,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             onEndReachedThreshold={0.3}
             onScrollToIndexFailed={() => undefined}
             ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ margin: space(3) }} color={colors.primary700} /> : null}
-            ListEmptyComponent={<Text style={[styles.day, styles.flipped]}>No messages yet. Say hello.</Text>}
+            ListEmptyComponent={<Text style={styles.day}>No messages yet. Say hello.</Text>}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
           />
@@ -365,7 +365,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingVertical: space(3) },
-  flipped: { transform: [{ scaleY: -1 }] },
   day: { alignSelf: 'center', marginVertical: space(2), paddingHorizontal: space(3), paddingVertical: 3, borderRadius: radius.full, backgroundColor: colors.muted100, fontSize: 12, color: colors.muted600, overflow: 'hidden' },
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: space(2.5), maxWidth: 230 },
   headerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
