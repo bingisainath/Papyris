@@ -194,6 +194,11 @@ export class StoreView implements ProtocolStore {
   async deviceList(user: string): Promise<DeviceList | null> { return this.getJson<DeviceList>(`dl:${user}`); }
   async saveDeviceList(user: string, list: DeviceList) { await this.put(`dl:${user}`, list); }
 
+  // ---- small settings (e.g. the backup key, last backup time)
+
+  async setting<T>(name: string): Promise<T | null> { return this.getJson<T>(`set:${name}`); }
+  async saveSetting(name: string, value: unknown) { await this.put(`set:${name}`, value); }
+
   // ---- local message database
 
   /** Store (or update) a message. Returns false if a message with this id is already stored. */
@@ -203,7 +208,13 @@ export class StoreView implements ProtocolStore {
     if (existing && existing !== messageKey(m.conv, m.ts, m.id)) await this.put(existing, null);
     await this.put(messageKey(m.conv, m.ts, m.id), m);
     await this.put(`mid:${m.id}`, messageKey(m.conv, m.ts, m.id));
+    if (m.serverId) await this.put(`sid:${m.serverId}`, m.id);
     return true;
+  }
+
+  async messageByServerId(serverId: string): Promise<LocalMessage | null> {
+    const id = await this.getJson<string>(`sid:${serverId}`);
+    return id ? this.message(id) : null;
   }
 
   async message(id: string): Promise<LocalMessage | null> {

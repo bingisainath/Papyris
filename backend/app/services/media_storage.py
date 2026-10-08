@@ -57,7 +57,12 @@ def upload_root() -> Path:
     return root if root.is_absolute() else BACKEND_ROOT / root
 
 
+MAX_BACKUP_SIZE = 500 * 1024 * 1024  # encrypted chat backups (end-to-end encrypted, one per account)
+
+
 def max_size_for(media_type: str) -> int:
+    if media_type == "backup":
+        return MAX_BACKUP_SIZE
     return settings.MAX_VIDEO_UPLOAD_SIZE if media_type == "video" else settings.MAX_UPLOAD_SIZE
 
 
@@ -166,11 +171,12 @@ def content_matches(mime: str, head: bytes) -> bool:
 
 
 ENCRYPTED_PREFIX = "e2e1:"  # end-to-end encrypted message text (web/src/crypto/e2e.ts)
+V2_MARKER = "e2e2:"  # v2 message: the content went to each device's mailbox; the row only orders the timeline
 ENCRYPTED_EXTENSION = ".enc"  # end-to-end encrypted upload: opaque bytes
 
 
 def is_encrypted(text: str | None) -> bool:
-    return bool(text) and text.startswith(ENCRYPTED_PREFIX)
+    return bool(text) and (text.startswith(ENCRYPTED_PREFIX) or text.startswith(V2_MARKER))
 
 
 def preview_text(message_type: str | None, text: str | None, filename: str | None = None) -> str:

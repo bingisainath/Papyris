@@ -19,6 +19,7 @@ export interface ViewerImage {
   type?: 'image' | 'video';
   mediaKey?: string; // end-to-end encrypted: decrypted in the browser
   mediaMime?: string;
+  mediaV2?: { sha256: string; size: number };
 }
 
 interface MediaViewerProps {
@@ -32,7 +33,7 @@ interface MediaViewerProps {
 const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange, onClose, onForward }) => {
   const image = images[index];
   const swipeStartX = useRef<number | null>(null);
-  const media = useMediaSrc(image?.url, image?.mediaKey, image?.mediaMime);
+  const media = useMediaSrc(image?.url, image?.mediaKey, image?.mediaMime, image?.mediaV2);
   const hasPrev = index > 0;
   const hasNext = index < images.length - 1;
 
@@ -79,7 +80,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ images, index, onIndexChange,
         <button
           onClick={() => {
             const name = image.filename || (image.type === 'video' ? 'video.mp4' : 'photo.jpg');
-            (image.mediaKey ? downloadDecrypted(image.url, image.mediaKey, image.mediaMime, name) : downloadMedia(image.url, name))
+            (image.mediaKey ? downloadDecrypted(image.url, image.mediaKey, image.mediaMime, name, image.mediaV2) : downloadMedia(image.url, name))
               .catch(() => toast.error("Couldn't download it. Try again"));
           }}
           className="p-2 rounded-lg hover:bg-white/10"

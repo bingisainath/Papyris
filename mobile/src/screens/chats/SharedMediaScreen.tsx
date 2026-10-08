@@ -9,6 +9,7 @@ import VoiceNote from '../../components/VoiceNote';
 import { api, errorMessage } from '../../api/client';
 import { openText } from '../../crypto/messages';
 import { useMediaSrc } from '../../crypto/media';
+import { isV2Marker, localFor } from '../../crypto/v2-platform/chat';
 import { useAuth } from '../../store/auth';
 import { colors, space } from '../../theme';
 import { formatDuration, formatSize } from '../../utils/time';
@@ -35,6 +36,34 @@ interface Item {
   media_key?: string;
   media_mime?: string;
   thumb_key?: string;
+  media_v2?: { sha256: string; size: number }; // v2 files (PMV2)
+  thumb_v2?: { sha256: string; size: number };
+}
+
+/** v2 items: the server only knows something was shared; details and keys come from this phone's copy. */
+async function fillV2Items(items: Item[]): Promise<Item[]> {
+  const out: Item[] = [];
+  for (const item of items) {
+    if (!isV2Marker(item.text)) {
+      out.push(item);
+      continue;
+    }
+    const local = await localFor(item.message_id).catch(() => null);
+    if (!local || local.deleted) continue; // not on this phone
+    if (item.encrypted) { // a Links-tab item: list the links in our copy of the text
+      const urls = Array.from(new Set((local.text || '').match(URL_RE) || [])).map((u) => u.replace(/[.,);!?]+$/, ''));
+      urls.forEach((url) => out.push({ ...item, url, text: local.text }));
+      continue;
+    }
+    const p = local.media?.[0];
+    if (!p) continue;
+    out.push({
+      ...item, text: local.text, media_key: p.key, media_mime: p.mime, media_filename: p.name ?? null, media_size: p.size,
+      media_duration: p.dur ?? null, media_v2: { sha256: p.sha256, size: p.size },
+      ...(p.thumb ? { thumb_key: p.thumb.key, thumb_v2: { sha256: p.thumb.sha256, size: p.thumb.size } } : {}),
+    });
+  }
+  return out;
 }
 
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
@@ -60,12 +89,12 @@ function decryptItems(conversationId: string, items: Item[]): Item[] {
 /** A photo or video thumbnail, decrypted first if it's end-to-end encrypted. */
 const Thumb: React.FC<{ item: Item; size: number }> = ({ item, size }) => {
   const video = item.media_type === 'video';
-  const { src } = useMediaSrc(video ? item.media_thumbnail || undefined : item.media_url, video ? item.thumb_key : item.media_key, video ? 'image/jpeg' : item.media_mime);
+  const { src } = useMediaSrc(video ? item.media_thumbnail || undefined : item.media_url, video ? item.thumb_key : item.media_key, video ? 'image/jpeg' : item.media_mime, video ? item.thumb_v2 : item.media_v2);
   return src ? <Image source={{ uri: src }} style={{ width: size, height: size }} /> : <View style={{ width: size, height: size }} />;
 };
 
 const SharedVoiceNote: React.FC<{ item: Item }> = ({ item }) => {
-  const { src, failed } = useMediaSrc(item.media_url, item.media_key, item.media_mime);
+  const { src, failed } = useMediaSrc(item.media_url, item.media_key, item.media_mime, item.media_v2);
   if (!src) return <Text style={styles.sub}>{failed ? "Couldn't decrypt this voice message" : 'Decrypting…'}</Text>;
   return <VoiceNote uri={src} duration={item.media_duration || undefined} mine={false} />;
 };
@@ -85,7 +114,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
     try {
       const before = more ? items[items.length - 1]?.created_at : undefined;
       const r = await api.get(`/conversations/${conversationId}/shared`, { params: { kind, before, limit: 60 } });
-      const page = decryptItems(conversationId, r.data.data);
+      const page = await fillV2Items(decryptItems(conversationId, r.data.data));
       setItems((current) => (more ? [...current, ...page] : page));
       setHasMore(!!r.data.has_more);
     } catch (e) {
@@ -102,7 +131,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
     .filter((i) => i.media_type === 'image' || i.media_type === 'video')
     .map((i) => ({
       id: i.message_id, url: i.media_url!, type: i.media_type as 'image' | 'video', filename: i.media_filename || undefined,
-      mediaKey: i.media_key, mediaMime: i.media_mime,
+      mediaKey: i.media_key, mediaMime: i.media_mime, mediaV2: i.media_v2,
       senderName: i.sender_id === me.id ? 'You' : i.sender_name || undefined, timestamp: i.created_at,
     }));
   const tile = (width - 4) / 3;
@@ -162,7 +191,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
                     <Text style={styles.name} numberOfLines={1}>{item.media_filename || 'File'}</Text>
                     <Text style={styles.sub}>{formatSize(item.media_size)} · {who(item)}</Text>
                   </View>
-                  <Pressable onPress={() => saveToPhone(item.media_url!, item.media_filename || 'file', item.media_key, item.media_mime).catch(() => Alert.alert("Couldn't save it"))}
+                  <Pressable onPress={() => saveToPhone(item.media_url!, item.media_filename || 'file', item.media_key, item.media_mime, item.media_v2).catch(() => Alert.alert("Couldn't save it"))}
                     hitSlop={10} accessibilityLabel="Save to phone">
                     <Download size={20} color={colors.primary700} />
                   </Pressable>

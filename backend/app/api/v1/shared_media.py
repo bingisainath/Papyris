@@ -47,7 +47,7 @@ async def shared_items(
     )
     if kind == "links":
         # Encrypted messages can't be searched here: the sender flags the ones with a link
-        plain = ~Message.text.startswith(media_storage.ENCRYPTED_PREFIX)
+        plain = and_(~Message.text.startswith(media_storage.ENCRYPTED_PREFIX), ~Message.text.startswith(media_storage.V2_MARKER))
         stmt = stmt.where(or_(and_(plain, Message.text.ilike("%http%")), Message.has_link.is_(True)))
     else:
         stmt = stmt.where(Message.message_type.in_(KINDS[kind]), Message.media_url.is_not(None))

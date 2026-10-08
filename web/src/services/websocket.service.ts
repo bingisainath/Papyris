@@ -59,6 +59,10 @@ export interface WebSocketEvent {
   status?: string;
   isTyping?: boolean;
   lastMessageId?: string;
+  // encryption v2
+  deviceId?: number;
+  envelope?: import('../crypto/v2').IncomingEnvelope;
+  version?: number;
   readUpTo?: string | null;
   expenseId?: string | null;
   receiptId?: string;
@@ -221,6 +225,11 @@ class WebSocketService {
       console.error('❌ Failed to send WebSocket message:', error);
       return false;
     }
+  }
+
+  /** Send any event (used by encryption v2's message_v2). False if not connected. */
+  sendEvent(data: Record<string, unknown>): boolean {
+    return this.send(data);
   }
 
   /**

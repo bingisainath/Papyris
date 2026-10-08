@@ -50,7 +50,7 @@ const AlbumGrid: React.FC<Props> = ({ messages, isSent, isGroup, onOpen, onMedia
 };
 
 const AlbumPhoto: React.FC<{ message: Message; onMediaError?: () => void }> = ({ message: m, onMediaError }) => {
-  const { src } = useMediaSrc(resolveMediaUrl(m.mediaUrl), m.mediaKey, m.mediaMime);
+  const { src } = useMediaSrc(resolveMediaUrl(m.mediaUrl), m.mediaKey, m.mediaMime, m.mediaV2);
   return src
     ? <img src={src} alt={m.mediaFilename || 'Photo'} loading="lazy" onError={m.mediaKey ? undefined : onMediaError} className="w-full h-full object-cover" />
     : <span className="block w-full h-full animate-pulse" />;

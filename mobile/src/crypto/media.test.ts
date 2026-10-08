@@ -62,7 +62,7 @@ jest.mock('react-native-blob-util', () => {
 });
 jest.mock('../config', () => ({ mediaUrl: (u: string) => u }));
 
-import { decryptedFile, encryptForUpload } from './media';
+import { decryptedFile, encryptFileV2, encryptForUpload } from './media';
 
 // Jest's toEqual on multi-megabyte arrays enumerates every index as a string key: compare directly
 const same = (a: Uint8Array | undefined, b: Uint8Array) => !!a && a.length === b.length && a.every((x, i) => x === b[i]);
@@ -111,5 +111,24 @@ describe('decrypting downloads', () => {
     mockServer.body[100] ^= 1;
     await expect(decryptedFile('/api/v1/media/bad.enc', toBase64(key), 'image/jpeg')).rejects.toThrow();
     expect([...mockFiles.keys()].some((k) => k.includes('/cache/e2e/') && !k.includes('/up-') && k.endsWith('.jpg'))).toBe(false);
+  });
+});
+
+describe('v2 (PMV2) files', () => {
+  it.each([10, 3 * FILE_CHUNK + 5, 8 * 1024 * 1024 + 3])('encrypt %i bytes from disk, then download and decrypt them', async (size) => {
+    mockFiles.set('/pics/v2.bin', sample(size));
+    const sealed = await encryptFileV2({ uri: 'file:///pics/v2.bin', type: 'video/mp4' });
+    expect(sealed.size).toBe(size);
+    mockServer.body = mockFiles.get(sealed.uri.replace('file://', ''))!;
+    const uri = await decryptedFile(`/api/v1/media/v2-${size}.enc`, sealed.key, 'video/mp4', { sha256: sealed.sha256, size: sealed.size });
+    expect(same(mockFiles.get(uri.replace('file://', '')), sample(size))).toBe(true);
+  }, 60000);
+
+  it('a changed v2 file is refused', async () => {
+    mockFiles.set('/pics/v2b.bin', sample(1000));
+    const sealed = await encryptFileV2({ uri: 'file:///pics/v2b.bin', type: 'image/png' });
+    mockServer.body = mockFiles.get(sealed.uri.replace('file://', ''))!.slice();
+    mockServer.body[30] ^= 1;
+    await expect(decryptedFile('/api/v1/media/v2-bad.enc', sealed.key, 'image/png', { sha256: sealed.sha256, size: sealed.size })).rejects.toThrow();
   });
 });

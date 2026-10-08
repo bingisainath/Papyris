@@ -4,10 +4,10 @@
 
 import { AppState } from 'react-native';
 import { api } from '../../api/client';
-import { DeviceManager, EncryptedStore } from '../v2';
+import { DeviceManager, EncryptedStore, Messenger } from '../v2';
 import type { DeviceState, E2EHttp } from '../v2';
 import { openSqliteKV } from './sqliteKV';
-import { phoneName } from '../../screens/auth/E2EGate';
+import { phoneName } from '../../utils/device';
 
 const http: E2EHttp = {
   get: async (path, params) => (await api.get(path, { params })).data.data,
@@ -16,7 +16,7 @@ const http: E2EHttp = {
   del: async (path) => (await api.delete(path)).data.data,
 };
 
-interface Runtime { userId: string; store: EncryptedStore; manager: DeviceManager; state: DeviceState }
+interface Runtime { userId: string; store: EncryptedStore; manager: DeviceManager; state: DeviceState; messenger: Messenger }
 
 let current: Promise<Runtime> | null = null;
 let stopWatching: (() => void) | null = null;
@@ -34,7 +34,8 @@ export function startV2(userId: string): Promise<Runtime> {
       if (s === 'active') manager.ensurePrekeys().catch(() => undefined);
     });
     stopWatching = () => sub.remove();
-    return { userId, store, manager, state };
+    const messenger = new Messenger(store, http, { user: userId, device: state.deviceId });
+    return { userId, store, manager, state, messenger };
   })();
   current.catch(() => { current = null; }); // try again next time
   return current;

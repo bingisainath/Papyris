@@ -4,7 +4,11 @@
 
 import { useEffect, useState } from 'react';
 import { decryptFile, encryptFile, fromBase64, jpegOrientation, newFileKey, stripJpegMetadata, toBase64 } from './e2e';
+import { decryptMedia } from './v2/media';
 import { resolveMediaUrl } from '../utils/media';
+
+/** v2 files (PMV2 format) also carry the hash and real size from their pointer. */
+export interface V2File { sha256: string; size: number }
 
 /** Encrypt a file for upload. Returns the opaque file to upload and its key (goes inside the message). */
 export async function encryptForUpload(file: Blob): Promise<{ file: File; key: string }> {
@@ -24,14 +28,15 @@ const MAX_OBJECT_URLS = 150;
 const cacheKey = (url: string, key: string) => `${url.split('?')[0]}#${key}`;
 
 /** Download an encrypted file, decrypt it, and return a blob: URL for <img>, <video>, <audio> or a link. */
-export function decryptedUrl(url: string, key: string, mime = 'application/octet-stream'): Promise<string> {
+export function decryptedUrl(url: string, key: string, mime = 'application/octet-stream', v2?: V2File): Promise<string> {
   const id = cacheKey(url, key);
   const cached = objectUrls.get(id);
   if (cached) return cached;
   const promise = (async () => {
     const response = await fetch(resolveMediaUrl(url)!);
     if (!response.ok) throw new Error(`Download failed (${response.status})`);
-    const plain = decryptFile(fromBase64(key), new Uint8Array(await response.arrayBuffer()));
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const plain = v2 ? decryptMedia(bytes, { key, sha256: v2.sha256, size: v2.size }) : decryptFile(fromBase64(key), bytes);
     return URL.createObjectURL(new Blob([plain], { type: mime }));
   })();
   promise.catch(() => objectUrls.delete(id));
@@ -53,20 +58,21 @@ export function rememberDecrypted(url: string, key: string, file: Blob): void {
  * The URL to show a media file: the server URL for plain media, or a decrypted blob: URL for
  * encrypted media (undefined while it downloads). `failed` is true if it couldn't be decrypted.
  */
-export function useMediaSrc(url?: string, key?: string, mime?: string): { src?: string; failed: boolean } {
+export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2File): { src?: string; failed: boolean } {
   const [state, setState] = useState<{ src?: string; failed: boolean; for?: string }>({ failed: false });
   const id = url && key ? cacheKey(url, key) : undefined;
 
   useEffect(() => {
     if (!url || !key) return;
     let alive = true;
-    decryptedUrl(url, key, mime)
+    decryptedUrl(url, key, mime, v2)
       .then((src) => alive && setState({ src, failed: false, for: id }))
       .catch(() => alive && setState({ failed: true, for: id }));
     return () => {
       alive = false;
     };
-  }, [url, key, mime, id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, key, mime, id, v2?.sha256]);
 
   if (!url) return { failed: false };
   if (!key) return { src: url, failed: false };
@@ -74,8 +80,8 @@ export function useMediaSrc(url?: string, key?: string, mime?: string): { src?: 
 }
 
 /** Save a decrypted copy under its original name. */
-export async function downloadDecrypted(url: string, key: string, mime: string | undefined, filename: string): Promise<void> {
-  const src = await decryptedUrl(url, key, mime);
+export async function downloadDecrypted(url: string, key: string, mime: string | undefined, filename: string, v2?: V2File): Promise<void> {
+  const src = await decryptedUrl(url, key, mime, v2);
   const link = document.createElement('a');
   link.href = src;
   link.download = filename;

@@ -12,10 +12,13 @@ import type { FoundLink } from '../../crypto/linking';
 import { errorMessage } from '../../api/client';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { cameraAllowed } from '../../utils/camera';
+import BackupSection from '../../components/BackupSection';
+import { useAuth } from '../../store/auth';
 import { colors, radius, space } from '../../theme';
 
 const EncryptionScreen: React.FC = () => {
   const keyboard = useKeyboardOffset();
+  const userId = useAuth((s) => s.user?.id);
   const [code, setCode] = useState('');
   const [found, setFound] = useState<FoundLink | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -103,6 +106,7 @@ const EncryptionScreen: React.FC = () => {
               disabled={code.replace(/[^a-z0-9]/gi, '').length < 16} onPress={() => lookup(() => findByCode(code))} />
           </>
         )}
+        {userId && <BackupSection userId={userId} />}
       </ScrollView>
 
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>

@@ -69,7 +69,7 @@ const AlbumGrid: React.FC<{ messages: Message[]; mine: boolean; showSender: bool
 };
 
 const AlbumPhoto: React.FC<{ message: Message }> = ({ message: m }) => {
-  const { src } = useMediaSrc(m.mediaUrl, m.mediaKey, m.mediaMime);
+  const { src } = useMediaSrc(m.mediaUrl, m.mediaKey, m.mediaMime, m.mediaV2);
   return src ? <Image source={{ uri: src }} style={styles.image} /> : <View style={styles.image} />;
 };
 

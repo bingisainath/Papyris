@@ -19,6 +19,7 @@ export interface ViewerItem {
   timestamp: string;
   mediaKey?: string; // end-to-end encrypted: decrypted on the phone
   mediaMime?: string;
+  mediaV2?: { sha256: string; size: number };
 }
 
 interface Props {
@@ -37,7 +38,7 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
   const save = async () => {
     if (!item) return;
     try {
-      await saveToPhone(item.url, item.filename || (item.type === 'video' ? 'video.mp4' : 'photo.jpg'), item.mediaKey, item.mediaMime);
+      await saveToPhone(item.url, item.filename || (item.type === 'video' ? 'video.mp4' : 'photo.jpg'), item.mediaKey, item.mediaMime, item.mediaV2);
     } catch {
       Alert.alert("Couldn't save it", 'Check your connection and try again.');
     }
@@ -78,7 +79,7 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
 
 const ViewerPage: React.FC<{ media: ViewerItem; width: number; height: number; active: boolean; near: boolean }> = ({ media, width, height, active, near }) => {
   const load = media.type === 'video' ? active : near;
-  const { src, failed } = useMediaSrc(load ? media.url : undefined, media.mediaKey, media.mediaMime);
+  const { src, failed } = useMediaSrc(load ? media.url : undefined, media.mediaKey, media.mediaMime, media.mediaV2);
   return (
     <View style={{ width, height, justifyContent: 'center', alignItems: 'center' }}>
       {!src ? (

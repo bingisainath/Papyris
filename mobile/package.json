@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "check:e2e": "cmp src/crypto/e2e.ts ../web/src/crypto/e2e.ts && cmp src/crypto/messages.ts ../web/src/crypto/messages.ts && cmp src/crypto/linking.ts ../web/src/crypto/linking.ts && diff -r src/crypto/v2 ../web/src/crypto/v2 && echo 'shared crypto files identical in web and mobile'"
+    "check:e2e": "cmp src/crypto/e2e.ts ../web/src/crypto/e2e.ts && cmp src/crypto/messages.ts ../web/src/crypto/messages.ts && cmp src/crypto/linking.ts ../web/src/crypto/linking.ts && cmp src/crypto/backup.ts ../web/src/crypto/backup.ts && diff -r src/crypto/v2 ../web/src/crypto/v2 && echo 'shared crypto files identical in web and mobile'"
   },
   "dependencies": {
     "@noble/ciphers": "1.3.0",

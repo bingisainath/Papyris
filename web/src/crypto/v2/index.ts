@@ -13,3 +13,4 @@ export * from './link';
 export * from './packets';
 export * from './storage';
 export * from './device';
+export * from './messenger';

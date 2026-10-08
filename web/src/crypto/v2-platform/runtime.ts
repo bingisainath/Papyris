@@ -3,7 +3,7 @@
 // registers its keys and keeps prekeys topped up (phase 3). Sending still uses v1 until phase 4.
 
 import api from '../../utils/axios';
-import { DeviceManager, EncryptedStore } from '../v2';
+import { DeviceManager, EncryptedStore, Messenger } from '../v2';
 import type { DeviceState, E2EHttp } from '../v2';
 import { openIdbKV } from './idbKV';
 import { browserName } from '../../app/E2EGate';
@@ -17,7 +17,7 @@ const http: E2EHttp = {
 
 const PREKEY_CHECK_MS = 6 * 3600e3;
 
-interface Runtime { userId: string; store: EncryptedStore; manager: DeviceManager; state: DeviceState }
+interface Runtime { userId: string; store: EncryptedStore; manager: DeviceManager; state: DeviceState; messenger: Messenger }
 
 let current: Promise<Runtime> | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -32,7 +32,8 @@ export function startV2(userId: string): Promise<Runtime> {
     const state = await manager.bootstrap();
     if (timer) clearInterval(timer);
     timer = setInterval(() => { manager.ensurePrekeys().catch(() => undefined); }, PREKEY_CHECK_MS);
-    return { userId, store, manager, state };
+    const messenger = new Messenger(store, http, { user: userId, device: state.deviceId });
+    return { userId, store, manager, state, messenger };
   })();
   current.catch(() => { current = null; }); // try again next time
   return current;

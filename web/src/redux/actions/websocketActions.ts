@@ -38,6 +38,12 @@ import { encryptForUpload, rememberDecrypted } from '../../crypto/media';
 import type { E2EMedia } from '../../crypto/e2e';
 import { e2eService } from '../../services/e2e.service';
 import { E2E_DIRECTORY_EVENT } from '../../crypto/useChatEncryption';
+import {
+  confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, localFor, pendingFields, pointerOf, receiveLive,
+  sendMediaV2, sendTextV2, v2For,
+} from '../../crypto/v2-platform/chat';
+import type { ChatInfo } from '../../crypto/v2-platform/chat';
+import type { LocalMessage, Received } from '../../crypto/v2';
 import type { UploadQuality } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
@@ -76,6 +82,44 @@ function setTypingWithExpiry(
       dispatch(setTyping({ conversationId, userId, isTyping: false }));
     }, TYPING_TIMEOUT_MS));
   }
+}
+
+/** Show what v2 decrypted: fill the timeline row (or edit), update the chat list, notify. */
+function applyV2(dispatch: AppDispatch, getState: () => RootState, r: Received) {
+  if (r.kind !== 'message' && r.kind !== 'edit') return;
+  const m: LocalMessage = r.message;
+  const list = getState().chat.messages[m.conv] || [];
+  const row = list.find(x => (m.serverId && x.id === m.serverId) || x.localId === m.id);
+  if (row) dispatch(updateMessage({ conversationId: m.conv, messageId: row.id, updates: fromLocal(m) }));
+  if (r.kind !== 'message') return;
+  const fields = fromLocal(m);
+  dispatch(updateConversationLastMessage({
+    conversationId: m.conv,
+    lastMessage: messagePreview(fields.text, fields.mediaType, fields.mediaFilename),
+    timestamp: new Date(m.ts).toISOString(),
+  }));
+  if (m.sender.user !== localStorage.getItem('userId')) {
+    const conversation = getState().chat.conversations.find(c => c.id === m.conv);
+    const sender = row?.senderName || 'Someone';
+    const preview = messagePreview(fields.text, fields.mediaType, fields.mediaFilename);
+    notifyNewMessage({
+      conversationId: m.conv,
+      title: conversation?.name || sender,
+      body: conversation?.isGroup ? `${sender}: ${preview}` : preview,
+      icon: conversation?.isGroup ? conversation.avatar : row?.senderAvatar,
+    });
+  }
+}
+
+/** Process this browser's v2 mailbox (after connecting). */
+export const syncV2 = () => async (dispatch: AppDispatch, getState: () => RootState) => {
+  await drainMailbox((r) => applyV2(dispatch, getState, r)).catch(() => undefined);
+};
+
+/** Who is in a conversation (for encryption v2), from the chat list. */
+export function chatInfo(getState: () => RootState, conversationId: string): ChatInfo {
+  const c = getState().chat.conversations.find(x => x.id === conversationId);
+  return { conversationId, isGroup: !!c?.isGroup, members: c?.members || [] };
 }
 
 const newClientId = () =>
@@ -173,7 +217,7 @@ export const sendMessage = (
   file?: File,
   replyTo?: ReplyPreview | null,
   options: SendOptions = {},
-) => async (dispatch: AppDispatch) => {
+) => async (dispatch: AppDispatch, getState: () => RootState) => {
   if (!wsService.isConnected()) {
     console.error('❌ Cannot send message: WebSocket not connected');
     toast.error('Not connected. Please wait a moment and try again.');
@@ -210,6 +254,19 @@ export const sendMessage = (
   }));
 
   if (!file) {
+    // Encryption v2 when everyone in the chat has it set up; otherwise v1 (or plain) as before
+    const chat = chatInfo(getState, conversationId);
+    const v2 = await v2For(chat).catch(() => null);
+    if (v2) {
+      dispatch(updateMessage({ conversationId, messageId: clientId, updates: { e2eVersion: 2, localId: clientId } }));
+      try {
+        if (!(await sendTextV2(v2, chat, clientId, text, replyTo))) throw new Error('Message not sent: connection lost.');
+      } catch (error) {
+        dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
+        toast.error(parseApiError(error));
+      }
+      return;
+    }
     let outgoing = { text, hasLink: false };
     try {
       outgoing = (await sealFor(conversationId, { t: text })) || outgoing;
@@ -230,7 +287,7 @@ export const sendMessage = (
   await dispatch(uploadAndSend(clientId));
 };
 
-const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
+const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch, getState: () => RootState) => {
   const job = uploads.get(clientId);
   if (!job) return;
   const { conversationId, text, file, replyTo, options } = job;
@@ -254,6 +311,29 @@ const uploadAndSend = (clientId: string) => async (dispatch: AppDispatch) => {
         return dims;
       })
     : Promise.resolve(null);
+
+  // Encryption v2: the file (PMV2) and its key travel only to the chat's devices
+  const chat = chatInfo(getState, conversationId);
+  const v2 = await v2For(chat).catch(() => null);
+  if (v2) {
+    dispatch(updateMessage({ conversationId, messageId: clientId, updates: { e2eVersion: 2, localId: clientId } }));
+    try {
+      const sent = await sendMediaV2(v2, chat, clientId, file, text, {
+        quality, duration: options.duration, replyTo, signal: controller.signal,
+        onProgress: (percent) => dispatch(updateMessage({ conversationId, messageId: clientId, updates: { uploadProgress: Math.min(percent, 99) } })),
+      });
+      uploads.delete(clientId);
+      if (!sent) {
+        dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed' } }));
+        toast.error('Message not sent: connection lost.');
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      dispatch(updateMessage({ conversationId, messageId: clientId, updates: { status: 'failed', uploadFailed: true, uploadProgress: undefined } }));
+      toast.error(`Couldn't send ${file.name}: ${parseApiError(error)}`);
+    }
+    return;
+  }
 
   let media: OutgoingMedia;
   let outgoing = { text, hasLink: false };
@@ -353,7 +433,7 @@ export const mediaPayloadOf = (m: Message): E2EMedia | undefined =>
  * Send copies of a message (text and/or media) to other chats, like WhatsApp's Forward.
  * Encrypted files are re-used as they are: only their key is sealed again for the new chat.
  */
-export const forwardMessage = (message: Message, conversationIds: string[]) => async () => {
+export const forwardMessage = (message: Message, conversationIds: string[]) => async (_dispatch: AppDispatch, getState: () => RootState) => {
   const encryptedMedia = mediaPayloadOf(message);
   const plainMedia: OutgoingMedia | undefined = message.mediaUrl && message.mediaType
     ? {
@@ -371,6 +451,17 @@ export const forwardMessage = (message: Message, conversationIds: string[]) => a
   let skipped = 0;
   for (const conversationId of conversationIds) {
     try {
+      const chat = chatInfo(getState, conversationId);
+      const v2 = await v2For(chat).catch(() => null);
+      const v2Pointer = pointerOf(message);
+      if (v2 && (v2Pointer || !message.mediaUrl)) {
+        if (await forwardV2(v2, chat, newClientId(), message.text || '', v2Pointer)) sent += 1;
+        continue;
+      }
+      if (v2Pointer) {
+        skipped += 1; // a v2 file can only go to a chat that uses v2
+        continue;
+      }
       const sealed = await sealFor(conversationId, { t: message.text || '', m: encryptedMedia });
       if (!sealed && encryptedMedia) {
         skipped += 1; // an encrypted file can't go to a chat that isn't encrypted
@@ -455,8 +546,20 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         reactions: [],
       } as Message);
 
-      dispatch(upsertMessage({ conversationId: data.roomId, message }));
-      flagUnverified(dispatch, data.roomId, [message]);
+      const v2 = isV2Marker(data.text);
+      dispatch(upsertMessage({ conversationId: data.roomId, message: v2 ? { ...message, ...pendingFields } : message }));
+      if (v2) {
+        // The content comes in this device's own packet; ours is already in the local database
+        const roomId: string = data.roomId;
+        const messageId: string = data.messageId;
+        const clientId = data.clientId;
+        const own = !!clientId && data.senderId === localStorage.getItem('userId');
+        (own ? confirmOwn(clientId!, messageId) : localFor(messageId)).then(local => {
+          if (local) dispatch(updateMessage({ conversationId: roomId, messageId, updates: fromLocal(local) }));
+        }).catch(() => undefined);
+      } else {
+        flagUnverified(dispatch, data.roomId, [message]);
+      }
 
       // Our optimistic copy now points at the server URL; free the local preview
       if (data.clientId && pendingPreviews.has(data.clientId)) {
@@ -467,7 +570,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       // Update last message
       dispatch(updateConversationLastMessage({
         conversationId: data.roomId,
-        lastMessage: messagePreview(message.text, message.mediaType, message.mediaFilename),
+        lastMessage: isV2Marker(data.text) ? 'Encrypted message' : messagePreview(message.text, message.mediaType, message.mediaFilename),
         timestamp: data.timestamp || new Date().toISOString()
       }));
 
@@ -477,8 +580,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       // Sending a message means they stopped typing
       if (data.senderId) setTypingWithExpiry(dispatch, roomId, data.senderId, false);
 
-      // Desktop notification for messages from others (skipped if this chat is in view)
-      if (!isOwn && data.messageType !== 'system') {
+      // Desktop notification for messages from others (skipped if this chat is in view).
+      // v2 messages notify when their content is decrypted (applyV2).
+      if (!isOwn && data.messageType !== 'system' && !isV2Marker(data.text)) {
         dispatch((_: AppDispatch, getState: () => RootState) => {
           const conversation = getState().chat.conversations.find(c => c.id === roomId);
           const sender = data.senderName || 'Someone';
@@ -598,6 +702,21 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     }
   });
 
+  // Encryption v2: a packet for one of this account's devices
+  wsService.on('e2e_envelope', (data) => {
+    const deviceId = data.deviceId;
+    const envelope = data.envelope;
+    if (typeof deviceId !== 'number' || !envelope) return;
+    dispatch((_: AppDispatch, getState: () => RootState) => {
+      receiveLive(deviceId, envelope).then(r => { if (r) applyV2(dispatch, getState, r); }).catch(() => undefined);
+    });
+  });
+
+  wsService.on('e2e_device_list', (data) => {
+    forgetDirectory(data.userId).catch(() => undefined);
+    window.dispatchEvent(new CustomEvent(E2E_DIRECTORY_EVENT));
+  });
+
   // Someone set up or reset their encryption keys
   wsService.on('keys_changed', (data) => {
     e2eService.forgetUser(data.userId);
@@ -611,6 +730,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // Group renamed / photo / members changed
   wsService.on('conversation_updated', (data) => {
     if (data.conversationId) e2eService.forgetConversation(data.conversationId);
+    forgetDirectory().catch(() => undefined); // members may have changed
     window.dispatchEvent(new CustomEvent(E2E_DIRECTORY_EVENT));
     dispatch(fetchConversations());
     window.dispatchEvent(new CustomEvent(CONVERSATION_UPDATED_EVENT, { detail: data.conversationId }));
@@ -692,6 +812,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
   wsService.on('connected', () => {
     dispatch(setConnected(true));
+    dispatch(syncV2()); // v2 packets that arrived while we were away
 
     if (missedEvents) {
       missedEvents = false;

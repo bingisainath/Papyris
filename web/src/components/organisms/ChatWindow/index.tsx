@@ -27,6 +27,7 @@ import { Lock, LockOpen, UserPlus } from 'lucide-react';
 import { downloadDecrypted } from '../../../crypto/media';
 import { sealFor } from '../../../crypto/messages';
 import { useChatEncryption } from '../../../crypto/useChatEncryption';
+import { editV2 } from '../../../crypto/v2-platform/chat';
 import { mediaPayloadOf } from '../../../redux/actions/websocketActions';
 import AddExpenseSheet from '../../expenses/AddExpenseSheet';
 import ExpenseCard from '../../expenses/ExpenseCard';
@@ -63,6 +64,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const dispatch = useDispatch<AppDispatch>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const encryption = useChatEncryption(conversationId);
+  const conversationMembers = useSelector((state: RootState) => state.chat.conversations.find(c => c.id === conversationId)?.members) || EMPTY;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastRenderedMessageId = useRef<string | undefined>(undefined);
   const scrollHeightBeforePrepend = useRef<number | null>(null);
@@ -200,7 +202,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         return;
       }
       try {
-        // Encrypted chat: the edit is a new envelope (keeping the attached file's key)
+        if (original.e2eVersion === 2) {
+          // v2: the edit is a new encrypted packet to the same devices; the server row doesn't change
+          await editV2({ conversationId, isGroup: !!isGroup, members: conversationMembers }, original, text);
+          dispatch(applyMessageUpdate({ conversationId, messageId: original.id, text, editedAt: new Date().toISOString() }));
+          return;
+        }
+        // Encrypted chat (v1): the edit is a new envelope (keeping the attached file's key)
         const sealed = await sealFor(conversationId, { t: text, m: mediaPayloadOf(original) });
         const result = await chatService.editMessage(original.id, sealed?.text ?? text, sealed?.hasLink);
         dispatch(applyMessageUpdate({
@@ -240,7 +248,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const handleDownload = (message: Message) => {
     if (!message.mediaUrl) return;
     (message.mediaKey
-      ? downloadDecrypted(message.mediaUrl, message.mediaKey, message.mediaMime, message.mediaFilename || 'download')
+      ? downloadDecrypted(message.mediaUrl, message.mediaKey, message.mediaMime, message.mediaFilename || 'download', message.mediaV2)
       : downloadMedia(message.mediaUrl, message.mediaFilename || 'download'))
       .catch(() => toast.error("Couldn't download it. Try again"));
   };
@@ -292,6 +300,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         url: resolveMediaUrl(m.mediaUrl)!,
         mediaKey: m.mediaKey,
         mediaMime: m.mediaMime,
+        mediaV2: m.mediaV2,
         filename: m.mediaFilename,
         senderName: m.senderId === currentUserId ? 'You' : m.senderName,
         timestamp: m.timestamp,
@@ -371,6 +380,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 mediaMime={message.mediaMime}
                 thumbKey={message.thumbKey}
                 e2e={message.e2e}
+                mediaV2={message.mediaV2}
+                thumbV2={message.thumbV2}
                 e2eUnverified={message.e2eUnverified}
                 uploadProgress={message.uploadProgress}
                 isGroup={isGroup}

@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
 import { Divider } from '../../components/ui';
 import { enablePush, pushStatus } from '../../notifications/push';
+import { logoutRisk } from '../../crypto/backupRuntime';
 import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, space } from '../../theme';
@@ -83,10 +84,28 @@ const SettingsScreen: React.FC = () => {
           </View>
           <Divider />
           <Pressable
-            onPress={() => Alert.alert('Log out?', 'You can sign back in any time.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Log out', style: 'destructive', onPress: async () => { useChat.getState().reset(); await logout(); } },
-            ])}
+            onPress={async () => {
+              // Logging out of the last signed-in device makes encrypted chats unreadable: warn first
+              const risk = await logoutRisk().catch(() => ({ lastDevice: true, hasBackup: false }));
+              const doLogout = async () => { useChat.getState().reset(); await logout(); };
+              if (!risk.lastDevice) {
+                Alert.alert('Log out?', 'You can sign back in any time.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Log out', style: 'destructive', onPress: doLogout },
+                ]);
+              } else if (risk.hasBackup) {
+                Alert.alert('Log out of your only device?', "No other phone or browser is signed in. To read your encrypted chats again after logging out, you'll need your 64-digit backup recovery key. Make sure you have it.", [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Log out anyway', style: 'destructive', onPress: doLogout },
+                ]);
+              } else {
+                Alert.alert('Log out of your only device?', "No other phone or browser is signed in, and you have no backup. If you log out, your end-to-end encrypted chats can't be read again, on any device.", [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Turn on backup', onPress: () => navigation.navigate('Encryption') },
+                  { text: 'Log out anyway', style: 'destructive', onPress: doLogout },
+                ]);
+              }
+            }}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted50 }]}
           >
             <LogOut size={20} color={colors.danger600} />

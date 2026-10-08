@@ -14,6 +14,10 @@ import {
   FILE_CHUNK, FILE_HEADER, FileDecryptor, FileEncryptor, fromBase64, jpegOrientation, newFileKey, stripJpegMetadata, toBase64, utf8,
 } from './e2e';
 import { mediaUrl } from '../config';
+import { encryptMedia, MediaDecryptor, MediaEncryptor } from './v2/media';
+
+/** v2 files (PMV2 format) also carry the hash and real size from their pointer. */
+export interface V2File { sha256: string; size: number }
 
 const fs = ReactNativeBlobUtil.fs;
 const DIR = `${fs.dirs.CacheDir}/e2e`;
@@ -133,13 +137,45 @@ const EXT: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
 };
 
+/**
+ * Encrypt a local file in the v2 (PMV2) format for upload, streaming from disk.
+ * Returns the encrypted file and what goes in the media pointer.
+ */
+export async function encryptFileV2(file: { uri: string; type: string }): Promise<{ uri: string; key: string; sha256: string; size: number }> {
+  await ensureDir();
+  const source = plainPath(file.uri);
+  const target = `${DIR}/up2-${Date.now()}-${Math.random().toString(36).slice(2)}.enc`;
+  const { size } = await fs.stat(source);
+  if (size <= SMALL) {
+    let data = fromBase64(await fs.readFile(source, 'base64'));
+    if (file.type === 'image/jpeg' && jpegOrientation(data) === 1) data = stripJpegMetadata(data);
+    const sealed = encryptMedia(data);
+    await fs.writeFile(target, toBase64(sealed.blob), 'base64');
+    return { uri: `file://${target}`, key: sealed.key, sha256: sealed.sha256, size: sealed.size };
+  }
+  const encryptor = new MediaEncryptor();
+  const writer = await fs.writeStream(target, 'base64', false);
+  let done: ReturnType<MediaEncryptor['finish']>;
+  try {
+    await writer.write(toBase64(encryptor.start()));
+    await readPieces(source, FILE_CHUNK, 0, async (piece) => {
+      for (const c of encryptor.push(piece)) await writer.write(toBase64(c));
+    });
+    done = encryptor.finish();
+    for (const c of done.chunks) await writer.write(toBase64(c));
+  } finally {
+    await writer.close();
+  }
+  return { uri: `file://${target}`, key: done.key, sha256: done.sha256, size: done.size };
+}
+
 const inFlight = new Map<string, Promise<string>>();
 
 /**
  * Download an encrypted file, decrypt it into the cache and return its file:// URI.
  * The same file (address + key) is only downloaded and decrypted once.
  */
-export function decryptedFile(url: string, key: string, mime?: string): Promise<string> {
+export function decryptedFile(url: string, key: string, mime?: string, v2?: V2File): Promise<string> {
   const id = hex(sha256(utf8(`${url.split('?')[0]}#${key}`))).slice(0, 32);
   const existing = inFlight.get(id);
   if (existing) return existing;
@@ -154,6 +190,28 @@ export function decryptedFile(url: string, key: string, mime?: string): Promise<
       throw new Error(`Download failed (${response.info().status})`);
     }
     const partial = `${target}.part`;
+    if (v2) {
+      // PMV2: the decryptor finds the header and the last chunk itself, and checks the hash
+      try {
+        const decryptor = new MediaDecryptor({ key, sha256: v2.sha256, size: v2.size });
+        const writer = await fs.writeStream(partial, 'base64', false);
+        try {
+          await readPieces(download, FILE_CHUNK, 0, async (piece) => {
+            for (const p of decryptor.push(piece)) if (p.length) await writer.write(toBase64(p));
+          });
+          for (const p of decryptor.finish()) if (p.length) await writer.write(toBase64(p));
+        } finally {
+          await writer.close();
+        }
+        await fs.mv(partial, target);
+        return `file://${target}`;
+      } catch (e) {
+        await fs.unlink(partial).catch(() => undefined);
+        throw e;
+      } finally {
+        await fs.unlink(download).catch(() => undefined);
+      }
+    }
     try {
       let decryptor: FileDecryptor | null = null;
       const writer = await fs.writeStream(partial, 'base64', false);
@@ -194,20 +252,21 @@ export async function rememberDecrypted(url: string, key: string, localUri: stri
  * The URI to show a media file: the server address for plain media, or a decrypted local copy
  * for encrypted media (undefined while it downloads). `failed` if it couldn't be decrypted.
  */
-export function useMediaSrc(url?: string, key?: string, mime?: string): { src?: string; failed: boolean } {
+export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2File): { src?: string; failed: boolean } {
   const [state, setState] = useState<{ src?: string; failed: boolean; for?: string }>({ failed: false });
   const id = url && key ? `${url.split('?')[0]}#${key}` : undefined;
 
   useEffect(() => {
     if (!url || !key) return;
     let alive = true;
-    decryptedFile(url, key, mime)
+    decryptedFile(url, key, mime, v2)
       .then((src) => alive && setState({ src, failed: false, for: id }))
       .catch(() => alive && setState({ failed: true, for: id }));
     return () => {
       alive = false;
     };
-  }, [url, key, mime, id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, key, mime, id, v2?.sha256]);
 
   if (!url) return { failed: false };
   if (!key) return { src: mediaUrl(url), failed: false };

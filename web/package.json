@@ -47,7 +47,7 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "check:e2e": "cmp src/crypto/e2e.ts ../mobile/src/crypto/e2e.ts && cmp src/crypto/messages.ts ../mobile/src/crypto/messages.ts && cmp src/crypto/linking.ts ../mobile/src/crypto/linking.ts && diff -r src/crypto/v2 ../mobile/src/crypto/v2 && echo 'shared crypto files identical in web and mobile'"
+    "check:e2e": "cmp src/crypto/e2e.ts ../mobile/src/crypto/e2e.ts && cmp src/crypto/messages.ts ../mobile/src/crypto/messages.ts && cmp src/crypto/linking.ts ../mobile/src/crypto/linking.ts && cmp src/crypto/backup.ts ../mobile/src/crypto/backup.ts && diff -r src/crypto/v2 ../mobile/src/crypto/v2 && echo 'shared crypto files identical in web and mobile'"
   },
   "eslintConfig": {
     "extends": [

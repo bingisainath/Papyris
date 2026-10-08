@@ -17,12 +17,12 @@ const MIME: Record<string, string> = {
 const safeName = (name: string) => name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120) || 'papyris-file';
 
 /** key/mime: end-to-end encrypted files are decrypted on the phone, then saved. */
-export async function saveToPhone(url: string, filename: string, key?: string, fileMime?: string): Promise<void> {
+export async function saveToPhone(url: string, filename: string, key?: string, fileMime?: string, v2?: { sha256: string; size: number }): Promise<void> {
   const name = safeName(filename);
   const source = mediaUrl(url)!;
   const mime = fileMime || MIME[name.split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream';
   if (key) {
-    const local = (await decryptedFile(url, key, fileMime)).replace(/^file:\/\//, '');
+    const local = (await decryptedFile(url, key, fileMime, v2)).replace(/^file:\/\//, '');
     if (Platform.OS === 'android') {
       if (Number(Platform.Version) >= 29) {
         await ReactNativeBlobUtil.MediaCollection.copyToMediaStore({ name, parentFolder: '', mimeType: mime }, 'Download', local);

@@ -22,6 +22,7 @@ import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
 import { mediaPayloadOf, typingNames, useChat } from '../../store/chat';
 import { sealFor } from '../../crypto/messages';
+import { editV2 } from '../../crypto/v2-platform/chat';
 import { socket } from '../../ws/socket';
 import { colors, radius, space } from '../../theme';
 import { dayLabel } from '../../utils/time';
@@ -129,7 +130,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   const media = useMemo<ViewerItem[]>(() => messages
     .filter((m) => (m.mediaType === 'image' || m.mediaType === 'video') && m.mediaUrl && !m.isDeleted && !m.id.startsWith('temp-'))
     .map((m) => ({
-      id: m.id, url: m.mediaUrl!, type: m.mediaType as 'image' | 'video', filename: m.mediaFilename, mediaKey: m.mediaKey, mediaMime: m.mediaMime,
+      id: m.id, url: m.mediaUrl!, type: m.mediaType as 'image' | 'video', filename: m.mediaFilename, mediaKey: m.mediaKey, mediaMime: m.mediaMime, mediaV2: m.mediaV2,
       senderName: m.senderId === me.id ? 'You' : m.senderName, timestamp: m.timestamp,
     })), [messages, me.id]);
   const openMedia = (id: string) => {
@@ -139,7 +140,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   const save = async (m: Message) => {
     try {
-      await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`, m.mediaKey, m.mediaMime);
+      await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`, m.mediaKey, m.mediaMime, m.mediaV2);
       if (Platform.OS === 'android') Alert.alert('Saving to Downloads', 'You\'ll get a notification when it\'s done.');
     } catch {
       Alert.alert("Couldn't save it", 'Check your connection and try again.');
@@ -168,7 +169,13 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       setText('');
       if (!value || value === original.text) return;
       try {
-        // Encrypted chat: the edit is a new envelope (keeping the attached file's key)
+        if (original.e2eVersion === 2) {
+          // v2: the edit is a new encrypted packet to the same devices; the server row doesn't change
+          await editV2({ conversationId, isGroup: !!conversation?.isGroup, members: conversation?.members || [] }, original, value);
+          useChat.setState((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] || []).map((m) => (m.id === original.id ? { ...m, text: value, editedAt: new Date().toISOString() } : m)) } }));
+          return;
+        }
+        // Encrypted chat (v1): the edit is a new envelope (keeping the attached file's key)
         const sealed = await sealFor(conversationId, { t: value, m: mediaPayloadOf(original) });
         await chatApi.editMessage(original.id, sealed?.text ?? value, sealed?.hasLink);
       } catch (e) {

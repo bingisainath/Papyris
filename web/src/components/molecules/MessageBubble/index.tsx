@@ -36,7 +36,9 @@ interface MessageBubbleProps {
   mediaKey?: string;
   mediaMime?: string;
   thumbKey?: string;
-  e2e?: 'encrypted' | 'unreadable';
+  e2e?: 'encrypted' | 'unreadable' | 'pending';
+  mediaV2?: { sha256: string; size: number }; // v2 files (PMV2 format)
+  thumbV2?: { sha256: string; size: number };
   e2eUnverified?: boolean;
   uploadProgress?: number; // 0-100 while the attachment uploads
   uploadFailed?: boolean;
@@ -82,6 +84,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   thumbKey,
   e2e,
   e2eUnverified,
+  mediaV2,
+  thumbV2,
   uploadProgress,
   uploadFailed,
   onCancelUpload,
@@ -108,9 +112,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   // Encrypted videos are only downloaded (and decrypted) once someone presses play
   const [playVideo, setPlayVideo] = useState(false);
   const encryptedVideo = mediaType === 'video' && !!mediaKey;
-  const media = useMediaSrc(encryptedVideo && !playVideo ? undefined : mediaUrl, mediaType === 'file' ? undefined : mediaKey, mediaMime);
-  const poster = useMediaSrc(mediaThumbnail, thumbKey, 'image/jpeg');
-  const saveEncryptedFile = () => downloadDecrypted(mediaUrl!, mediaKey!, mediaMime, mediaFilename || 'file')
+  const media = useMediaSrc(encryptedVideo && !playVideo ? undefined : mediaUrl, mediaType === 'file' ? undefined : mediaKey, mediaMime, mediaV2);
+  const poster = useMediaSrc(mediaThumbnail, thumbKey, 'image/jpeg', thumbV2);
+  const saveEncryptedFile = () => downloadDecrypted(mediaUrl!, mediaKey!, mediaMime, mediaFilename || 'file', mediaV2)
     .catch(() => toast.error("Couldn't open this file. Try again"));
   // Photos and videos fill the bubble with an even, thin frame; a captionless photo shows the time on the picture
   const visual = !isDeleted && !!mediaUrl && (mediaType === 'image' || mediaType === 'video');
@@ -216,6 +220,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 </button>
               )}
 
+              {e2e === 'pending' && (
+                <p className={`text-sm italic flex items-center gap-1.5 ${isSent ? 'text-white/80' : 'text-muted-500'}`}>
+                  <Lock className="w-3.5 h-3.5 flex-shrink-0 animate-pulse" />
+                  Waiting for this message…
+                </p>
+              )}
               {e2e === 'unreadable' && (
                 <p className={`text-sm italic flex items-center gap-1.5 ${isSent ? 'text-white/80' : 'text-muted-500'}`}>
                   <Lock className="w-3.5 h-3.5 flex-shrink-0" />
@@ -224,7 +234,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
               )}
 
               {/* Media content */}
-              {mediaUrl && e2e !== 'unreadable' && (
+              {mediaUrl && e2e !== 'unreadable' && e2e !== 'pending' && (
                 <div className={`relative ${visual ? (text ? 'mb-1.5' : '') : text ? 'mb-2' : 'mb-1'}`}>
                   {mediaType === 'image' && (
                     <button

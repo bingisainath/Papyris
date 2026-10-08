@@ -11,6 +11,12 @@ import { encryptForUpload, rememberDecrypted } from '../crypto/media';
 import type { E2EMedia } from '../crypto/e2e';
 import { e2eSession } from '../crypto/session';
 import { e2eService } from '../services/e2e.service';
+import {
+  confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, lastLocal, localFor, pendingFields, pointerOf, receiveLive,
+  sendMediaV2, sendTextV2, v2For,
+} from '../crypto/v2-platform/chat';
+import type { ChatInfo } from '../crypto/v2-platform/chat';
+import type { Received } from '../crypto/v2';
 
 const TYPING_TTL_MS = 6000;
 
@@ -66,6 +72,15 @@ export const useChat = create<ChatState>((set, get) => ({
         : c,
     );
     set({ conversations, loaded: true });
+    // v2 chats: the server only knows a message was sent; the preview comes from this phone's copy
+    conversations.filter((c) => isV2Marker(c.lastMessage)).forEach((c) => {
+      set((s) => ({ conversations: s.conversations.map((x) => (x.id === c.id ? { ...x, lastMessage: 'Encrypted message' } : x)) }));
+      lastLocal(c.id).then((m) => {
+        if (!m) return;
+        const preview = previewOf({ ...fromLocal(m) } as Message);
+        set((s) => ({ conversations: s.conversations.map((x) => (x.id === c.id ? { ...x, lastMessage: preview } : x)) }));
+      }).catch(() => undefined);
+    });
   },
 
   loadMessages: async (conversationId) => {
@@ -77,6 +92,7 @@ export const useChat = create<ChatState>((set, get) => ({
       hasMore: { ...s.hasMore, [conversationId]: hasMore },
     }));
     flagUnverified(conversationId, messages);
+    fillV2(conversationId, messages);
   },
 
   loadOlder: async (conversationId) => {
@@ -90,6 +106,7 @@ export const useChat = create<ChatState>((set, get) => ({
       hasMore: { ...s.hasMore, [conversationId]: hasMore },
     }));
     flagUnverified(conversationId, messages);
+    fillV2(conversationId, messages);
   },
 
   open: (conversationId) => {
@@ -186,6 +203,17 @@ export const useChat = create<ChatState>((set, get) => ({
     let sent = 0;
     let skipped = 0;
     for (const id of conversationIds) {
+      const chat = chatInfo(id);
+      const v2 = await v2For(chat).catch(() => null);
+      const v2Pointer = pointerOf(message);
+      if (v2 && (v2Pointer || !message.mediaUrl)) {
+        if (await forwardV2(v2, chat, newClientId(), message.text || '', v2Pointer).catch(() => false)) sent += 1;
+        continue;
+      }
+      if (v2Pointer) {
+        skipped += 1; // a v2 file can only go to a chat that uses v2
+        continue;
+      }
       // Encrypted files are re-used as they are: only their key is sealed again for the new chat
       const sealed = await sealFor(id, { t: message.text || '', m: encryptedMedia });
       if (!sealed && encryptedMedia) {
@@ -212,9 +240,61 @@ export const useChat = create<ChatState>((set, get) => ({
 
 type Setter = (fn: (s: ChatState) => Partial<ChatState>) => void;
 
+/** Who is in a conversation (for encryption v2), from the chat list. */
+function chatInfo(conversationId: string): ChatInfo {
+  const c = useChat.getState().conversations.find((x) => x.id === conversationId);
+  return { conversationId, isGroup: !!c?.isGroup, members: c?.members || [] };
+}
+
+/** Show what v2 decrypted: fill the timeline row (or edit) and the chat list preview. */
+function applyV2(r: Received) {
+  if (r.kind !== 'message' && r.kind !== 'edit') return;
+  const set = useChat.setState as unknown as Setter;
+  const m = r.message;
+  const list = useChat.getState().messages[m.conv] || [];
+  const row = list.find((x) => (m.serverId && x.id === m.serverId) || x.localId === m.id);
+  if (row) updateMessage(set, m.conv, row.id, fromLocal(m));
+  if (r.kind === 'message') {
+    const f = fromLocal(m);
+    set((s) => ({ conversations: s.conversations.map((c) => (c.id === m.conv ? { ...c, lastMessage: previewOf({ ...(row || {}), ...f } as Message) } : c)) }));
+  }
+}
+
+/** Process this phone's v2 mailbox (after starting or reconnecting). */
+export const syncV2 = () => drainMailbox((r) => applyV2(r)).catch(() => undefined);
+
+/** v2 rows (and quoted v2 messages): fill from this phone's local database. */
+function fillV2(conversationId: string, messages: Message[]) {
+  const set = useChat.setState as unknown as Setter;
+  for (const m of messages) {
+    if (m.e2eVersion === 2 && m.e2e === 'pending') {
+      localFor(m.id).then((local) => { if (local) updateMessage(set, conversationId, m.id, fromLocal(local)); }).catch(() => undefined);
+    }
+    if (m.replyTo && isV2Marker(m.replyTo.text)) {
+      const reply = m.replyTo;
+      localFor(reply.id).then((local) => {
+        updateMessage(set, conversationId, m.id, { replyTo: { ...reply, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } });
+      }).catch(() => undefined);
+    }
+  }
+}
+
 /** Send a text message, end-to-end encrypted when everyone in the chat has set up encryption. */
 async function sendText(conversationId: string, clientId: string, text: string, replyToId?: string) {
   const set = useChat.setState as unknown as Setter;
+  // Encryption v2 when everyone in the chat has it set up; otherwise v1 (or plain) as before
+  const chat = chatInfo(conversationId);
+  const v2 = await v2For(chat).catch(() => null);
+  if (v2) {
+    updateMessage(set, conversationId, clientId, { e2eVersion: 2, localId: clientId });
+    try {
+      if (await sendTextV2(v2, chat, clientId, text, replyToId ? ({ id: replyToId } as ReplyPreview) : null)) return;
+    } catch {
+      // shown as not sent
+    }
+    updateMessage(set, conversationId, clientId, { status: 'failed' });
+    return;
+  }
   try {
     const sealed = await sealFor(conversationId, { t: text });
     if (socket.sendMessage(conversationId, clientId, sealed?.text ?? text, replyToId, undefined, sealed?.hasLink)) return;
@@ -272,6 +352,24 @@ async function uploadAndSend(clientId: string) {
   updateMessage(set, conversationId, clientId, { status: 'sending', uploadFailed: undefined, uploadProgress: 0 });
   try {
     const kind = attachment.quality === 'original' && attachment.kind !== 'audio' ? 'file' : attachment.kind;
+    // Encryption v2: the file (PMV2) and its key travel only to the chat's devices
+    const chat = chatInfo(conversationId);
+    const v2 = job.sent ? null : await v2For(chat).catch(() => null);
+    if (v2) {
+      updateMessage(set, conversationId, clientId, { e2eVersion: 2, localId: clientId });
+      const result = await sendMediaV2(v2, chat, clientId, attachment.file, kind, attachment.caption, {
+        width: attachment.width, height: attachment.height, duration: attachment.duration, replyTo, signal: controller.signal,
+        onProgress: (percent) => updateMessage(set, conversationId, clientId, { uploadProgress: Math.min(percent, 99) }),
+      });
+      if (result.posterUri) updateMessage(set, conversationId, clientId, { mediaThumbnail: result.posterUri, mediaWidth: result.width, mediaHeight: result.height });
+      if (result.sent) {
+        uploads.delete(clientId);
+        updateMessage(set, conversationId, clientId, { uploadProgress: undefined });
+      } else {
+        updateMessage(set, conversationId, clientId, { status: 'failed', uploadFailed: true, uploadProgress: undefined });
+      }
+      return;
+    }
     if (!job.sent && (await recipientsFor(conversationId))) {
       // End-to-end encrypted chat: encrypt the file (and a video's preview frame) on the phone.
       // The server can't compress or look at it; name, size and the key go inside the message.
@@ -372,6 +470,7 @@ useChat.setState({ connected: socket.connected });
 socket.onStatus((connected) => {
   useChat.setState({ connected });
   if (connected) {
+    syncV2(); // v2 packets that arrived while we were away
     const { activeId, loadConversations, loadMessages } = useChat.getState();
     loadConversations().catch(() => undefined); // catch up on anything missed while offline
     if (activeId) loadMessages(activeId).catch(() => undefined);
@@ -406,7 +505,17 @@ socket.on((e) => {
         reactions: [],
         expenseId: e.expenseId || null,
       } as Message);
-      flagUnverified(e.roomId, [message]);
+      const v2Row = isV2Marker(e.text);
+      if (v2Row) {
+        Object.assign(message, pendingFields);
+        // The content comes in this phone's own packet; ours is already in the local database
+        const own = !!e.clientId && e.senderId === e2eSession.userId();
+        (own ? confirmOwn(e.clientId, e.messageId) : localFor(e.messageId)).then((local) => {
+          if (local) updateMessage(set, e.roomId, e.messageId, fromLocal(local));
+        }).catch(() => undefined);
+      } else {
+        flagUnverified(e.roomId, [message]);
+      }
       set((s) => {
         const list = (s.messages[e.roomId] || []).filter((m) => m.id !== message.id && (!e.clientId || m.id !== e.clientId));
         const active = s.activeId === e.roomId;
@@ -416,7 +525,7 @@ socket.on((e) => {
             c.id === e.roomId
               ? {
                   ...c,
-                  lastMessage: message.e2e === 'unreadable' ? 'Encrypted message' : previewOf(message),
+                  lastMessage: message.e2e === 'unreadable' || message.e2e === 'pending' ? 'Encrypted message' : previewOf(message),
                   lastMessageTime: message.timestamp,
                   unreadCount: active || e.clientId ? c.unreadCount : c.unreadCount + 1,
                 }
@@ -491,6 +600,15 @@ socket.on((e) => {
     case 'conversation_pinned':
       if (e.conversationId) state.setPinned(e.conversationId, !!e.pinned);
       break;
+    case 'e2e_envelope':
+      if (typeof e.deviceId === 'number' && e.envelope) {
+        receiveLive(e.deviceId, e.envelope).then((r) => { if (r) applyV2(r); }).catch(() => undefined);
+      }
+      break;
+    case 'e2e_device_list':
+      forgetDirectory(e.userId).catch(() => undefined);
+      encryptionListeners.forEach((l) => l());
+      break;
     case 'keys_changed':
       // Someone set up or reset their encryption keys
       e2eService.forgetUser(e.userId);
@@ -499,6 +617,7 @@ socket.on((e) => {
       break;
     case 'conversation_updated':
       if (e.conversationId) e2eService.forgetConversation(e.conversationId);
+      forgetDirectory().catch(() => undefined); // members may have changed
       encryptionListeners.forEach((l) => l());
       state.loadConversations().catch(() => undefined);
       break;

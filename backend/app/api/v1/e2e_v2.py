@@ -38,6 +38,7 @@ from app.models.conversation_member import ConversationMember
 from app.models.e2e_v2 import E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequest, E2EOneTimePreKey, E2ESignedPreKey
 from app.models.user import User
 from app.services import e2e_v2 as checks
+from app.services import e2e_mailbox as mailbox_service
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
 
@@ -45,8 +46,7 @@ router = APIRouter(prefix="/e2e/v2", tags=["Encryption v2"])
 
 MAX_DEVICES = 10
 MAX_ONE_TIME_PREKEYS = 200
-MAX_PACKET_BYTES = 256 * 1024
-MAX_PACKETS_PER_SEND = 200
+MAX_PACKETS_PER_SEND = mailbox_service.MAX_PACKETS_PER_SEND
 LINK_TTL = timedelta(minutes=10)
 MAILBOX_PAGE = 200
 
@@ -368,41 +368,15 @@ class SendBody(BaseModel):
 
 async def deliver(db: AsyncSession, user: User, conversation_id: uuid.UUID, body: SendBody) -> list[str]:
     """Queue packets for devices of the conversation's members (and the sender's own devices)."""
-    await _my_device(db, user, body.from_device)
-    members = {uuid.UUID(m) for m in await MessageService.member_ids(db, conversation_id)}
-    if user.id not in members:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    targets = {(p.to_user, p.to_device) for p in body.packets}
-    if any(u not in members for u, _ in targets):
-        raise HTTPException(status_code=422, detail="Packets can only go to members of this conversation")
-    active = set((await db.execute(select(E2EDevice.user_id, E2EDevice.device_id).where(
-        E2EDevice.user_id.in_({u for u, _ in targets}), E2EDevice.removed_at.is_(None),
-    ))).all())
-    if not targets <= active:
-        raise HTTPException(status_code=409, detail="Some devices were removed. Fetch the device lists again.")
-    ids = []
-    for p in body.packets:
-        raw = json.dumps(p.packet)
-        if len(raw) > MAX_PACKET_BYTES:
-            raise HTTPException(status_code=413, detail="Packet too large")
-        envelope = E2EEnvelope(
-            recipient_user_id=p.to_user, recipient_device_id=p.to_device, sender_user_id=user.id, sender_device_id=body.from_device,
-            conversation_id=conversation_id, message_id=body.message_id, packet=raw,
-        )
-        db.add(envelope)
-        await db.flush()
-        ids.append((p.to_user, p.to_device, envelope))
+    try:
+        rows = await mailbox_service.queue(db, user.id, conversation_id, body.from_device,
+                                           [mailbox_service.Outgoing(p.to_user, p.to_device, p.packet) for p in body.packets], body.message_id)
+    except mailbox_service.MailboxError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail)
     await db.commit()
-    for to_user, to_device, envelope in ids:
-        await publish_users([str(to_user)], {"type": "e2e_envelope", "deviceId": to_device, "envelope": _envelope_view(envelope)})
-    return [str(e.id) for _, _, e in ids]
-
-
-def _envelope_view(e: E2EEnvelope) -> dict:
-    return {"id": str(e.id), "from": {"user": str(e.sender_user_id), "device": e.sender_device_id},
-            "conversation_id": str(e.conversation_id) if e.conversation_id else None,
-            "message_id": str(e.message_id) if e.message_id else None,
-            "packet": json.loads(e.packet), "created_at": e.created_at.isoformat() if e.created_at else None}
+    for user_id, event in mailbox_service.events(rows):
+        await publish_users([user_id], event)
+    return [str(e.id) for e in rows]
 
 
 @router.post("/conversations/{conversation_id}/envelopes")
@@ -419,7 +393,7 @@ async def mailbox(device_id: int, user: User = Depends(get_current_user), db: As
         E2EEnvelope.recipient_user_id == user.id, E2EEnvelope.recipient_device_id == device_id,
     ).order_by(E2EEnvelope.created_at, E2EEnvelope.id).limit(MAILBOX_PAGE + 1))).scalars().all()
     await db.commit()
-    return {"success": True, "data": [_envelope_view(e) for e in rows[:MAILBOX_PAGE]], "has_more": len(rows) > MAILBOX_PAGE}
+    return {"success": True, "data": [mailbox_service.envelope_view(e) for e in rows[:MAILBOX_PAGE]], "has_more": len(rows) > MAILBOX_PAGE}
 
 
 class AckBody(BaseModel):

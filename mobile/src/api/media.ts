@@ -50,7 +50,7 @@ export async function uploadFile(
     quality?: UploadQuality;
     onProgress?: (percent: number) => void;
     signal?: AbortSignal;
-    encrypted?: 'image' | 'video' | 'audio' | 'file'; // end-to-end encrypted by the app (crypto/media.ts)
+    encrypted?: 'image' | 'video' | 'audio' | 'file' | 'backup'; // end-to-end encrypted by the app (crypto/media.ts)
   } = {},
 ): Promise<Uploaded> {
   const form = new FormData();

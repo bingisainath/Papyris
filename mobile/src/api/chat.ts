@@ -57,7 +57,11 @@ export interface Message {
   reactions: Reaction[];
   expenseId?: string | null;
   // End-to-end encryption (src/crypto): 'encrypted' = decrypted fine, 'unreadable' = not for this phone
-  e2e?: 'encrypted' | 'unreadable';
+  e2e?: 'encrypted' | 'unreadable' | 'pending'; // pending: v2 content not decrypted on this phone (yet)
+  e2eVersion?: 2;
+  localId?: string; // v2: the sender's message id (key in the phone's local database)
+  mediaV2?: { sha256: string; size: number };
+  thumbV2?: { sha256: string; size: number };
   e2eUnverified?: boolean; // signed with a key that isn't the sender's
   senderSignKey?: string;
   mediaKey?: string;
@@ -93,7 +97,10 @@ export interface UserSummary {
 }
 
 /** API message (snake_case) -> app message */
-export const toMessage = (m: any): Message => decryptMessage({
+// v2 rows only say "a message was sent"; the content is filled from the phone's local database
+const markV2 = (m: Message): Message => (typeof m.text === 'string' && m.text.startsWith('e2e2:') ? { ...m, text: '', e2e: 'pending', e2eVersion: 2 } : m);
+
+export const toMessage = (m: any): Message => markV2(decryptMessage({
   id: m.id,
   conversationId: m.conversation_id,
   senderId: m.sender_id,
@@ -125,7 +132,7 @@ export const toMessage = (m: any): Message => decryptMessage({
     : null,
   reactions: (m.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.user_ids || r.userIds || [] })),
   expenseId: m.expense_id || null,
-} as Message);
+} as Message));
 
 export const chatApi = {
   // Last-message previews of encrypted chats are decrypted here

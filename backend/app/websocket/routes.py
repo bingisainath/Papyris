@@ -20,6 +20,7 @@ from app.models.user import User
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
+from app.services import e2e_mailbox
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
@@ -323,6 +324,86 @@ async def ws_chat(ws: WebSocket):
 
                 await publish_users(member_ids, payload)
                 logger.debug("Message %s published to %d members", msg_id, len(member_ids))
+                continue
+
+            # SEND MESSAGE, end-to-end encryption v2 (docs/encryption-design-v2.md). The content is in
+            # per-device packets the server can't read; the timeline row only records that a message
+            # of this kind was sent, and when (ordering, unread counts, replies, push "New message").
+            if event_type == "message_v2" and room_id:
+                client_id = data.get("clientId")
+
+                async def reject_v2(reason: str):
+                    await ws.send_json({"type": "error", "message": reason, "clientId": client_id, "roomId": room_id})
+
+                message_type = data.get("messageType") or "text"
+                attachments = [a for a in (data.get("attachments") or []) if isinstance(a, str)][:2]
+                from_device = data.get("fromDevice")
+                raw = data.get("envelopes")
+                if message_type not in ("text", "image", "video", "audio", "file") or not isinstance(from_device, int) or not isinstance(raw, list):
+                    await reject_v2("Invalid message")
+                    continue
+                attachments = [media_storage.unsigned(a) for a in attachments]
+                if any(not media_storage.is_stored_media_url(a) or not a.endswith(media_storage.ENCRYPTED_EXTENSION) for a in attachments):
+                    await reject_v2("Media not found. Upload the file first.")
+                    continue
+                if message_type != "text" and not attachments:
+                    await reject_v2("Media message without a file")
+                    continue
+                try:
+                    outgoing = [e2e_mailbox.Outgoing(uuid.UUID(e["to_user"]), int(e["to_device"]), e["packet"]) for e in raw if isinstance(e.get("packet"), dict)]
+                    conv_uuid = uuid.UUID(room_id)
+                except (KeyError, ValueError, TypeError, AttributeError):
+                    await reject_v2("Invalid envelopes")
+                    continue
+
+                msg_id = str(uuid.uuid4())
+                timestamp = datetime.now(timezone.utc).isoformat()
+                async with async_session_maker() as db:
+                    try:
+                        rows = await e2e_mailbox.queue(db, user_id, conv_uuid, from_device, outgoing, uuid.UUID(msg_id))
+                    except e2e_mailbox.MailboxError as e:
+                        await reject_v2(e.detail)
+                        continue
+                    reply_to = None
+                    reply_to_id = data.get("replyToId")
+                    if reply_to_id:
+                        try:
+                            original = await MessageService.get_message(db, uuid.UUID(reply_to_id), wait_seconds=2)
+                        except ValueError:
+                            original = None
+                        if original is None or str(original.conversation_id) != room_id:
+                            await reject_v2("The message you replied to was not found")
+                            continue
+                        original_sender = await db.get(User, original.sender_id)
+                        reply_to = {
+                            "id": str(original.id), "text": MessageService.preview_text(original), "senderId": str(original.sender_id),
+                            "senderName": original_sender.username if original_sender else None,
+                            "messageType": original.message_type.value, "isDeleted": original.is_deleted,
+                        }
+                    await db.commit()
+                    member_ids = await MessageService.member_ids(db, conv_uuid)
+                    sender = await db.get(User, user_id)
+
+                media_type = message_type if message_type != "text" else None
+                thumbnail = attachments[1] if media_type == "video" and len(attachments) > 1 else None
+                await streams.add_message({
+                    "messageId": msg_id, "conversationId": room_id, "senderId": user_id_str,
+                    "senderName": sender.username if sender else "Unknown",
+                    "text": media_storage.V2_MARKER, "mediaType": media_type, "mediaUrl": attachments[0] if attachments else None,
+                    "mediaThumbnail": thumbnail, "hasLink": data.get("hasLink") is True,
+                    "replyToId": reply_to["id"] if reply_to else None, "timestamp": timestamp,
+                })
+                await publish_users(member_ids, {
+                    "type": "message", "roomId": room_id, "messageId": msg_id, "clientId": client_id,
+                    "senderId": user_id_str, "senderName": sender.username if sender else "Unknown",
+                    "senderAvatar": media_storage.sign_url(sender.avatar if sender else None),
+                    "text": media_storage.V2_MARKER, "messageType": message_type, "mediaType": media_type,
+                    "mediaUrl": media_storage.sign_url(attachments[0]) if attachments else None,
+                    "mediaThumbnail": media_storage.sign_url(thumbnail), "replyTo": reply_to,
+                    "timestamp": timestamp, "status": "sent", "fromDevice": from_device,
+                })
+                for uid, event in e2e_mailbox.events(rows):
+                    await publish_users([uid], event)
                 continue
 
             # TYPING INDICATOR

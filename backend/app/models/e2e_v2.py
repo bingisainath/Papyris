@@ -104,3 +104,21 @@ class E2EEnvelope(Base):
     message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # the timeline row it belongs to
     packet: Mapped[str] = mapped_column(Text)  # JSON MessagePacket / GroupPacket, opaque
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class E2EBackup(Base):
+    """
+    The account's optional encrypted backup (one at a time). The blob is end-to-end encrypted with a
+    random key, which is stored here wrapped with a key derived from the person's 64-digit recovery
+    key. The server never sees the recovery key, so it can't open either.
+    """
+
+    __tablename__ = "e2e_backups"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    url: Mapped[str] = mapped_column(String(500))  # the encrypted blob (an upload)
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    wrapped_key: Mapped[str] = mapped_column(Text)  # JSON {n, c}: the blob key, encrypted with the recovery key
+    verifier: Mapped[str] = mapped_column(String(64))  # lets the apps tell a mistyped recovery key at once
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

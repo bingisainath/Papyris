@@ -34,6 +34,9 @@ import ExpensesPage from '../../components/expenses/ExpensesPage';
 import ConnectionBanner from '../../components/molecules/ConnectionBanner';
 import { ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
 import EncryptionSettings from '../../components/organisms/EncryptionSettings';
+import BackupSettings from '../../components/organisms/BackupSettings';
+import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
+import type { LogoutRisk } from '../../components/organisms/LogoutWarning';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -245,9 +248,17 @@ const Home: React.FC = () => {
     navigate(`/chat/${id}`);
   };
 
-  const handleLogout = () => {
-    authLogout();
+  // Logging out of the last signed-in device makes encrypted chats unreadable: warn first
+  const [logoutWarning, setLogoutWarning] = useState<LogoutRisk | null>(null);
+  const logoutNow = async () => {
+    setLogoutWarning(null);
+    await authLogout();
     navigate('/login');
+  };
+  const handleLogout = async () => {
+    const risk = await logoutRisk();
+    if (risk.lastDevice) setLogoutWarning(risk);
+    else logoutNow();
   };
 
   // Loading state
@@ -401,6 +412,14 @@ const Home: React.FC = () => {
         </div>
       )}
       </div>
+      {logoutWarning && (
+        <LogoutWarning
+          risk={logoutWarning}
+          onCancel={() => setLogoutWarning(null)}
+          onConfirm={logoutNow}
+          onOpenSettings={() => { setLogoutWarning(null); navigate('/settings'); }}
+        />
+      )}
     </div>
   );
 };
@@ -589,6 +608,8 @@ const SettingsPage: React.FC<{
         </div>
 
         <EncryptionSettings />
+
+        <BackupSettings userId={user.id} />
 
         <NotificationSettings />
 

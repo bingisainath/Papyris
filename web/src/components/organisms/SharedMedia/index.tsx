@@ -12,6 +12,7 @@ import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { openText } from '../../../crypto/messages';
 import { downloadDecrypted, useMediaSrc } from '../../../crypto/media';
+import { isV2Marker, localFor } from '../../../crypto/v2-platform/chat';
 
 export type SharedKind = 'media' | 'docs' | 'links';
 
@@ -33,6 +34,34 @@ export interface SharedItem {
   media_key?: string;
   media_mime?: string;
   thumb_key?: string;
+  media_v2?: { sha256: string; size: number }; // v2 files (PMV2)
+  thumb_v2?: { sha256: string; size: number };
+}
+
+/** v2 items: the server only knows a file was shared; details and keys come from this browser's copy. */
+async function fillV2Items(items: SharedItem[]): Promise<SharedItem[]> {
+  const out: SharedItem[] = [];
+  for (const item of items) {
+    if (!isV2Marker(item.text)) {
+      out.push(item);
+      continue;
+    }
+    const local = await localFor(item.message_id).catch(() => null);
+    if (!local || local.deleted) continue; // not on this device
+    if (item.encrypted) { // a Links-tab item: list the links in our copy of the text
+      const urls = Array.from(new Set((local.text || '').match(URL_RE) || [])).map((u) => u.replace(/[.,);!?]+$/, ''));
+      urls.forEach((url) => out.push({ ...item, url, text: local.text }));
+      continue;
+    }
+    const p = local.media?.[0];
+    if (!p) continue;
+    out.push({
+      ...item, text: local.text, media_key: p.key, media_mime: p.mime, media_filename: p.name ?? null, media_size: p.size,
+      media_duration: p.dur ?? null, media_v2: { sha256: p.sha256, size: p.size },
+      ...(p.thumb ? { thumb_key: p.thumb.key, thumb_v2: { sha256: p.thumb.sha256, size: p.thumb.size } } : {}),
+    });
+  }
+  return out;
 }
 
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
@@ -57,7 +86,7 @@ function decryptItems(conversationId: string, items: SharedItem[]): SharedItem[]
 
 export async function fetchShared(conversationId: string, kind: SharedKind, before?: string) {
   const { data } = await api.get(`/api/v1/conversations/${conversationId}/shared`, { params: { kind, before, limit: 60 } });
-  return { items: decryptItems(conversationId, data.data as SharedItem[]), hasMore: !!data.has_more };
+  return { items: await fillV2Items(decryptItems(conversationId, data.data as SharedItem[])), hasMore: !!data.has_more };
 }
 
 /** A photo or video thumbnail, decrypted first if it's end-to-end encrypted. */
@@ -67,12 +96,13 @@ const Thumb: React.FC<{ item: SharedItem; className: string }> = ({ item, classN
     resolveMediaUrl(video ? item.media_thumbnail || undefined : item.media_url),
     video ? item.thumb_key : item.media_key,
     video ? 'image/jpeg' : item.media_mime,
+    video ? item.thumb_v2 : item.media_v2,
   );
   return src ? <img src={src} alt="" loading="lazy" className={className} /> : <span className={`block ${className}`} />;
 };
 
 const SharedVoiceNote: React.FC<{ item: SharedItem }> = ({ item }) => {
-  const { src, failed } = useMediaSrc(resolveMediaUrl(item.media_url), item.media_key, item.media_mime);
+  const { src, failed } = useMediaSrc(resolveMediaUrl(item.media_url), item.media_key, item.media_mime, item.media_v2);
   if (!src) return <p className="text-xs text-muted-500">{failed ? "Couldn't decrypt this voice message" : 'Decrypting…'}</p>;
   return <VoiceNotePlayer src={src} duration={item.media_duration || undefined} isSent={false} />;
 };
@@ -116,6 +146,7 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
       url: resolveMediaUrl(i.media_url)!,
       mediaKey: i.media_key,
       mediaMime: i.media_mime,
+      mediaV2: i.media_v2,
       filename: i.media_filename || undefined,
       senderName: i.sender_id === currentUserId ? 'You' : i.sender_name || undefined,
       timestamp: i.created_at,
@@ -185,7 +216,7 @@ const SharedMedia: React.FC<{ conversationId: string; currentUserId?: string; on
                     <button
                       type="button"
                       onClick={() => (i.media_key
-                        ? downloadDecrypted(i.media_url!, i.media_key, i.media_mime, i.media_filename || 'file')
+                        ? downloadDecrypted(i.media_url!, i.media_key, i.media_mime, i.media_filename || 'file', i.media_v2)
                         : downloadMedia(i.media_url!, i.media_filename || 'file')).catch(() => toast.error("Couldn't download it"))}
                       className="p-2 rounded-lg text-primary-700 hover:bg-primary-50"
                       aria-label={`Download ${i.media_filename || 'file'}`}

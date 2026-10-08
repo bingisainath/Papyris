@@ -26,7 +26,7 @@ class MediaService {
     file: File,
     onProgress?: (percent: number) => void,
     // encrypted: the file is end-to-end encrypted (crypto/media.ts); say what kind it is
-    options: { signal?: AbortSignal; quality?: UploadQuality; encrypted?: 'image' | 'video' | 'audio' | 'file' } = {},
+    options: { signal?: AbortSignal; quality?: UploadQuality; encrypted?: 'image' | 'video' | 'audio' | 'file' | 'backup' } = {},
   ): Promise<UploadedMedia> {
     const formData = new FormData();
     formData.append('file', file);

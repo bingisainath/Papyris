@@ -20,6 +20,7 @@ export interface MediaPointer {
   sha256: string; // b64 32, of the whole encrypted blob
   size: number; // real size before padding
   mime: string;
+  type?: 'image' | 'video' | 'audio' | 'file'; // how to show it (a photo sent "as a document" is a file)
   name?: string;
   w?: number;
   h?: number;

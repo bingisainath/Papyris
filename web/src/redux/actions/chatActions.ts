@@ -14,8 +14,10 @@ import {
   setError,
   addConversation,
   updateMessage,
+  updateConversationLastMessage,
 } from '../slices/chatSlice';
 import { decryptMessage, previewText, unverifiedMessages } from '../../crypto/messages';
+import { fromLocal, isV2Marker, lastLocal, localFor, pendingFields } from '../../crypto/v2-platform/chat';
 import type { Message } from '../slices/chatSlice';
 
 /**
@@ -68,6 +70,16 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
 
       dispatch(setConversations(conversationsWithOnline));
 
+      // v2 chats: the server only knows a message was sent; the preview comes from this device's copy
+      conversationsWithOnline.filter((c: any) => isV2Marker(c.lastMessage)).forEach((c: any) => {
+        dispatch(updateConversationLastMessage({ conversationId: c.id, lastMessage: 'Encrypted message', timestamp: c.lastMessageTime }));
+        lastLocal(c.id).then((m) => {
+          if (!m) return;
+          const f = fromLocal(m);
+          dispatch(updateConversationLastMessage({ conversationId: c.id, lastMessage: f.text || (f.mediaType === 'image' ? 'Photo' : f.mediaType === 'video' ? 'Video' : f.mediaType === 'audio' ? 'Voice message' : f.mediaFilename || 'File'), timestamp: c.lastMessageTime }));
+        }).catch(() => undefined);
+      });
+
 
     }
   } catch (error: any) {
@@ -78,7 +90,7 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
   }
 };
 
-const toMessage = (msg: any) => decryptMessage({
+const toMessage = (msg: any) => (isV2Marker(msg.text) ? (m: Message) => ({ ...m, ...pendingFields }) : (m: Message) => m)(decryptMessage({
   id: msg.id,
   conversationId: msg.conversation_id,
   senderId: msg.sender_id,
@@ -110,7 +122,22 @@ const toMessage = (msg: any) => decryptMessage({
       }
     : null,
   reactions: (msg.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.user_ids })),
-} as Message);
+} as Message));
+
+/** v2 rows (and quoted v2 messages): fill from this device's local database. */
+function fillV2(dispatch: AppDispatch, conversationId: string, messages: Message[]) {
+  for (const m of messages) {
+    if (m.e2eVersion === 2 && m.e2e === 'pending') {
+      localFor(m.id).then((local) => { if (local) dispatch(updateMessage({ conversationId, messageId: m.id, updates: fromLocal(local) })); }).catch(() => undefined);
+    }
+    if (m.replyTo && isV2Marker(m.replyTo.text)) {
+      const reply = m.replyTo;
+      localFor(reply.id).then((local) => {
+        dispatch(updateMessage({ conversationId, messageId: m.id, updates: { replyTo: { ...reply, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } } }));
+      }).catch(() => undefined);
+    }
+  }
+}
 
 /** Mark encrypted messages whose signature isn't from their sender's key (checked in the background). */
 export function flagUnverified(dispatch: AppDispatch, conversationId: string, messages: Message[]) {
@@ -132,6 +159,7 @@ export const fetchMessages = (conversationId: string) => async (dispatch: AppDis
       const messages = response.data.map(toMessage);
       dispatch(setMessages({ conversationId, messages, hasMore: !!response.has_more }));
       flagUnverified(dispatch, conversationId, messages);
+      fillV2(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch messages:', error);
@@ -157,6 +185,7 @@ export const fetchOlderMessages = (conversationId: string) => async (
       const messages = response.data.map(toMessage);
       dispatch(prependMessages({ conversationId, messages, hasMore: !!response.has_more }));
       flagUnverified(dispatch, conversationId, messages);
+      fillV2(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch older messages:', error);

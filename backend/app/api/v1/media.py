@@ -27,7 +27,7 @@ async def upload_media(
     file: UploadFile = File(...),
     quality: str = Query("standard", pattern="^(standard|hd|original)$"),
     encrypted: bool = Query(False, description="End-to-end encrypted by the app: stored as opaque bytes"),
-    kind: Optional[str] = Query(None, pattern="^(image|video|audio|file)$", description="With encrypted: what it is, for the size limit"),
+    kind: Optional[str] = Query(None, pattern="^(image|video|audio|file|backup)$", description="With encrypted: what it is, for the size limit"),
     current_user: User = Depends(get_current_user),
 ):
     """

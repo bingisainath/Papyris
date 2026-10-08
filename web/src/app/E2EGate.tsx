@@ -18,6 +18,11 @@ import { e2eService } from '../services/e2e.service';
 import type { MyKeys } from '../services/e2e.service';
 import { parseApiError } from '../utils/apiError';
 import { startV2 } from '../crypto/v2-platform/runtime';
+import { backupIfDue, restoreFromBackup } from '../crypto/backupRuntime';
+import { store } from '../redux/store';
+import { syncV2 } from '../redux/actions/websocketActions';
+import { isRecoveryKey } from '../crypto/backup';
+import api from '../utils/axios';
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 
@@ -64,7 +69,12 @@ export const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   // Encryption v2 starts in the background once this browser is ready (registers, uploads prekeys)
   useEffect(() => {
-    if (stage.name === 'ready' && userId) startV2(userId).catch((e) => console.warn('Encryption v2 setup failed (will retry next start):', e?.message || e));
+    if (stage.name === 'ready' && userId) {
+      startV2(userId)
+        .then(() => store.dispatch(syncV2())) // v2 packets that arrived while signed out
+        .then(() => backupIfDue(userId))
+        .catch((e) => console.warn('Encryption v2 setup or backup failed (will retry next start):', e?.message || e));
+    }
   }, [stage.name, userId]);
 
   // Our keys were replaced on another device: link again
@@ -110,6 +120,27 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
   const [error, setError] = useState('');
   const [confirmFresh, setConfirmFresh] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hasBackup, setHasBackup] = useState(false);
+  const [recoveryKey, setRecoveryKey] = useState('');
+
+  useEffect(() => {
+    api.get('/api/v1/e2e/backup').then((r) => setHasBackup(!!r.data.data.exists)).catch(() => undefined);
+  }, []);
+
+  const restore = async () => {
+    setBusy(true);
+    setError('');
+    attempt.current += 1; // stop waiting for another device
+    try {
+      await restoreFromBackup(userId, recoveryKey, mine.enc_public!);
+      onDone();
+    } catch (err: any) {
+      begin(); // keep waiting for another device too (this clears the error, so set it after)
+      setError(err?.message || parseApiError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
   const attempt = useRef(0);
 
   const begin = useCallback(async () => {
@@ -196,6 +227,18 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
       </div>
 
       <div className="mt-6 text-center text-sm">
+        {confirmFresh && hasBackup && (
+          <div className="mb-3 p-3 rounded-lg border border-muted-200 text-left">
+            <p className="text-sm font-medium text-muted-900">Restore from your backup</p>
+            <p className="text-xs text-muted-500">Enter the 64-digit recovery key you saved when you turned on backups.</p>
+            <input value={recoveryKey} onChange={(e) => setRecoveryKey(e.target.value)} placeholder="1234 5678 …" aria-label="Recovery key"
+              className="mt-2 w-full px-3 py-2 rounded-lg border border-muted-300 font-mono text-sm" />
+            <button type="button" onClick={restore} disabled={busy || !isRecoveryKey(recoveryKey)}
+              className="mt-2 w-full py-2 rounded-lg bg-primary-700 text-white text-sm font-medium disabled:opacity-50">
+              {busy ? 'Restoring…' : 'Restore'}
+            </button>
+          </div>
+        )}
         {confirmFresh ? (
           <div className="p-3 rounded-lg bg-warning-50 text-warning-800 text-left">
             <p>Starting fresh creates new keys. Your encrypted messages from before can't be read again, on any device, and the people you chat with will see that your keys changed.</p>

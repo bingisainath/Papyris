@@ -31,9 +31,9 @@ const MessageBubble: React.FC<Props> = ({
   onCancelUpload, onRetryUpload,
 }) => {
   // End-to-end encrypted media is downloaded and decrypted on the phone first (plain media: as is)
-  const image = useMediaSrc(m.mediaType === 'image' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime);
-  const poster = useMediaSrc(m.mediaType === 'video' ? m.mediaThumbnail : undefined, m.thumbKey, 'image/jpeg');
-  const audio = useMediaSrc(m.mediaType === 'audio' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime);
+  const image = useMediaSrc(m.mediaType === 'image' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime, m.mediaV2);
+  const poster = useMediaSrc(m.mediaType === 'video' ? m.mediaThumbnail : undefined, m.thumbKey, 'image/jpeg', m.thumbV2);
+  const audio = useMediaSrc(m.mediaType === 'audio' ? m.mediaUrl : undefined, m.mediaKey, m.mediaMime, m.mediaV2);
 
   if (m.messageType === 'system') {
     if (m.expenseId) {
@@ -51,7 +51,7 @@ const MessageBubble: React.FC<Props> = ({
   const sub = mine ? 'rgba(255,255,255,0.75)' : colors.muted400;
   const status = mine && !m.isDeleted ? statusIcon(m.status) : null;
   // Photos and videos fill the bubble with a thin frame; with no caption the time sits on the picture
-  const unreadable = m.e2e === 'unreadable';
+  const unreadable = m.e2e === 'unreadable' || m.e2e === 'pending';
   const visual = !m.isDeleted && !unreadable && !!m.mediaUrl && (m.mediaType === 'image' || m.mediaType === 'video');
   const timeOnMedia = visual && !m.text;
   const box = mediaBox(m.mediaWidth, m.mediaHeight);
@@ -94,7 +94,7 @@ const MessageBubble: React.FC<Props> = ({
               {unreadable && (
                 <View style={styles.inline}>
                   <Lock size={14} color={sub} />
-                  <Text style={[styles.deleted, { color: sub }]}>{UNREADABLE_TEXT}</Text>
+                  <Text style={[styles.deleted, { color: sub }]}>{m.e2e === 'pending' ? 'Waiting for this message…' : UNREADABLE_TEXT}</Text>
                 </View>
               )}
 

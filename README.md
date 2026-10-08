@@ -145,6 +145,11 @@ member has set up encryption. The server stores and forwards them but can't read
 - **Notifications.** Push notifications say "New message" (or "Photo", etc.), never the text.
 - **No other device to hand.** "Start fresh" creates new keys. Older encrypted messages can't be
   read with them, and contacts' apps notice the new key.
+- **Encrypted backup (optional).** Settings → Encrypted backup shows a 64-digit recovery key once.
+  The backup holds the encryption keys (and, with v2, the chat history). It's encrypted on the
+  device with a fresh key each time, sealed with a key derived from the recovery key, and replaced
+  daily by devices that have the key. With every device gone, the link screen offers "Restore from
+  your backup". The server can't open it, and logging out of the last device warns first.
 - **Security code.** Chat info → "Verify security code" shows 60 digits. Two people who see the
   same code know the server didn't swap their keys.
 - **Code.** The core (`src/crypto/e2e.ts`) and the message logic (`src/crypto/messages.ts`) are

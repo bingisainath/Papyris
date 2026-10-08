@@ -43,7 +43,11 @@ export interface Message {
   editedAt?: string | null;
   expenseId?: string | null; // system message shown as an expense card
   // End-to-end encryption (src/crypto): 'encrypted' = decrypted fine, 'unreadable' = not for this device
-  e2e?: 'encrypted' | 'unreadable';
+  e2e?: 'encrypted' | 'unreadable' | 'pending'; // pending: v2 content not decrypted on this device (yet)
+  e2eVersion?: 2;
+  localId?: string; // v2: the sender's message id (key in the device's local database)
+  mediaV2?: { sha256: string; size: number }; // v2 files (PMV2 format)
+  thumbV2?: { sha256: string; size: number };
   e2eUnverified?: boolean; // signed with a key that isn't the sender's
   senderSignKey?: string;
   mediaKey?: string; // the encrypted file's key (base64)

@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import AuthLayout from './AuthLayout';
-import { Banner, Button } from '../../components/ui';
+import { Banner, Button, TextField } from '../../components/ui';
 import { formatLinkCode, publicKeysOf } from '../../crypto/e2e';
 import { e2eSession } from '../../crypto/session';
 import { startLink, waitForKeys } from '../../crypto/linking';
@@ -19,17 +19,16 @@ import { e2eService } from '../../services/e2e.service';
 import type { MyKeys } from '../../services/e2e.service';
 import { errorMessage } from '../../api/client';
 import { startV2 } from '../../crypto/v2-platform/runtime';
+import { backupIfDue, restoreFromBackup } from '../../crypto/backupRuntime';
+import { syncV2 } from '../../store/chat';
+import { isRecoveryKey } from '../../crypto/backup';
+import { api } from '../../api/client';
 import { useAuth } from '../../store/auth';
+import { phoneName } from '../../utils/device';
 import { colors, radius, space } from '../../theme';
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 
-/** "Xiaomi 25113PN0EG" / "iPhone", so the other device can show which phone is asking. */
-export function phoneName(): string {
-  const c = Platform.constants as any;
-  if (Platform.OS === 'android') return [c?.Brand && c.Brand[0].toUpperCase() + c.Brand.slice(1), c?.Model].filter(Boolean).join(' ') || 'Android phone';
-  return c?.interfaceIdiom === 'pad' ? 'iPad' : 'iPhone';
-}
 
 const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
@@ -66,7 +65,12 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   // Encryption v2 starts in the background once this phone is ready (registers, uploads prekeys)
   useEffect(() => {
-    if (stage.name === 'ready' && userId) startV2(userId).catch((e) => console.warn('Encryption v2 setup failed (will retry next start):', e?.message || e));
+    if (stage.name === 'ready' && userId) {
+      startV2(userId)
+        .then(() => syncV2()) // v2 packets that arrived while signed out
+        .then(() => backupIfDue(userId))
+        .catch((e) => console.warn('Encryption v2 setup or backup failed (will retry next start):', e?.message || e));
+    }
   }, [stage.name, userId]);
 
   // Our keys were replaced on another device: link again
@@ -106,7 +110,28 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
   const [expired, setExpired] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [noDevice, setNoDevice] = useState(false);
+  const [hasBackup, setHasBackup] = useState(false);
+  const [recoveryKey, setRecoveryKey] = useState('');
   const attempt = useRef(0);
+
+  useEffect(() => {
+    api.get('/e2e/backup').then((r) => setHasBackup(!!r.data.data.exists)).catch(() => undefined);
+  }, []);
+
+  const restore = async () => {
+    setBusy(true);
+    attempt.current += 1; // stop waiting for another device
+    try {
+      await restoreFromBackup(userId, recoveryKey, mine.enc_public!);
+      onDone();
+    } catch (e: any) {
+      begin(); // keep waiting for another device too (this clears the error, so set it after)
+      setError(e?.message || errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const begin = useCallback(async () => {
     const mineAttempt = ++attempt.current;
@@ -185,9 +210,24 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
           <ActivityIndicator color={colors.primary700} />
         )}
       </View>
-      <Pressable onPress={startFresh} disabled={busy} style={styles.fresh}>
-        <Text style={styles.link}>{busy ? 'Starting fresh…' : "Don't have your other device?"}</Text>
-      </Pressable>
+      {noDevice ? (
+        <View style={styles.noDevice}>
+          {hasBackup && (
+            <>
+              <Text style={styles.noDeviceTitle}>Restore from your backup</Text>
+              <TextField label="64-digit recovery key" value={recoveryKey} onChangeText={setRecoveryKey} keyboardType="number-pad" autoCorrect={false} />
+              <Button title={busy ? 'Restoring…' : 'Restore'} onPress={restore} loading={busy} disabled={!isRecoveryKey(recoveryKey)} />
+            </>
+          )}
+          <Pressable onPress={startFresh} disabled={busy} style={styles.fresh}>
+            <Text style={[styles.link, { color: colors.danger600 }]}>Start fresh with new keys</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable onPress={() => setNoDevice(true)} disabled={busy} style={styles.fresh}>
+          <Text style={styles.link}>Don't have your other device?</Text>
+        </Pressable>
+      )}
       {footer}
     </AuthLayout>
   );
@@ -204,6 +244,8 @@ const styles = StyleSheet.create({
   code: { marginTop: space(1), fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 18, letterSpacing: 1.5, color: colors.muted900 },
   waiting: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
   fresh: { alignItems: 'center', marginTop: space(5) },
+  noDevice: { marginTop: space(5), padding: space(4), borderRadius: radius.lg, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white },
+  noDeviceTitle: { fontSize: 15, fontWeight: '600', color: colors.muted900, marginBottom: space(2) },
 });
 
 export default E2EGate;
