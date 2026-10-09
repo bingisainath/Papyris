@@ -1,4 +1,5 @@
 // src/components/organisms/ChatList.tsx
+import { MessageSquarePlus, UsersRound } from 'lucide-react';
 import React, { useState, useMemo } from 'react';
 import { Input, Button, Typography, Loading } from '../../atoms';
 import Icon from '../../atoms/Icon';
@@ -120,7 +121,7 @@ const ChatList: React.FC<ChatListProps> = ({
               <Button
                 variant="ghost"
                 size="sm"
-                icon={<Icon name="message" size={20} />}
+                icon={<MessageSquarePlus size={20} strokeWidth={1.75} />}
                 // onClick={onNewChat}
                 onClick={onNewChat}
                 title="New chat"
@@ -130,7 +131,7 @@ const ChatList: React.FC<ChatListProps> = ({
               <Button
                 variant="primary"
                 size="sm"
-                icon={<Icon name="plus" size={20} />}
+                icon={<UsersRound size={20} strokeWidth={1.75} />}
                 onClick={onNewGroup}
                 title="New group"
               />

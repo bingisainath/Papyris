@@ -524,6 +524,8 @@ socket.on((e) => {
       } else {
         flagUnverified(e.roomId, [message]);
       }
+      // The server passes the sender's clientId to every member: only the sender's id says it's ours
+      const mine = e.senderId === e2eSession.userId(); // set at sign-in, before any chat opens
       set((s) => {
         const list = (s.messages[e.roomId] || []).filter((m) => m.id !== message.id && (!e.clientId || m.id !== e.clientId));
         const active = s.activeId === e.roomId;
@@ -535,7 +537,7 @@ socket.on((e) => {
                   ...c,
                   lastMessage: message.e2e === 'unreadable' || message.e2e === 'pending' ? 'Encrypted message' : previewOf(message),
                   lastMessageTime: message.timestamp,
-                  unreadCount: active || e.clientId ? c.unreadCount : c.unreadCount + 1,
+                  unreadCount: active || mine ? c.unreadCount : c.unreadCount + 1,
                 }
               : c,
           ),
@@ -544,7 +546,7 @@ socket.on((e) => {
       if (!state.conversations.some((c) => c.id === e.roomId)) state.loadConversations().catch(() => undefined);
       if (state.activeId === e.roomId) {
         markReadLocally(e.roomId, new Date(message.timestamp).getTime());
-        if (!e.clientId) socket.read(e.roomId, e.messageId);
+        if (!mine) socket.read(e.roomId, e.messageId);
       }
       break;
     }

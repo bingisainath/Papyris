@@ -15,3 +15,4 @@ export * from './storage';
 export * from './device';
 export * from './messenger';
 export * from './accountLink';
+export * from './trust';

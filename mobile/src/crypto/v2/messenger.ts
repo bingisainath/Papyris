@@ -73,7 +73,8 @@ export class Messenger {
     } else {
       devices = verifyDeviceList(list, user); // first sight, or a fresh start with a new account key
       await this.store.savePin(user, pin
-        ? { aik: list.aik, verified: false, firstSeen: pin.firstSeen, changedAt: Date.now() }
+        // A verified contact's new key must be accepted before we send to them again (docs §3.4)
+        ? { aik: list.aik, verified: false, firstSeen: pin.firstSeen, changedAt: Date.now(), previousAik: pin.aik, needsAccept: pin.verified || !!pin.needsAccept }
         : { aik: list.aik, verified: false, firstSeen: Date.now() });
     }
     await this.store.saveDeviceList(user, list);
@@ -101,6 +102,9 @@ export class Messenger {
     for (const user of members) {
       const devices = await this.devicesOf(user);
       if (!devices) throw new CryptoError('no_session', `${user} hasn't set up encryption v2`);
+      if (user !== this.me.user && (await this.store.pin(user))?.needsAccept) {
+        throw Object.assign(new CryptoError('identity_changed', 'Their security code changed. Check or accept the new code in the chat before sending.'), { user });
+      }
       for (const d of devices) if (!(user === this.me.user && d.id === this.me.device)) out.push({ user, device: d });
     }
     return out;

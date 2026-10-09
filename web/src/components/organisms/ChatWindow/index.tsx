@@ -23,11 +23,12 @@ import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { useSearchParams } from 'react-router-dom';
-import { Lock, LockOpen, UserPlus } from 'lucide-react';
+import { Lock, LockOpen, ShieldAlert, UserPlus } from 'lucide-react';
 import { downloadDecrypted } from '../../../crypto/media';
 import { sealFor } from '../../../crypto/messages';
 import { useChatEncryption } from '../../../crypto/useChatEncryption';
 import { editV2 } from '../../../crypto/v2-platform/chat';
+import { useKeyChanges, useTrustActions } from '../../../crypto/v2-platform/trust';
 import { mediaPayloadOf } from '../../../redux/actions/websocketActions';
 import AddExpenseSheet from '../../expenses/AddExpenseSheet';
 import ExpenseCard from '../../expenses/ExpenseCard';
@@ -65,6 +66,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const encryption = useChatEncryption(conversationId);
   const conversationMembers = useSelector((state: RootState) => state.chat.conversations.find(c => c.id === conversationId)?.members) || EMPTY;
+  const keyChanges = useKeyChanges(conversationMembers);
+  const trustActions = useTrustActions();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastRenderedMessageId = useRef<string | undefined>(undefined);
   const scrollHeightBeforePrepend = useRef<number | null>(null);
@@ -492,6 +495,25 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Someone's security code changed (they started fresh): say so once; verified contacts must be accepted */}
+      {keyChanges.map((t) => {
+        const name = isGroup ? (messages.find((m) => m.senderId === t.user)?.senderName || 'A member') : conversationName;
+        return (
+          <div key={t.user} className={`flex items-start gap-2 px-4 sm:px-6 py-2 text-xs border-b ${t.needsAccept ? 'bg-accent-50 text-accent-800 border-accent-100' : 'bg-primary-50 text-primary-900 border-primary-100'}`} role="status">
+            <ShieldAlert className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span className="flex-1">
+              {t.needsAccept
+                ? `${name}'s security code changed. You'd verified them, so messages to them wait until you check the new code or accept it.`
+                : `${name}'s security code changed, probably because they started fresh on a new device.`}
+            </span>
+            <button type="button" onClick={() => setShowInfo(true)} className="font-semibold hover:underline">Compare codes</button>
+            <button type="button" onClick={() => (t.needsAccept ? trustActions.accept(t.user) : trustActions.dismiss(t.user))} className="font-semibold hover:underline">
+              {t.needsAccept ? 'Accept' : 'OK'}
+            </button>
+          </div>
+        );
+      })}
 
       {/* Not end-to-end encrypted yet: say why */}
       {encryption.state === 'not-encrypted' && (

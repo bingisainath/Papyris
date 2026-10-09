@@ -6,7 +6,8 @@ import {
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Trash2, X } from 'lucide-react-native';
+import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, ShieldAlert, Trash2, X } from 'lucide-react-native';
+import { useKeyChanges, useTrustActions } from '../../crypto/v2-platform/trust';
 import { useChatEncryption } from '../../crypto/useChatEncryption';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
@@ -28,6 +29,7 @@ import { colors, radius, space } from '../../theme';
 import { dayLabel } from '../../utils/time';
 import type { AppStackParams } from '../../navigation/types';
 
+const NO_MEMBERS: string[] = [];
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const TYPING_REPEAT_MS = 2500;
 const EMPTY: Message[] = [];
@@ -80,6 +82,10 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     : conversation?.isGroup ? `${conversation.members.length} members` : otherId && online.includes(otherId) ? 'Online' : 'Offline';
 
   const encryption = useChatEncryption(conversationId);
+
+  const keyChanges = useKeyChanges(conversation?.members || NO_MEMBERS);
+
+  const trustActions = useTrustActions();
   const encrypted = encryption.state === 'encrypted';
 
   useLayoutEffect(() => {
@@ -243,6 +249,28 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <View ref={keyboard.ref} style={[styles.flex, { paddingBottom: keyboard.offset }]}>
+        {/* Someone's security code changed (they started fresh): say so once; verified contacts must be accepted */}
+        {keyChanges.map((t) => {
+          const name = conversation?.isGroup ? (messages.find((m) => m.senderId === t.user)?.senderName || 'A member') : conversation?.name || 'They';
+          return (
+            <View key={t.user} style={[styles.keyChange, t.needsAccept && styles.keyChangeUrgent]}>
+              <ShieldAlert size={14} color={t.needsAccept ? colors.danger600 : colors.primary700} />
+              <View style={styles.flex}>
+                <Text style={[styles.keyChangeText, t.needsAccept && { color: colors.danger600 }]}>
+                  {t.needsAccept
+                    ? `${name}'s security code changed. You'd verified them, so messages to them wait until you check the new code or accept it.`
+                    : `${name}'s security code changed, probably because they started fresh on a new phone.`}
+                </Text>
+                <View style={styles.keyChangeActions}>
+                  <Pressable onPress={() => navigation.navigate('ChatInfo', { conversationId })} hitSlop={6}><Text style={styles.keyChangeLink}>Compare codes</Text></Pressable>
+                  <Pressable onPress={() => (t.needsAccept ? trustActions.accept(t.user) : trustActions.dismiss(t.user))} hitSlop={6}>
+                    <Text style={styles.keyChangeLink}>{t.needsAccept ? 'Accept' : 'OK'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          );
+        })}
         {encryption.state === 'not-encrypted' && (
           <View style={styles.notEncrypted}>
             <LockOpen size={14} color={colors.warning700} />
@@ -374,6 +402,11 @@ const styles = StyleSheet.create({
   headerName: { flexShrink: 1, fontSize: 16, fontWeight: '600', color: colors.muted900 },
   headerStatus: { fontSize: 12, color: colors.muted500 },
   headerActions: { flexDirection: 'row', gap: space(5), alignItems: 'center' },
+  keyChange: { flexDirection: 'row', gap: space(2), paddingHorizontal: space(4), paddingVertical: space(2), backgroundColor: colors.primary50, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.primary200 },
+  keyChangeUrgent: { backgroundColor: colors.danger50, borderBottomColor: colors.danger500 },
+  keyChangeText: { fontSize: 12, color: colors.primary800 },
+  keyChangeActions: { flexDirection: 'row', gap: space(5), marginTop: space(1.5) },
+  keyChangeLink: { fontSize: 13, fontWeight: '700', color: colors.primary700 },
   banner: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginHorizontal: space(3), marginBottom: space(2), padding: space(2.5), borderLeftWidth: 4, borderLeftColor: colors.primary600, backgroundColor: colors.primary50, borderRadius: radius.md },
   bannerTitle: { fontSize: 12, fontWeight: '700', color: colors.primary700 },
   bannerText: { fontSize: 14, color: colors.muted600 },

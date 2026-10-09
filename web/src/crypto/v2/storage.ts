@@ -82,7 +82,15 @@ export interface DeviceRecord {
   listed: boolean; // on the account's signed device list (able to send and receive)
 }
 
-export interface Pin { aik: string; verified: boolean; firstSeen: number; changedAt?: number }
+export interface Pin {
+  aik: string; // the account key we trust for this person (b64)
+  verified: boolean; // the person compared security codes (or scanned the QR code)
+  firstSeen: number;
+  changedAt?: number; // the key changed (they started fresh): "security code changed" notice
+  previousAik?: string;
+  acknowledgedAt?: number; // the notice was seen
+  needsAccept?: boolean; // they were verified when the key changed: sending waits until it's accepted
+}
 
 /**
  * Everything v2 keeps on the device. Outside a transaction each write is saved immediately.

@@ -39,7 +39,7 @@ export const eq = (a: Uint8Array, b: Uint8Array): boolean => {
 };
 
 export class CryptoError extends Error {
-  constructor(public code: 'invalid_key' | 'bad_signature' | 'decrypt_failed' | 'too_many_skipped' | 'replay' | 'bad_format' | 'no_session', message: string) {
+  constructor(public code: 'invalid_key' | 'bad_signature' | 'decrypt_failed' | 'too_many_skipped' | 'replay' | 'bad_format' | 'no_session' | 'identity_changed', message: string) {
     super(message);
     this.name = 'CryptoError';
   }
