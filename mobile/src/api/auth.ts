@@ -10,6 +10,7 @@ export interface User {
   avatar?: string | null;
   email_verified?: boolean;
   created_at: string;
+  payment_handles?: { revolut?: string; paypal?: string; upi?: string } | null; // where people can pay you
 }
 
 export interface TokenPair {
@@ -25,5 +26,6 @@ export const authApi = {
   resendCode: (identifier: string) => api.post('/auth/resend-code', { identifier }),
   forgotPassword: (identifier: string) => api.post('/auth/forgot-password', { identifier }),
   me: () => data<User>(api.get('/auth/me')),
-  updateMe: (patch: { name?: string; username?: string; bio?: string; avatar?: string }) => data<User>(api.patch('/auth/me', patch)),
+  updateMe: (patch: { name?: string; username?: string; bio?: string; avatar?: string; payment_handles?: { revolut?: string; paypal?: string; upi?: string } }) =>
+    data<User>(api.patch('/auth/me', patch)),
 };

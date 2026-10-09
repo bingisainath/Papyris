@@ -17,6 +17,7 @@ import {
 } from '../crypto/v2-platform/chat';
 import type { ChatInfo } from '../crypto/v2-platform/chat';
 import type { Received } from '../crypto/v2';
+import { showAlert } from '../components/Dialog';
 
 const TYPING_TTL_MS = 6000;
 
@@ -614,6 +615,10 @@ socket.on((e) => {
       if (typeof e.deviceId === 'number' && e.envelope) {
         receiveLive(e.deviceId, e.envelope).then((r) => { if (r) applyV2(r); }).catch(() => undefined);
       }
+      break;
+    case 'expense_reminder':
+      // Someone in a chat reminded us that we owe them (the push notification covers the app being closed)
+      if (typeof e.text === 'string') showAlert('Payment reminder', e.text);
       break;
     case 'e2e_device_list':
       forgetDirectory(e.userId).catch(() => undefined);

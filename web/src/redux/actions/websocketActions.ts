@@ -688,6 +688,11 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     }));
   });
 
+  // Someone in a chat reminded us that we owe them
+  wsService.on('expense_reminder', (data) => {
+    if (typeof data.text === 'string') toast.info(data.text, { autoClose: 8000 });
+  });
+
   // The AI finished reading a receipt we uploaded
   wsService.on('receipt_scan_ready', (data) => {
     window.dispatchEvent(new CustomEvent(RECEIPT_READY_EVENT, { detail: data }));

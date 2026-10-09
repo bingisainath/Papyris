@@ -1,8 +1,6 @@
 // src/screens/chats/ChatScreen.tsx
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator, Alert, FlatList, Modal, Platform, Pressable, StyleSheet, Text, View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -28,6 +26,7 @@ import { socket } from '../../ws/socket';
 import { colors, radius, space } from '../../theme';
 import { dayLabel } from '../../utils/time';
 import type { AppStackParams } from '../../navigation/types';
+import { showAlert } from '../../components/Dialog';
 
 const NO_MEMBERS: string[] = [];
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -65,7 +64,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   // Join the room while the chat is on screen
   useFocusEffect(useCallback(() => {
     open(conversationId);
-    loadMessages(conversationId).catch((e) => Alert.alert("Couldn't load messages", errorMessage(e))).finally(() => setLoading(false));
+    loadMessages(conversationId).catch((e) => showAlert("Couldn't load messages", errorMessage(e))).finally(() => setLoading(false));
     return () => open(null);
   }, [conversationId, open, loadMessages]));
 
@@ -147,9 +146,9 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   const save = async (m: Message) => {
     try {
       await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`, m.mediaKey, m.mediaMime, m.mediaV2);
-      if (Platform.OS === 'android') Alert.alert('Saving to Downloads', 'You\'ll get a notification when it\'s done.');
+      if (Platform.OS === 'android') showAlert('Saving to Downloads', 'You\'ll get a notification when it\'s done.');
     } catch {
-      Alert.alert("Couldn't save it", 'Check your connection and try again.');
+      showAlert("Couldn't save it", 'Check your connection and try again.');
     }
   };
 
@@ -185,7 +184,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         const sealed = await sealFor(conversationId, { t: value, m: mediaPayloadOf(original) });
         await chatApi.editMessage(original.id, sealed?.text ?? value, sealed?.hasLink);
       } catch (e) {
-        Alert.alert("Couldn't edit message", errorMessage(e));
+        showAlert("Couldn't edit message", errorMessage(e));
       }
       return;
     }
@@ -196,15 +195,15 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   };
 
   const react = (message: Message, emoji: string) => {
-    chatApi.react(message.id, emoji).catch((e) => Alert.alert("Couldn't react", errorMessage(e)));
+    chatApi.react(message.id, emoji).catch((e) => showAlert("Couldn't react", errorMessage(e)));
   };
 
   const remove = (message: Message) => {
-    Alert.alert('Delete message?', 'It will be deleted for everyone.', [
+    showAlert('Delete message?', 'It will be deleted for everyone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive',
-        onPress: () => chatApi.deleteMessage(message.id).catch((e) => Alert.alert("Couldn't delete", errorMessage(e))),
+        onPress: () => chatApi.deleteMessage(message.id).catch((e) => showAlert("Couldn't delete", errorMessage(e))),
       },
     ]);
   };
@@ -374,7 +373,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             sent ? (sent === 1 ? 'Forwarded' : `Forwarded to ${sent} chats`) : '',
             skipped ? `Not forwarded to ${skipped === 1 ? 'a chat' : `${skipped} chats`} that isn't end-to-end encrypted yet` : '',
           ].filter(Boolean);
-          Alert.alert(notes.join('. ') || 'Not connected. Try again.');
+          showAlert(notes.join('. ') || 'Not connected. Try again.');
         }}
       />
     </SafeAreaView>

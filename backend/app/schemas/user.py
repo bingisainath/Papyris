@@ -34,6 +34,7 @@ class UserResponse(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     avatar: Optional[str] = None
+    payment_handles: Optional[dict] = None
     is_active: bool
     email_verified: bool = True
     created_at: datetime
@@ -48,12 +49,31 @@ class UserResponse(BaseModel):
         return sign_url(avatar)
 
 
+class PaymentHandles(BaseModel):
+    """Payment app usernames shown to people in your chats (empty string removes one)."""
+    revolut: Optional[str] = Field(None, max_length=40, pattern=r"^$|^@?[A-Za-z0-9._-]{2,40}$")
+    paypal: Optional[str] = Field(None, max_length=40, pattern=r"^$|^[A-Za-z0-9]{1,40}$")
+    upi: Optional[str] = Field(None, max_length=100, pattern=r"^$|^[A-Za-z0-9._-]{2,64}@[A-Za-z0-9]{2,32}$")
+
+    def merged_into(self, current: Optional[dict]) -> Optional[dict]:
+        """Apply the fields that were sent ("" removes one) to the saved ones."""
+        out = dict(current or {})
+        for key, value in self.model_dump(exclude_unset=True).items():
+            value = (value or "").strip().lstrip("@")
+            if value:
+                out[key] = value
+            else:
+                out.pop(key, None)
+        return out or None
+
+
 class UserUpdate(BaseModel):
     """Profile fields a user can change. Omitted fields are left as they are."""
     name: Optional[str] = Field(None, max_length=100)
     username: Optional[str] = Field(None, min_length=3, max_length=50)
     bio: Optional[str] = Field(None, max_length=500)
     avatar: Optional[str] = Field(None, description="Uploaded image URL, or empty string to remove")
+    payment_handles: Optional[PaymentHandles] = None
 
     @field_validator('name', 'username', 'bio')
     @classmethod

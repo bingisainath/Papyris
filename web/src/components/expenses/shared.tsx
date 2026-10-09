@@ -56,7 +56,8 @@ export function useChatMoney(conversationId: string | undefined) {
 export function useExpenseChanges(conversationId: string | undefined, callback: () => void) {
   useEffect(() => {
     const onChange = (e: Event) => {
-      if ((e as CustomEvent).detail?.conversationId === conversationId) callback();
+      // No chat id: any chat's change (e.g. the Expenses home totals)
+      if (conversationId === undefined || (e as CustomEvent).detail?.conversationId === conversationId) callback();
     };
     window.addEventListener(EXPENSE_CHANGED_EVENT, onChange);
     return () => window.removeEventListener(EXPENSE_CHANGED_EVENT, onChange);

@@ -4,11 +4,9 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { Globe, QrCode, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react-native';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { AppStackParams } from '../../navigation/types';
+import { Globe, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react-native';
 import { api, errorMessage } from '../../api/client';
-import { Banner, Button } from '../../components/ui';
+import { Banner } from '../../components/ui';
 import { v2Runtime } from '../../crypto/v2-platform/runtime';
 import { colors, radius, space } from '../../theme';
 
@@ -35,7 +33,7 @@ export function activeLabel(iso: string | null): string {
 
 const dateTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown');
 
-const SessionsScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Sessions'>> = ({ navigation }) => {
+const SessionsScreen: React.FC = () => {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [mine, setMine] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -65,7 +63,6 @@ const SessionsScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Sessions'
     <ScrollView contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
       <Text style={styles.lead}>Phones and browsers signed in to your account. Logging out on a device ends its session.</Text>
-      <Button title="Link a device" icon={QrCode} onPress={() => navigation.navigate('Encryption', { scan: true })} />
       {!!error && <Banner text={error} />}
       {sessions?.map((s) => {
         const Icon = BROWSERS.test(s.name) ? Globe : Smartphone;

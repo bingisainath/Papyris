@@ -2,7 +2,7 @@
 // Add or edit an expense by hand (same rules as web/src/components/expenses/ManualExpenseForm.tsx),
 // with a shortcut to scan a receipt instead.
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScanLine } from 'lucide-react-native';
 import Avatar from '../../components/Avatar';
@@ -17,6 +17,7 @@ import type { AppStackParams } from '../../navigation/types';
 import CategoryIcon from './CategoryIcon';
 import CurrencyPicker from './CurrencyPicker';
 import { memberName, useChatMoney } from './useMembers';
+import { showAlert } from '../../components/Dialog';
 
 type Mode = 'equal' | 'exact' | 'percent' | 'shares';
 type PayerDraft = { user_id: string; amount: string };
@@ -57,7 +58,7 @@ const AddExpenseScreen: React.FC<NativeStackScreenProps<AppStackParams, 'AddExpe
       if (e.payers.length > 1) setPayers(e.payers.map((p) => ({ user_id: p.user_id, amount: toMajorString(p.amount_minor, e.currency) })));
       else if (e.payers[0]) setSinglePayer(e.payers[0].user_id);
       setReady(true);
-    }).catch((err) => { Alert.alert("Couldn't load the expense", errorMessage(err)); navigation.goBack(); });
+    }).catch((err) => { showAlert("Couldn't load the expense", errorMessage(err)); navigation.goBack(); });
   }, [expenseId, navigation]);
 
   // New expense: everyone in, chat's currency

@@ -8,7 +8,7 @@
 // - No other device available: start fresh with new keys; older encrypted messages can't be read.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import AuthLayout from './AuthLayout';
 import { Banner, Button, TextField } from '../../components/ui';
@@ -27,6 +27,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../store/auth';
 import { phoneName } from '../../utils/device';
 import { colors, radius, space } from '../../theme';
+import { showAlert } from '../../components/Dialog';
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 
@@ -164,7 +165,7 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
     return () => { attempt.current += 1; }; // stop waiting when leaving
   }, [begin]);
 
-  const startFresh = () => Alert.alert(
+  const startFresh = () => showAlert(
     'Start fresh with new keys?',
     "Your encrypted messages from before can't be read again, on any device, and the people you chat with will see that your keys changed.",
     [

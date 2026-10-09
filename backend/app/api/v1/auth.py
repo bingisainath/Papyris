@@ -152,6 +152,8 @@ async def update_me(
         if payload.avatar and not media_storage.is_stored_image_url(payload.avatar):
             raise HTTPException(status_code=400, detail="Avatar must be an uploaded image")
         current_user.avatar = media_storage.unsigned(payload.avatar) or None
+    if payload.payment_handles is not None:
+        current_user.payment_handles = payload.payment_handles.merged_into(current_user.payment_handles)
 
     db.add(current_user)
     await db.commit()

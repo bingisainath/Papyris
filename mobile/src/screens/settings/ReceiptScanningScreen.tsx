@@ -2,7 +2,7 @@
 // Receipt scanning: free scans left this month, which AI model reads receipts, and optional own API keys.
 // Keys are write-only: they go to the server, are stored encrypted there, and only "…abcd" ever comes back.
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Check, KeyRound } from 'lucide-react-native';
 import { expenseService } from '../../api/expenses';
 import type { AISettings } from '../../api/expenses';
@@ -10,6 +10,7 @@ import { errorMessage } from '../../api/client';
 import { Button, Divider, TextField } from '../../components/ui';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { colors, radius, space } from '../../theme';
+import { showAlert } from '../../components/Dialog';
 
 type Provider = 'anthropic' | 'openai';
 const PROVIDERS: { id: Provider; name: string; hint: string; url: string }[] = [
@@ -24,7 +25,7 @@ const ReceiptScanningScreen: React.FC = () => {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    expenseService.aiSettings().then(setSettings).catch((e) => Alert.alert("Couldn't load", errorMessage(e)));
+    expenseService.aiSettings().then(setSettings).catch((e) => showAlert("Couldn't load", errorMessage(e)));
   }, []);
 
   const run = async (action: () => Promise<AISettings>) => {
@@ -33,7 +34,7 @@ const ReceiptScanningScreen: React.FC = () => {
       setSettings(await action());
       return true;
     } catch (e) {
-      Alert.alert("Couldn't save", errorMessage(e));
+      showAlert("Couldn't save", errorMessage(e));
       return false;
     } finally {
       setBusy(false);
@@ -95,7 +96,7 @@ const ReceiptScanningScreen: React.FC = () => {
                     <Text style={styles.hint}>{saved ? `Saved key ${saved}` : 'Not added'}</Text>
                   </View>
                   {saved ? (
-                    <Pressable disabled={busy} hitSlop={8} onPress={() => Alert.alert(`Remove your ${p.name} key?`, 'Scans will use the app\'s free allowance again.', [
+                    <Pressable disabled={busy} hitSlop={8} onPress={() => showAlert(`Remove your ${p.name} key?`, 'Scans will use the app\'s free allowance again.', [
                       { text: 'Cancel', style: 'cancel' },
                       { text: 'Remove', style: 'destructive', onPress: () => run(() => expenseService.removeOwnKey(p.id)) },
                     ])}>

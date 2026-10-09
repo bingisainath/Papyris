@@ -2,7 +2,7 @@
 // Message box like the web app's: text, attachments (camera, photos & videos, documents) with a
 // caption each, and voice notes. An empty box shows a microphone instead of Send.
 import React, { useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { cameraAllowed } from '../utils/camera';
 import { keepLocalCopy, pick, types } from '@react-native-documents/picker';
@@ -12,6 +12,7 @@ import type { Attachment } from '../store/chat';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { colors, radius, space } from '../theme';
 import { formatDuration } from '../utils/time';
+import { showAlert } from './Dialog';
 
 const MAX = 10;
 
@@ -34,7 +35,7 @@ const fromAsset = (asset: Asset, hd: boolean): Draft | null => {
   const type = asset.type || (asset.uri?.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg');
   const problem = fileProblem(type, asset.fileSize);
   if (!asset.uri || problem) {
-    Alert.alert(asset.fileName || 'File', problem || "This file couldn't be read");
+    showAlert(asset.fileName || 'File', problem || "This file couldn't be read");
     return null;
   }
   const kind = ALLOWED[type];
@@ -64,7 +65,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
   const add = (list: Draft[]) => {
     if (!list.length) return;
     const room = MAX - drafts.length;
-    if (list.length > room) Alert.alert(`You can send up to ${MAX} at once`);
+    if (list.length > room) showAlert(`You can send up to ${MAX} at once`);
     // the text box becomes the caption of the selected attachment
     if (!drafts.length) { setSelected(0); list[0].caption = text; onChangeText(''); }
     setDrafts((d) => [...d, ...list.slice(0, room)]);
@@ -82,7 +83,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
     const result = source === 'camera'
       ? await launchCamera(options)
       : await launchImageLibrary({ ...options, selectionLimit: MAX - drafts.length });
-    if (result.errorCode) Alert.alert("Couldn't open the " + (source === 'camera' ? 'camera' : 'gallery'), result.errorMessage || result.errorCode);
+    if (result.errorCode) showAlert("Couldn't open the " + (source === 'camera' ? 'camera' : 'gallery'), result.errorMessage || result.errorCode);
     add((result.assets || []).map((a) => fromAsset(a, hd)).filter((d): d is Draft => !!d));
   };
 
@@ -100,7 +101,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
         const type = f.type || 'application/octet-stream';
         const problem = fileProblem(type, f.size);
         if (problem || copy?.status !== 'success') {
-          Alert.alert(f.name || 'File', problem || "This file couldn't be read");
+          showAlert(f.name || 'File', problem || "This file couldn't be read");
           return;
         }
         list.push({
@@ -111,7 +112,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
       });
       add(list);
     } catch (e: any) {
-      if (e?.code !== 'OPERATION_CANCELED') Alert.alert("Couldn't open your files");
+      if (e?.code !== 'OPERATION_CANCELED') showAlert("Couldn't open your files");
     }
   };
 
@@ -205,7 +206,7 @@ const Composer: React.FC<Props> = ({ text, onChangeText, editing, onSendText, on
           accessibilityLabel="Message"
         />
         {showMic ? (
-          <Pressable onPress={async () => { const problem = await recorder.start(); if (problem) Alert.alert(problem); }}
+          <Pressable onPress={async () => { const problem = await recorder.start(); if (problem) showAlert(problem); }}
             style={styles.send} accessibilityLabel="Record voice message">
             <Mic size={20} color={colors.white} />
           </Pressable>

@@ -3,8 +3,7 @@
 // in and was last active, and whether it's linked for end-to-end encryption.
 
 import React, { useEffect, useState } from 'react';
-import { Globe, MonitorSmartphone, QrCode, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react';
-import { LINK_DEVICE_EVENT } from './EncryptionSettings';
+import { Globe, MonitorSmartphone, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react';
 import api from '../../utils/axios';
 import { v2Runtime } from '../../crypto/v2-platform/runtime';
 import { parseApiError } from '../../utils/apiError';
@@ -45,13 +44,7 @@ const SessionsSettings: React.FC = () => {
       <div className="flex gap-3">
         <MonitorSmartphone className="w-6 h-6 text-primary-600 flex-shrink-0" strokeWidth={1.75} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-muted-900">Sessions</h2>
-            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent(LINK_DEVICE_EVENT))}
-              className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-primary-700 hover:bg-primary-800 rounded-lg">
-              <QrCode className="w-4 h-4" /> Link a device
-            </button>
-          </div>
+          <h2 className="text-lg font-semibold text-muted-900">Sessions</h2>
           <p className="text-sm text-muted-500">Phones and browsers signed in to your account. Logging out on a device ends its session.</p>
           {error && <p className="mt-2 text-sm text-accent-600">{error}</p>}
           <ul className="mt-4 space-y-2" aria-label="Active sessions">

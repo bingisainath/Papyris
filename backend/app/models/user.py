@@ -5,7 +5,7 @@ User Model
 import uuid
 import enum
 from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
 from app.db.base import Base
@@ -49,6 +49,9 @@ class User(Base):
     
     # Media
     avatar = Column(String, nullable=True)  # URL to profile picture
+
+    # Where people in your chats can pay you: {"revolut": "...", "paypal": "...", "upi": "..."}
+    payment_handles = Column(JSONB, nullable=True)
     
     # Social IDs (for OAuth integration - future)
     google_id = Column(String, nullable=True, unique=True)

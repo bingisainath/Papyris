@@ -1,7 +1,7 @@
 // src/screens/chats/ChatInfoScreen.tsx
 // Group or contact info: members, admin actions (incl. editing the group), pin, leave, and the chat's expense settings.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
@@ -19,6 +19,7 @@ import { useChat } from '../../store/chat';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import CurrencyPicker from '../expenses/CurrencyPicker';
+import { showAlert } from '../../components/Dialog';
 
 const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'>> = ({ route, navigation }) => {
   const { conversationId, addMembers } = route.params;
@@ -36,7 +37,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
       setDetails(d);
       setSettings(s);
     } catch (e) {
-      Alert.alert("Couldn't load info", errorMessage(e));
+      showAlert("Couldn't load info", errorMessage(e));
       navigation.goBack();
     }
   }, [conversationId, navigation]);
@@ -57,7 +58,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
       await load();
       useChat.getState().loadConversations().catch(() => undefined);
     } catch (e) {
-      Alert.alert('Something went wrong', errorMessage(e));
+      showAlert('Something went wrong', errorMessage(e));
     }
   };
 
@@ -68,7 +69,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     useChat.getState().loadConversations().catch(() => undefined);
   };
 
-  const changePhoto = () => Alert.alert('Group photo', undefined, [
+  const changePhoto = () => showAlert('Group photo', undefined, [
     { text: 'Choose photo', onPress: pickPhoto },
     ...(details.avatar_url ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: () => photoTask(() => saveGroup({ avatar_url: '' })) }] : []),
     { text: 'Cancel', style: 'cancel' as const },
@@ -76,7 +77,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
 
   const photoTask = async (action: () => Promise<unknown>) => {
     setBusyPhoto(true);
-    try { await action(); } catch (e) { Alert.alert("Couldn't update the photo", errorMessage(e)); } finally { setBusyPhoto(false); }
+    try { await action(); } catch (e) { showAlert("Couldn't update the photo", errorMessage(e)); } finally { setBusyPhoto(false); }
   };
 
   const pickPhoto = async () => {
@@ -93,7 +94,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
 
   const memberActions = (member: MemberInfo) => {
     if (!isAdmin || member.is_me) return;
-    Alert.alert(member.name || member.username, undefined, [
+    showAlert(member.name || member.username, undefined, [
       member.role === 'admin'
         ? { text: 'Remove as admin', onPress: () => run(() => api.patch(`/conversations/${conversationId}/members/${member.id}`, { role: 'member' })) }
         : { text: 'Make group admin', onPress: () => run(() => api.patch(`/conversations/${conversationId}/members/${member.id}`, { role: 'admin' })) },
@@ -102,7 +103,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     ]);
   };
 
-  const leave = () => Alert.alert('Leave this group?', 'You will stop receiving its messages.', [
+  const leave = () => showAlert('Leave this group?', 'You will stop receiving its messages.', [
     { text: 'Cancel', style: 'cancel' },
     {
       text: 'Leave', style: 'destructive',
@@ -112,7 +113,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
           await useChat.getState().loadConversations();
           navigation.popToTop();
         } catch (e) {
-          Alert.alert("Couldn't leave", errorMessage(e));
+          showAlert("Couldn't leave", errorMessage(e));
         }
       },
     },
@@ -122,7 +123,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     try {
       setSettings(await expenseService.updateSettings(conversationId, patch));
     } catch (e) {
-      Alert.alert("Couldn't save", errorMessage(e));
+      showAlert("Couldn't save", errorMessage(e));
     }
   };
 

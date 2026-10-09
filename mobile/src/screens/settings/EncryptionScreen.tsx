@@ -2,9 +2,7 @@
 // Settings → End-to-end encryption: what's encrypted, and linking a new device (scan its QR code,
 // or type the code it shows). It's added to the account, and the keys and (optionally) the message
 // history go to it encrypted for it alone.
-import React, { useEffect, useRef, useState } from 'react';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { AppStackParams } from '../../navigation/types';
+import React, { useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, CameraType } from 'react-native-camera-kit';
@@ -20,7 +18,7 @@ import { useAuth } from '../../store/auth';
 import { colors, radius, space } from '../../theme';
 import { showAlert } from '../../components/Dialog';
 
-const EncryptionScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Encryption'>> = ({ route }) => {
+const EncryptionScreen: React.FC = () => {
   const keyboard = useKeyboardOffset();
   const userId = useAuth((s) => s.user?.id);
   const [code, setCode] = useState('');
@@ -49,12 +47,6 @@ const EncryptionScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Encrypt
     setError('');
     setScanning(true);
   };
-
-  // Opened from Settings → Link a device: go straight to the scanner
-  const autoScan = route.params?.scan;
-  useEffect(() => {
-    if (autoScan) scan();
-  }, [autoScan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onRead = (text: string) => {
     if (handled.current) return; // the camera reports the same code many times a second

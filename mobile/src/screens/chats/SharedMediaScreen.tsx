@@ -1,7 +1,7 @@
 // src/screens/chats/SharedMediaScreen.tsx
 // "Media, links and docs" from chat info: everything shared in the chat, newest first.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Download, FileText, Link2, Play } from 'lucide-react-native';
 import MediaViewer, { ViewerItem } from '../../components/MediaViewer';
@@ -16,6 +16,7 @@ import { formatDuration, formatSize } from '../../utils/time';
 import { saveToPhone } from '../../utils/save';
 import type { AppStackParams } from '../../navigation/types';
 import { Segmented } from '../expenses/AddExpenseScreen';
+import { showAlert } from '../../components/Dialog';
 
 type Kind = 'media' | 'docs' | 'links';
 interface Item {
@@ -118,7 +119,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
       setItems((current) => (more ? [...current, ...page] : page));
       setHasMore(!!r.data.has_more);
     } catch (e) {
-      Alert.alert("Couldn't load", errorMessage(e));
+      showAlert("Couldn't load", errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -191,7 +192,7 @@ const SharedMediaScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Shared
                     <Text style={styles.name} numberOfLines={1}>{item.media_filename || 'File'}</Text>
                     <Text style={styles.sub}>{formatSize(item.media_size)} · {who(item)}</Text>
                   </View>
-                  <Pressable onPress={() => saveToPhone(item.media_url!, item.media_filename || 'file', item.media_key, item.media_mime, item.media_v2).catch(() => Alert.alert("Couldn't save it"))}
+                  <Pressable onPress={() => saveToPhone(item.media_url!, item.media_filename || 'file', item.media_key, item.media_mime, item.media_v2).catch(() => showAlert("Couldn't save it"))}
                     hitSlop={10} accessibilityLabel="Save to phone">
                     <Download size={20} color={colors.primary700} />
                   </Pressable>

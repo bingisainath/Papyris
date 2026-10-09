@@ -26,6 +26,6 @@ export type AppStackParams = {
   Profile: undefined;
   ReceiptScanning: undefined;
   StoreDiscounts: undefined;
-  Encryption: { scan?: boolean } | undefined; // scan: open the QR scanner straight away (Settings → Link a device)
+  Encryption: undefined;
   Sessions: undefined;
 };

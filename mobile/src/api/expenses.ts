@@ -56,7 +56,20 @@ export interface HistoryEntry {
   created_at: string;
 }
 
-export interface BalanceUser { id: string; username: string; name?: string | null; avatar?: string | null }
+export interface BalanceUser {
+  id: string;
+  username: string;
+  name?: string | null;
+  avatar?: string | null;
+  pay?: { revolut?: string; paypal?: string; upi?: string }; // where they can be paid
+}
+
+/** Expenses home: your money across every chat. Amounts: + they owe you, - you owe them. */
+export interface ExpensesOverview {
+  currencies: { currency: string; owed_minor: number; owe_minor: number; net_minor: number }[];
+  people: { user_id: string; currency: string; net_minor: number; chats: { conversation_id: string; title: string | null; is_group: boolean; amount_minor: number }[] }[];
+  users: Record<string, BalanceUser>;
+}
 
 export interface Balances {
   simplified: boolean;
@@ -69,6 +82,54 @@ export interface Balances {
     nets: { user_id: string; amount_minor: number }[];
     debts: { from_user: string; to_user: string; amount_minor: number; amount_display: string }[];
   }[];
+}
+
+/** One member's money in one currency (Expenses → a chat). net > 0: the group owes them. */
+export interface MemberMoney {
+  user_id: string;
+  paid_minor: number;
+  share_minor: number;
+  sent_minor: number; // payments they recorded making
+  received_minor: number;
+  net_minor: number;
+}
+
+export interface CurrencySummary {
+  currency: string;
+  total_minor: number;
+  total_display: string;
+  count: number;
+  me: MemberMoney;
+  members: MemberMoney[];
+  by_category: { category: string; total_minor: number; count: number }[];
+  by_month: { month: string; total_minor: number }[]; // "2026-10", newest first
+}
+
+export interface ExpenseSummary { currencies: CurrencySummary[]; users: Record<string, BalanceUser> }
+
+export interface Settlement {
+  id: string;
+  conversation_id: string;
+  from_user: string;
+  to_user: string;
+  currency: string;
+  amount_minor: number;
+  amount_display: string;
+  note: string | null;
+  created_by: string | null;
+  deleted: boolean;
+  created_at: string | null;
+}
+
+export type ActivityItem = ({ kind: 'expense'; at: string } & Expense) | ({ kind: 'settlement'; at: string } & Settlement);
+
+export interface ActivityFilters {
+  category?: string;
+  member?: string;
+  date_from?: string;
+  date_to?: string;
+  kind?: 'expense' | 'settlement';
+  include_deleted?: boolean;
 }
 
 export interface ExpenseSettings {
@@ -225,6 +286,16 @@ export const expenseService = {
   history: (id: string) => data<HistoryEntry[]>(api.get(`${V1}/expenses/${id}/history`)),
 
   balances: (conversationId: string) => data<Balances>(api.get(`${V1}/conversations/${conversationId}/balances`)),
+  overview: () => data<ExpensesOverview>(api.get(`${V1}/expenses/overview`)),
+  /** Nudge someone who owes you in this chat (once a day). */
+  remind: (conversationId: string, userId: string, currency: string) =>
+    data(api.post(`${V1}/conversations/${conversationId}/remind`, { user_id: userId, currency })),
+  /** Totals, everyone's balance, and spending by category and month. */
+  summary: (conversationId: string) => data<ExpenseSummary>(api.get(`${V1}/conversations/${conversationId}/expenses/summary`)),
+  /** Expenses and payments in one timeline, newest first. */
+  activity: (conversationId: string, filters: ActivityFilters = {}) =>
+    data<{ items: ActivityItem[]; users: Record<string, BalanceUser> }>(api.get(`${V1}/conversations/${conversationId}/history`, { params: filters })),
+  removeSettlement: (id: string) => data(api.delete(`${V1}/settlements/${id}`)),
   /** The chat's expenses as an Excel file (summary, expenses, discounted products), saved to Downloads (Android)
    *  or opened to save/share (iPhone). Returns the file name. */
   saveExcel: async (conversationId: string): Promise<string> => {

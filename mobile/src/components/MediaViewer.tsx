@@ -1,7 +1,7 @@
 // src/components/MediaViewer.tsx
 // Full-screen photos and videos of a chat: swipe between them, Save and Forward.
 import React, { useRef, useState } from 'react';
-import { Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, Image, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Download, Forward, X } from 'lucide-react-native';
 import Video from 'react-native-video';
@@ -9,6 +9,7 @@ import { Lock } from 'lucide-react-native';
 import { useMediaSrc } from '../crypto/media';
 import { saveToPhone } from '../utils/save';
 import { clockTime } from '../utils/time';
+import { showAlert } from './Dialog';
 
 export interface ViewerItem {
   id: string;
@@ -40,7 +41,7 @@ const MediaViewer: React.FC<Props> = ({ items, index, onClose, onForward }) => {
     try {
       await saveToPhone(item.url, item.filename || (item.type === 'video' ? 'video.mp4' : 'photo.jpg'), item.mediaKey, item.mediaMime, item.mediaV2);
     } catch {
-      Alert.alert("Couldn't save it", 'Check your connection and try again.');
+      showAlert("Couldn't save it", 'Check your connection and try again.');
     }
   };
 

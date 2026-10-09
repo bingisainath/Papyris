@@ -232,3 +232,88 @@ async def test_conversations_with_expenses(client, trio, make_user, make_dm):
     assert dm in ids and empty_dm not in ids and group not in ids
     outsider = await make_user()
     assert (await client.get("/api/v1/expenses/conversations", headers=outsider.headers)).json()["data"] == []
+
+
+async def test_summary_and_filtered_history(client, trio, make_user):
+    a, b, c, group = await trio()
+    everyone = [{"user_id": u.id} for u in (a, b, c)]
+    assert (await add(client, a, group, "30.00", category="food", splits=everyone, spent_at="2026-09-10T12:00:00Z")).status_code == 200
+    assert (await add(client, b, group, "12.00", category="groceries", description="Milk and bread", splits=everyone,
+                      payers=[{"user_id": b.id, "amount": "12.00"}], spent_at="2026-10-02T12:00:00Z")).status_code == 200
+    assert (await add(client, a, group, "5.00", currency="USD", category="drinks", splits=[{"user_id": a.id}, {"user_id": c.id}], spent_at="2026-08-01T12:00:00Z")).status_code == 200
+    r = await client.post(f"/api/v1/conversations/{group}/settlements",
+                          json={"from_user": c.id, "to_user": a.id, "currency": "EUR", "amount": "5.00"}, headers=c.headers)
+    assert r.status_code == 200, r.text
+
+    s = (await client.get(f"/api/v1/conversations/{group}/expenses/summary", headers=c.headers)).json()["data"]
+    eur = next(x for x in s["currencies"] if x["currency"] == "EUR")
+    assert eur["total_minor"] == 4200 and eur["count"] == 2
+    assert [x["category"] for x in eur["by_category"]] == ["food", "groceries"]
+    assert [x["month"] for x in eur["by_month"]] == ["2026-10", "2026-09"]
+    members = {m["user_id"]: m for m in eur["members"]}
+    assert members[a.id]["paid_minor"] == 3000 and members[a.id]["share_minor"] == 1400
+    assert members[c.id]["sent_minor"] == 500 and members[a.id]["received_minor"] == 500
+    assert sum(m["net_minor"] for m in eur["members"]) == 0  # the group's books balance
+    # Every member's balance matches the balances endpoint
+    nets = {n["user_id"]: n["amount_minor"] for n in (await balances(client, c, group))["currencies"][0]["nets"]}
+    assert all(members[u]["net_minor"] == nets.get(u, 0) for u in members)
+    assert eur["me"]["user_id"] == c.id and eur["me"]["net_minor"] == members[c.id]["net_minor"]
+    assert set(s["users"]) == {a.id, b.id, c.id}
+
+    def history(**params):
+        return client.get(f"/api/v1/conversations/{group}/history", params=params, headers=a.headers)
+
+    items = (await history()).json()["data"]["items"]
+    assert [i["kind"] for i in items].count("settlement") == 1 and len(items) == 4
+    assert [i["at"] for i in items] == sorted((i["at"] for i in items), reverse=True)
+    assert [i["description"] for i in (await history(category="groceries")).json()["data"]["items"]] == ["Milk and bread"]
+    october = (await history(date_from="2026-10-01T00:00:00Z", date_to="2026-11-01T00:00:00Z", kind="expense")).json()["data"]["items"]
+    assert [i["description"] for i in october] == ["Milk and bread"]
+    by_c = (await history(member=c.id)).json()["data"]["items"]
+    assert len(by_c) == 4  # c shares everything and made the payment
+    outsider = await make_user("outsider")
+    assert (await client.get(f"/api/v1/conversations/{group}/history", headers=outsider.headers)).status_code == 404
+
+
+async def test_overview_across_chats_reminders_and_payment_details(client, trio, make_user, make_dm, events):
+    a, b, c, group = await trio()
+    dm = await make_dm(a, b)
+    everyone = [{"user_id": u.id} for u in (a, b, c)]
+    assert (await add(client, a, group, "30.00", splits=everyone)).status_code == 200  # b and c owe a 10 each
+    assert (await add(client, b, dm, "8.00", splits=[{"user_id": a.id}, {"user_id": b.id}],
+                      payers=[{"user_id": b.id, "amount": "8.00"}])).status_code == 200  # a owes b 4
+    assert (await add(client, a, group, "6.00", currency="USD", splits=[{"user_id": a.id}, {"user_id": c.id}])).status_code == 200
+
+    o = (await client.get("/api/v1/expenses/overview", headers=a.headers)).json()["data"]
+    eur = next(x for x in o["currencies"] if x["currency"] == "EUR")
+    assert (eur["owed_minor"], eur["owe_minor"], eur["net_minor"]) == (2000, 400, 1600)
+    people = {(p["user_id"], p["currency"]): p for p in o["people"]}
+    assert people[(b.id, "EUR")]["net_minor"] == 1000 - 400  # owes a in the group, a owes b in the DM
+    assert sorted(ch["amount_minor"] for ch in people[(b.id, "EUR")]["chats"]) == [-400, 1000]
+    assert people[(c.id, "USD")]["net_minor"] == 300
+    assert next(ch for ch in people[(b.id, "EUR")]["chats"] if ch["is_group"])["title"] == "Trip"
+    assert set(o["users"]) == {b.id, c.id}
+
+    # Payment details: saved on the profile, shown to chat partners, bad formats refused
+    r = await client.patch("/api/v1/auth/me", json={"payment_handles": {"revolut": "@alice", "paypal": "AliceP", "upi": "alice@okbank"}}, headers=a.headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["payment_handles"] == {"revolut": "alice", "paypal": "AliceP", "upi": "alice@okbank"}
+    assert (await client.patch("/api/v1/auth/me", json={"payment_handles": {"upi": "not a upi"}}, headers=a.headers)).status_code == 422
+    r = await client.patch("/api/v1/auth/me", json={"payment_handles": {"paypal": ""}}, headers=a.headers)  # one at a time
+    assert r.json()["data"]["payment_handles"] == {"revolut": "alice", "upi": "alice@okbank"}
+    await client.patch("/api/v1/auth/me", json={"payment_handles": {"paypal": "AliceP"}}, headers=a.headers)
+    seen = (await balances(client, b, group))["users"][a.id]["pay"]
+    assert seen == {"revolut": "alice", "paypal": "AliceP", "upi": "alice@okbank"}
+    await client.patch("/api/v1/auth/me", json={"payment_handles": {"revolut": "", "paypal": "", "upi": ""}}, headers=a.headers)
+    assert (await balances(client, b, group))["users"][a.id]["pay"] == {}
+
+    # Reminders: only to someone who owes you, once a day
+    events.clear()
+    r = await client.post(f"/api/v1/conversations/{group}/remind", json={"user_id": c.id, "currency": "EUR"}, headers=a.headers)
+    assert r.status_code == 200, r.text
+    sent = [p for ids, p in events if p.get("type") == "expense_reminder"]
+    assert sent and sent[0]["amountMinor"] == 1000 and "in Trip" in sent[0]["text"]
+    assert (await client.post(f"/api/v1/conversations/{group}/remind", json={"user_id": c.id, "currency": "EUR"}, headers=a.headers)).status_code == 429
+    assert (await client.post(f"/api/v1/conversations/{group}/remind", json={"user_id": a.id, "currency": "EUR"}, headers=c.headers)).status_code == 400
+    outsider = await make_user("outsider")
+    assert (await client.post(f"/api/v1/conversations/{group}/remind", json={"user_id": c.id, "currency": "EUR"}, headers=outsider.headers)).status_code == 404

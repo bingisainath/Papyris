@@ -29,6 +29,7 @@ import ProfileScreen from '../screens/settings/ProfileScreen';
 import ReceiptScanningScreen from '../screens/settings/ReceiptScanningScreen';
 import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
 import E2EGate from '../screens/auth/E2EGate';
+import SessionsScreen from '../screens/settings/SessionsScreen';
 import EncryptionScreen from '../screens/settings/EncryptionScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
@@ -198,9 +199,14 @@ const RootNavigator: React.FC = () => {
             options={{ title: 'Store discounts' }}
           />
           <AppStack.Screen
+            name="Sessions"
+            component={SessionsScreen}
+            options={{ title: 'Sessions' }}
+          />
+          <AppStack.Screen
             name="Encryption"
             component={EncryptionScreen}
-            options={{ title: 'End-to-end encryption' }}
+            options={{ title: 'Linked devices' }}
           />
         </AppStack.Navigator>
         <OfflineBanner />

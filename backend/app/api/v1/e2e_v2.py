@@ -82,7 +82,8 @@ async def _current_list(db: AsyncSession, user_id: uuid.UUID) -> Optional[dict]:
 
 def _device_view(d: E2EDevice) -> dict:
     return {"device_id": d.device_id, "name": d.name, "sign": d.sign_public, "dh": d.dh_public, "dhSig": d.dh_signature,
-            "created_at": d.created_at.isoformat() if d.created_at else None}
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+            "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None}
 
 
 # ---- devices
@@ -118,8 +119,14 @@ async def register_device(body: RegisterDevice, user: User = Depends(get_current
 
 @router.get("/devices/me")
 async def my_devices(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """This account's signed-in phones and browsers (Settings → Sessions), and its device list."""
     rows = (await db.execute(select(E2EDevice).where(E2EDevice.user_id == user.id, E2EDevice.removed_at.is_(None)).order_by(E2EDevice.device_id))).scalars().all()
-    return {"success": True, "data": {"devices": [_device_view(d) for d in rows], "device_list": await _current_list(db, user.id)}}
+    signed = await _current_list(db, user.id)
+    listed = {d["id"] for d in (signed or {}).get("devices", [])}
+    return {"success": True, "data": {
+        "devices": [{**_device_view(d), "linked": d.device_id in listed} for d in rows],
+        "device_list": signed,
+    }}
 
 
 @router.delete("/devices/{device_id}")

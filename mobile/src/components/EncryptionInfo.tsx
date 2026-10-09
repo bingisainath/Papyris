@@ -3,7 +3,7 @@
 // With encryption v2 the code comes from both account keys; comparing it, or scanning the QR code
 // on the other person's screen, marks them verified (same as web/src/components/organisms/EncryptionInfo.tsx).
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, CameraType } from 'react-native-camera-kit';
 import QRCode from 'react-native-qrcode-svg';
@@ -15,6 +15,7 @@ import { e2eSession } from '../crypto/session';
 import { useChatEncryption } from '../crypto/useChatEncryption';
 import { e2eService } from '../services/e2e.service';
 import { colors, space } from '../theme';
+import { showAlert } from './Dialog';
 
 const EncryptionInfo: React.FC<{ conversationId: string; otherId?: string; otherName?: string }> = ({ conversationId, otherId, otherName }) => {
   const encryption = useChatEncryption(conversationId);
@@ -35,9 +36,9 @@ const EncryptionInfo: React.FC<{ conversationId: string; otherId?: string; other
     handled.current = true;
     setScanning(false);
     scanVerification(otherId, text).then((result) => {
-      if (result === 'match') Alert.alert('Verified', `The codes match. ${otherName || 'They'} is now marked as verified.`);
-      else if (result === 'mismatch') Alert.alert("The codes don't match", `Don't trust this chat until you've checked with ${otherName || 'them'}: one of you may have new keys, or someone may be in the middle.`);
-      else Alert.alert('Not a security code', `Scan the QR code under the security code in ${otherName || 'their'}'s chat info.`);
+      if (result === 'match') showAlert('Verified', `The codes match. ${otherName || 'They'} is now marked as verified.`);
+      else if (result === 'mismatch') showAlert("The codes don't match", `Don't trust this chat until you've checked with ${otherName || 'them'}: one of you may have new keys, or someone may be in the middle.`);
+      else showAlert('Not a security code', `Scan the QR code under the security code in ${otherName || 'their'}'s chat info.`);
     }).catch(() => undefined);
   };
 

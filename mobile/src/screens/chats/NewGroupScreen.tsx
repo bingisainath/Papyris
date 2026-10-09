@@ -1,6 +1,6 @@
 // src/screens/chats/NewGroupScreen.tsx
 import React, { useLayoutEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { X } from 'lucide-react-native';
 import UserSearch from '../../components/UserSearch';
@@ -11,6 +11,7 @@ import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
+import { showAlert } from '../../components/Dialog';
 
 const NewGroupScreen: React.FC<NativeStackScreenProps<AppStackParams, 'NewGroup'>> = ({ navigation }) => {
   const me = useAuth((s) => s.user)!;
@@ -19,15 +20,15 @@ const NewGroupScreen: React.FC<NativeStackScreenProps<AppStackParams, 'NewGroup'
   const [busy, setBusy] = useState(false);
 
   const create = async () => {
-    if (!title.trim()) { Alert.alert('Name the group'); return; }
-    if (!members.length) { Alert.alert('Add at least one person'); return; }
+    if (!title.trim()) { showAlert('Name the group'); return; }
+    if (!members.length) { showAlert('Add at least one person'); return; }
     setBusy(true);
     try {
       const created = await chatApi.createGroup(title.trim(), members.map((m) => m.id));
       await useChat.getState().loadConversations();
       navigation.replace('Chat', { conversationId: created.id });
     } catch (e) {
-      Alert.alert("Couldn't create the group", errorMessage(e));
+      showAlert("Couldn't create the group", errorMessage(e));
     } finally {
       setBusy(false);
     }

@@ -2,7 +2,7 @@
 // Photograph a receipt -> the server's AI reads it -> tap who each item is for -> save.
 // Same flow and rules as web/src/components/expenses/ReceiptScan.tsx + ReceiptReview.tsx.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { cameraAllowed } from '../../utils/camera';
@@ -20,6 +20,7 @@ import { memberName, useChatMoney } from './useMembers';
 import CurrencyPicker from './CurrencyPicker';
 import { ChevronDown, Pencil, Plus } from 'lucide-react-native';
 import { AdjustmentDraft, AdjustmentEditor, DISCOUNT_KINDS, ItemDraft, ItemEditor, kindLabel } from './ReceiptEditors';
+import { showAlert } from '../../components/Dialog';
 
 const MAX_PHOTOS = 4;
 const PRESETS = [10, 15, 20];
@@ -77,7 +78,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
     const result = source === 'camera'
       ? await launchCamera({ ...options, saveToPhotos: false })
       : await launchImageLibrary({ ...options, selectionLimit: MAX_PHOTOS - photos.length });
-    if (result.errorCode) Alert.alert("Couldn't open the " + (source === 'camera' ? 'camera' : 'photos'), result.errorMessage || result.errorCode);
+    if (result.errorCode) showAlert("Couldn't open the " + (source === 'camera' ? 'camera' : 'photos'), result.errorMessage || result.errorCode);
     if (result.assets?.length) setPhotos((p) => [...p, ...result.assets!].slice(0, MAX_PHOTOS));
   };
 
@@ -90,7 +91,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
       setReceiptId(created.id);
       setStage('reading');
     } catch (e) {
-      Alert.alert("Couldn't start the scan", errorMessage(e));
+      showAlert("Couldn't start the scan", errorMessage(e));
       setStage('pick');
     }
   };
@@ -133,7 +134,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
         setDraft((d) => (d && d.items.length === updated.items.length ? { ...d, items: d.items.map((it, n) => ({ ...it, id: updated.items[n].id })) } : d));
       }
     } catch (e) {
-      if (mine === requestNo.current) Alert.alert("Couldn't update", errorMessage(e));
+      if (mine === requestNo.current) showAlert("Couldn't update", errorMessage(e));
     } finally {
       if (mine === requestNo.current) setSyncing(false);
     }
@@ -146,7 +147,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
       await expenseService.saveReceipt(receiptId!, { description: receipt?.store_name || undefined });
       navigation.goBack();
     } catch (e) {
-      Alert.alert("Couldn't save", errorMessage(e));
+      showAlert("Couldn't save", errorMessage(e));
     } finally {
       setSaving(false);
     }

@@ -1,6 +1,6 @@
 // src/screens/chats/NewChatScreen.tsx
 import React from 'react';
-import { Alert, View } from 'react-native';
+import { View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import UserSearch from '../../components/UserSearch';
 import { chatApi } from '../../api/chat';
@@ -9,6 +9,7 @@ import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
+import { showAlert } from '../../components/Dialog';
 
 const NewChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'NewChat'>> = ({ navigation }) => {
   const me = useAuth((s) => s.user)!;
@@ -28,7 +29,7 @@ const NewChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'NewChat'>>
             await useChat.getState().loadConversations();
             navigation.replace('Chat', { conversationId: created.id });
           } catch (e) {
-            Alert.alert("Couldn't start the chat", errorMessage(e));
+            showAlert("Couldn't start the chat", errorMessage(e));
           }
         }}
       />

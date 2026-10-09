@@ -2,7 +2,7 @@
 // Your store discounts (e.g. a staff discount at one shop). When a scanned receipt is from that store
 // and the discount isn't printed on it, it's added switched off so you can turn it on.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { Plus, Store } from 'lucide-react-native';
 import { expenseService } from '../../api/expenses';
 import type { StoreDiscount } from '../../api/expenses';
@@ -10,6 +10,7 @@ import { errorMessage } from '../../api/client';
 import { Button, Divider, Empty, TextField } from '../../components/ui';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { colors, radius, space } from '../../theme';
+import { showAlert } from '../../components/Dialog';
 
 type Draft = { id?: number; store_name: string; percent: string; excluded: string; stacks_with_reduced: boolean; active: boolean };
 const emptyDraft: Draft = { store_name: '', percent: '10', excluded: '', stacks_with_reduced: false, active: true };
@@ -22,7 +23,7 @@ const StoreDiscountsScreen: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
-    expenseService.storeDiscounts().then(setRules).catch((e) => Alert.alert("Couldn't load", errorMessage(e)));
+    expenseService.storeDiscounts().then(setRules).catch((e) => showAlert("Couldn't load", errorMessage(e)));
   }, []);
   useEffect(load, [load]);
 
@@ -53,12 +54,12 @@ const StoreDiscountsScreen: React.FC = () => {
 
   const toggle = (r: StoreDiscount, active: boolean) => {
     setRules((list) => list?.map((x) => (x.id === r.id ? { ...x, active } : x)) || null);
-    expenseService.saveStoreDiscount({ ...r, active }, r.id).catch((e) => { Alert.alert("Couldn't save", errorMessage(e)); load(); });
+    expenseService.saveStoreDiscount({ ...r, active }, r.id).catch((e) => { showAlert("Couldn't save", errorMessage(e)); load(); });
   };
 
-  const remove = (id: number, name: string) => Alert.alert(`Delete the ${name} discount?`, undefined, [
+  const remove = (id: number, name: string) => showAlert(`Delete the ${name} discount?`, undefined, [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => { setDraft(null); expenseService.deleteStoreDiscount(id).then(load).catch((e) => Alert.alert("Couldn't delete", errorMessage(e))); } },
+    { text: 'Delete', style: 'destructive', onPress: () => { setDraft(null); expenseService.deleteStoreDiscount(id).then(load).catch((e) => showAlert("Couldn't delete", errorMessage(e))); } },
   ]);
 
   if (!rules) return <View style={styles.center}><ActivityIndicator color={colors.primary700} /></View>;

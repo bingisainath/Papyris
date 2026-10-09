@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, LogOut, MonitorSmartphone, QrCode, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
+import { Bell, ChevronRight, LogOut, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
@@ -62,9 +62,7 @@ const SettingsScreen: React.FC = () => {
         </Pressable>
 
         <View style={styles.section}>
-          <Row icon={QrCode} label="Link a device" hint="Scan the QR code on a new phone or browser" onPress={() => navigation.navigate('Encryption', { scan: true })} />
-          <Divider />
-          <Row icon={ShieldCheck} label="End-to-end encryption" hint="On · backup and linked devices" onPress={() => navigation.navigate('Encryption')} />
+          <Row icon={ShieldCheck} label="Linked devices" hint="Link a phone or browser · encryption and backup" onPress={() => navigation.navigate('Encryption')} />
           <Divider />
           <Row icon={MonitorSmartphone} label="Sessions" hint="Devices signed in to your account" onPress={() => navigation.navigate('Sessions')} />
           <Divider />

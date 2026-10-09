@@ -1,6 +1,6 @@
 // src/screens/expenses/ExpenseDetailScreen.tsx
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react-native';
 import { Button } from '../../components/ui';
@@ -14,6 +14,7 @@ import type { AppStackParams } from '../../navigation/types';
 import CategoryIcon from './CategoryIcon';
 import { Segmented } from './AddExpenseScreen';
 import { memberName, useChatMoney, useExpenseChanges } from './useMembers';
+import { showAlert } from '../../components/Dialog';
 
 const ACTION_ICONS = { created: Plus, updated: PenLine, deleted: Trash2, restored: RotateCcw, locked: Lock, unlocked: LockOpen };
 
@@ -32,7 +33,7 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
       setHistory(h);
       navigation.setOptions({ title: e.description });
     } catch (err) {
-      Alert.alert("Couldn't load the expense", errorMessage(err));
+      showAlert("Couldn't load the expense", errorMessage(err));
       navigation.goBack();
     }
   }, [expenseId, navigation]);
@@ -48,7 +49,7 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
   const net = myPaid - myShare;
 
   const act = async (action: () => Promise<unknown>) => {
-    try { await action(); load(); } catch (err) { Alert.alert('Something went wrong', errorMessage(err)); }
+    try { await action(); load(); } catch (err) { showAlert('Something went wrong', errorMessage(err)); }
   };
 
   return (
@@ -117,7 +118,7 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
           <Button title={expense.locked ? 'Unlock' : 'Lock'} variant="secondary" icon={expense.locked ? LockOpen : Lock} onPress={() => act(() => expenseService.lock(expense.id, !expense.locked))} />
         )}
         {expense.can_delete && !expense.locked && (
-          <Button title="Delete" variant="danger" icon={Trash2} onPress={() => Alert.alert('Delete this expense?', 'It can be restored later.', [
+          <Button title="Delete" variant="danger" icon={Trash2} onPress={() => showAlert('Delete this expense?', 'It can be restored later.', [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Delete', style: 'destructive', onPress: () => act(() => expenseService.remove(expense.id)) },
           ])} />

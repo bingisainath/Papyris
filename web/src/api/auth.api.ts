@@ -34,6 +34,7 @@ export interface ProfileUpdate {
   username?: string;
   bio?: string;
   avatar?: string; // uploaded image URL, or "" to remove
+  payment_handles?: { revolut?: string; paypal?: string; upi?: string }; // "" removes one
 }
 
 export async function updateMe(payload: ProfileUpdate): Promise<UserResponse> {

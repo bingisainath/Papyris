@@ -19,4 +19,16 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  /**
+   * Back on the first screen (React Navigation has nowhere to go back to).
+   *
+   * React Native 0.82 handles this by switching off its back callback and never switching it on again,
+   * so after leaving the app once, every later back skipped React Navigation and closed the app (even
+   * inside a chat). Going to the background like Android's home screen keeps the callback, and the app
+   * opens again where it was.
+   */
+  override fun invokeDefaultOnBackPressed() {
+    moveTaskToBack(true)
+  }
 }

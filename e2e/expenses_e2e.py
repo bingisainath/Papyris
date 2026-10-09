@@ -179,9 +179,9 @@ def main() -> None:
 
         # ---- balances + settle up on the Expenses page
         page.goto(f"{WEB}/expenses?chat={group}")
-        expect(page.get_by_text("You are owed")).to_be_visible()
+        expect(page.get_by_text("You get back")).to_be_visible()  # the "You" tab: only your own amounts
         page.screenshot(path=SHOTS / "06-expenses-page.png")
-        page.get_by_role("button", name="Settle").first.click()
+        page.get_by_role("button", name="Mark paid").first.click()  # someone paid you back
         page.get_by_role("button", name="Record payment").click()
         page.wait_for_timeout(800)
         page.screenshot(path=SHOTS / "07-after-settle.png")
