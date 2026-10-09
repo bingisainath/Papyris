@@ -11,6 +11,8 @@ import { fromBase64, keysFromSecret, keysToSecret, publicKeysOf, toBase64 } from
 import { e2eSession } from './session';
 import { BackupContent, BackupKey, BackupMeta, backupKeyFrom, checkRecoveryKey, openBackup, sealBackup } from './backup';
 import { startV2, v2Runtime } from './v2-platform/runtime';
+import { restoreAccountKeyV2 } from './v2-platform/link';
+import { b64 } from './v2';
 
 const DAY_MS = 24 * 3600e3;
 const fs = ReactNativeBlobUtil.fs;
@@ -37,10 +39,12 @@ export async function runBackup(userId: string): Promise<void> {
   const key = await store.setting<BackupKey>('backupKey');
   const keys = e2eSession.keys();
   if (!key || !keys) throw new Error("Backups aren't set up on this phone");
+  const aik = await store.accountKey();
   const content: BackupContent = {
     v: 1, user: userId, created: Date.now(),
     v1Secret: toBase64(keysToSecret(keys)), v1EncPublic: publicKeysOf(keys).enc,
     messages: await store.exportMessages(), pins: await store.pins(),
+    aik: aik ? { pub: b64(aik.pub), priv: b64(aik.priv) } : undefined,
   };
   const { blob, meta } = sealBackup(key, content);
   const path = `${fs.dirs.CacheDir}/backup-${Date.now()}.enc`;
@@ -98,13 +102,22 @@ export async function restoreFromBackup(userId: string, recoveryKey: string, cur
   const store = await deviceStore(userId);
   await store.saveSetting('backupKey', key);
   for (const p of content.pins || []) await store.savePin(p.user, p.pin);
+  await restoreAccountKeyV2(userId, content.aik); // back on the account's device list
   return store.importMessages(content.messages || []);
 }
+
+type MyDevices = { devices: { device_id: number }[]; device_list?: { devices: { id: number }[] } | null };
+
+/** Signed-in devices that are on the account's device list (one signed in but never linked can't read anything). */
+const listedDevices = (data: MyDevices) => {
+  const listed = new Set((data.device_list?.devices || []).map((d) => d.id));
+  return data.devices.filter((d) => listed.has(d.device_id));
+};
 
 /** Before logging out: is this the only signed-in device, and is there a backup? */
 export async function logoutRisk(): Promise<{ lastDevice: boolean; hasBackup: boolean }> {
   const [devices, backup, me] = await Promise.all([
-    api.get('/e2e/v2/devices/me').then((r) => r.data.data.devices as { device_id: number }[]).catch(() => [] as { device_id: number }[]),
+    api.get('/e2e/v2/devices/me').then((r) => listedDevices(r.data.data)).catch(() => [] as { device_id: number }[]),
     serverBackup().then((b) => b.exists).catch(() => false),
     v2Runtime()?.then((r) => r.state.deviceId).catch(() => null) ?? Promise.resolve(null),
   ]);

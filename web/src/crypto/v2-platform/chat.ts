@@ -58,6 +58,15 @@ export async function localFor(serverId: string): Promise<LocalMessage | null> {
   return runtime ? runtime.messenger.byServerId(serverId) : null;
 }
 
+/**
+ * When this browser joined the account's devices (0 if unknown). Messages sent before then were never
+ * encrypted for it: unless the history brought them, they can't be read here.
+ */
+export async function joinedAt(): Promise<number> {
+  const runtime = await v2Runtime()?.catch(() => null);
+  return (runtime && (await runtime.store.setting<number>('joinedAt'))) || 0;
+}
+
 export async function lastLocal(conversationId: string): Promise<LocalMessage | null> {
   const runtime = await v2Runtime()?.catch(() => null);
   return runtime ? runtime.store.lastMessage(conversationId) : null;

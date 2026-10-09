@@ -39,6 +39,7 @@ from app.models.e2e_v2 import E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequ
 from app.models.user import User
 from app.services import e2e_v2 as checks
 from app.services import e2e_mailbox as mailbox_service
+from app.services import media_storage
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
 
@@ -129,6 +130,24 @@ async def remove_device(device_id: int, user: User = Depends(get_current_user), 
     for model in (E2ESignedPreKey, E2EOneTimePreKey):
         await db.execute(delete(model).where(model.user_id == user.id, model.device_id == device_id))
     await db.execute(delete(E2EEnvelope).where(E2EEnvelope.recipient_user_id == user.id, E2EEnvelope.recipient_device_id == device_id))
+    _remove_history(device)
+    await db.commit()
+    return {"success": True}
+
+
+def _remove_history(device: E2EDevice) -> None:
+    if device.history_url:
+        key = media_storage.key_from_url(device.history_url)
+        path = media_storage.path_for_key(key) if key else None
+        if path is not None:
+            path.unlink(missing_ok=True)
+        device.history_url = None
+
+
+@router.delete("/devices/{device_id}/history")
+async def history_downloaded(device_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """The newly linked device has its message history: delete the encrypted copy."""
+    _remove_history(await _my_device(db, user, device_id))
     await db.commit()
     return {"success": True}
 
@@ -226,7 +245,8 @@ async def publish_device_list(body: PublishList, user: User = Depends(get_curren
     await db.commit()
     partners = await _partner_ids(db, user.id)
     await publish_users([str(u) for u in partners], {"type": "e2e_device_list", "userId": str(user.id), "version": version})
-    return {"success": True}
+    # The server's clock: devices compare it with message times to tell which messages predate them
+    return {"success": True, "data": {"server_time": _now().isoformat()}}
 
 
 @router.get("/users/{user_id}/device-list")
@@ -336,6 +356,8 @@ async def link_request(request_id: uuid.UUID, user: User = Depends(get_current_u
 
 class GrantBody(BaseModel):
     grant: dict[str, Any]
+    # The encrypted history file (its key is inside the grant): deleted once the new device has it
+    history_url: Optional[str] = Field(None, max_length=1000)
 
 
 @router.post("/link-requests/{request_id}/grant")
@@ -347,6 +369,13 @@ async def grant_link(request_id: uuid.UUID, body: GrantBody, user: User = Depend
     if len(json.dumps(body.grant)) > 64 * 1024 or not {"v", "requestId", "e", "c"} <= body.grant.keys():
         raise HTTPException(status_code=422, detail="Invalid grant")
     request.grant = json.dumps(body.grant)
+    if body.history_url:
+        url = media_storage.unsigned(body.history_url)
+        if not media_storage.is_stored_media_url(url) or not url.endswith(media_storage.ENCRYPTED_EXTENSION):
+            raise HTTPException(status_code=422, detail="Invalid history file")
+        device = await _my_device(db, user, request.device_id)
+        _remove_history(device)
+        device.history_url = url
     await db.commit()
     await publish_users([str(user.id)], {"type": "e2e_link_granted", "requestId": str(request.id)})
     return {"success": True}

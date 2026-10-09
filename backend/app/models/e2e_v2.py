@@ -34,10 +34,12 @@ class E2EDevice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Encrypted message history sent when it was linked; deleted once the device has downloaded it
+    history_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class E2EDeviceList(Base):
-    """The account's device list, signed by its account identity key (only the primary device has it)."""
+    """The account's device list, signed by its account identity key (held by every linked device)."""
 
     __tablename__ = "e2e_device_lists"
 

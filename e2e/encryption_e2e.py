@@ -80,10 +80,14 @@ def main():
     ids = tuple(str(v) for v in users.values())
     sql("delete from previous_user_keys where user_id::text in %s", ids)
     sql("delete from user_keys where user_id::text in %s", ids)
+    for table in ("e2e_envelopes", "e2e_link_requests", "e2e_one_time_prekeys", "e2e_signed_prekeys", "e2e_device_lists", "e2e_devices", "e2e_backups"):
+        column = "recipient_user_id" if table == "e2e_envelopes" else "user_id"
+        sql(f"delete from {table} where {column}::text in %s", ids)
 
     alice_tok = token("qa_alice")
     auth = {"Authorization": f"Bearer {alice_tok}"}
     dm = httpx.post(f"{API}/conversations", headers=auth, json={"kind": "dm", "participant_ids": [str(users["qa_bob"])]}).json()["data"]["id"]
+    sql("delete from messages where conversation_id = %s", dm)  # the QA users' DM is reused: start it empty
     group = httpx.post(f"{API}/conversations", headers=auth, json={
         "kind": "group", "title": f"E2E Crypto {int(time.time()) % 100000}",
         "participant_ids": [str(users["qa_bob"]), str(users["qa_carol"])],
@@ -99,6 +103,7 @@ def main():
             context = browser.new_context(viewport={"width": 1280, "height": 900})
             page = context.new_page()
             page.on("pageerror", lambda e: problems.append(f"{name} page error: {e}"))
+            page.on("console", lambda m: print(f"[{name} console] {m.text}") if m.type in ("warning", "error") and "Download the React DevTools" not in m.text else None)
             return context, page
 
         # ---- first browser of each: keys are created without asking anything
@@ -115,7 +120,7 @@ def main():
         secret = "secret hello https://example.com/x"
         alice.get_by_label("Message", exact=True).fill(secret)
         alice.get_by_label("Send", exact=True).click()
-        row = wait_db(dm, lambda r: r[0].startswith("e2e1:"))
+        row = wait_db(dm, lambda r: r[0].startswith(("e2e1:", "e2e2:")))
         if not row or "secret" in row[0] or not row[3]:
             problems.append(f"text not stored as an envelope with the link flag: {row and row[0][:60]}, has_link={row and row[3]}")
 
@@ -215,6 +220,8 @@ def main():
         # ---- logging out forgets the keys: signing in again asks to link; "start fresh" gives new keys
         alice.goto(f"{WEB}/settings")
         alice.get_by_role("button", name="Log out").last.click()
+        alice.get_by_role("button", name="Log out anyway").click()  # her only device: the app warns first
+        alice.wait_for_url(lambda url: "/login" in url)  # logout finishes wiping this browser's keys first
         login(alice, "qa_alice")
         expect(alice.get_by_role("heading", name="Link this browser")).to_be_visible(timeout=15000)
         old_sign = sql("select sign_public from user_keys where user_id::text = %s", str(users["qa_alice"]))[0][0]

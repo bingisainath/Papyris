@@ -1,6 +1,6 @@
 // src/crypto/v2-platform/runtime.ts
 // Starts encryption v2 for the signed-in account on this phone, in the background: the device
-// registers its keys and keeps prekeys topped up (phase 3). Sending still uses v1 until phase 4.
+// registers its keys and keeps prekeys topped up; linking and messaging use it (phases 3-5).
 
 import { AppState } from 'react-native';
 import { api } from '../../api/client';
@@ -9,7 +9,7 @@ import type { DeviceState, E2EHttp } from '../v2';
 import { openSqliteKV } from './sqliteKV';
 import { phoneName } from '../../utils/device';
 
-const http: E2EHttp = {
+export const http: E2EHttp = {
   get: async (path, params) => (await api.get(path, { params })).data.data,
   post: async (path, body) => (await api.post(path, body)).data.data,
   put: async (path, body) => (await api.put(path, body)).data.data,

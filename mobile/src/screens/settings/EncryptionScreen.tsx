@@ -1,14 +1,15 @@
 // src/screens/settings/EncryptionScreen.tsx
 // Settings → End-to-end encryption: what's encrypted, and linking a new device (scan its QR code,
-// or type the code it shows). The keys go to that device encrypted for it alone.
+// or type the code it shows). It's added to the account, and the keys and (optionally) the message
+// history go to it encrypted for it alone.
 import React, { useRef, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, CameraType } from 'react-native-camera-kit';
 import { QrCode, ShieldCheck, X } from 'lucide-react-native';
 import { Banner, Button, TextField } from '../../components/ui';
-import { approve, findByCode, findByQr } from '../../crypto/linking';
-import type { FoundLink } from '../../crypto/linking';
+import { findByCode, findByQr } from '../../crypto/v2-platform/link';
+import type { FoundDevice } from '../../crypto/v2-platform/link';
 import { errorMessage } from '../../api/client';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { cameraAllowed } from '../../utils/camera';
@@ -20,13 +21,14 @@ const EncryptionScreen: React.FC = () => {
   const keyboard = useKeyboardOffset();
   const userId = useAuth((s) => s.user?.id);
   const [code, setCode] = useState('');
-  const [found, setFound] = useState<FoundLink | null>(null);
+  const [found, setFound] = useState<FoundDevice | null>(null);
+  const [sendHistory, setSendHistory] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const handled = useRef(false);
 
-  const lookup = async (find: () => Promise<FoundLink>) => {
+  const lookup = async (find: () => Promise<FoundDevice>) => {
     setBusy(true);
     setError('');
     try {
@@ -49,7 +51,7 @@ const EncryptionScreen: React.FC = () => {
     if (handled.current) return; // the camera reports the same code many times a second
     handled.current = true;
     setScanning(false);
-    lookup(() => findByQr(text));
+    lookup(() => findByQr(userId!, text));
   };
 
   const link = async () => {
@@ -57,8 +59,8 @@ const EncryptionScreen: React.FC = () => {
     setBusy(true);
     setError('');
     try {
-      await approve(found);
-      Alert.alert('Device linked', `${found.request.device_name} can now read your encrypted chats.`);
+      await found.approve(sendHistory);
+      Alert.alert('Device linked', `${found.name} can now read your encrypted chats.`);
       setFound(null);
       setCode('');
     } catch (e) {
@@ -86,10 +88,18 @@ const EncryptionScreen: React.FC = () => {
         {!!error && <Banner text={error} />}
         {found ? (
           <View style={styles.confirm}>
-            <Text style={styles.title}>Link {found.request.device_name}?</Text>
+            <Text style={styles.title}>Link {found.name}?</Text>
             <Text style={styles.text}>
               It will be able to read all your end-to-end encrypted chats. Only continue if it's your own device and you just signed in on it.
             </Text>
+            <View style={styles.history}>
+              <View style={styles.flexText}>
+                <Text style={styles.historyTitle}>Send my message history</Text>
+                <Text style={styles.text}>Encrypted so only that device can open it.</Text>
+              </View>
+              <Switch value={sendHistory} onValueChange={setSendHistory} trackColor={{ true: colors.primary600, false: colors.muted300 }} thumbColor={colors.white}
+                accessibilityLabel="Send my message history" />
+            </View>
             <View style={styles.buttons}>
               <Button title="Cancel" variant="secondary" compact onPress={() => setFound(null)} />
               <Button title={busy ? 'Linking…' : 'Link device'} compact loading={busy} onPress={link} />
@@ -103,7 +113,7 @@ const EncryptionScreen: React.FC = () => {
             <TextField label="Code" value={code} onChangeText={setCode} placeholder="ABCD-EFGH-IJKL-MNOP" autoCapitalize="characters"
               autoCorrect={false} style={styles.codeInput} />
             <Button title={busy ? 'Finding…' : 'Continue'} variant="secondary" loading={busy}
-              disabled={code.replace(/[^a-z0-9]/gi, '').length < 16} onPress={() => lookup(() => findByCode(code))} />
+              disabled={code.replace(/[^a-z0-9]/gi, '').length < 16} onPress={() => lookup(() => findByCode(userId!, code))} />
           </>
         )}
         {userId && <BackupSection userId={userId} />}
@@ -142,6 +152,9 @@ const styles = StyleSheet.create({
   or: { textAlign: 'center', marginVertical: space(3) },
   codeInput: { fontFamily: 'monospace', letterSpacing: 1 },
   section: { marginTop: space(6), marginBottom: space(2), fontSize: 12, fontWeight: '700', color: colors.muted500, textTransform: 'uppercase', letterSpacing: 0.5 },
+  history: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginTop: space(3) },
+  flexText: { flex: 1 },
+  historyTitle: { fontSize: 14, fontWeight: '600', color: colors.muted900 },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: space(2), marginTop: space(3) },
   scanner: { flex: 1, backgroundColor: '#000' },
   scannerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: space(4) },

@@ -96,9 +96,12 @@ Signal and WhatsApp give every device its own identity, because:
 The contact still needs **one** stable thing to verify (the security code). So the account key
 signs the list of devices; contacts pin the account key and accept any device it signs.
 
-This is WhatsApp's model, where the phone is the primary that "vouches" for companion devices. The
-account private key never leaves the primary device. Linking a browser **doesn't** copy it: the
-browser gets a certificate instead.
+**As built (phase 5):** like Signal's linked devices, every device of the account holds the account
+key. It travels only inside the link grant, encrypted for the new device alone, so any of your devices
+can link the next one, and losing the first device doesn't force a fresh start. The trade-off: a
+compromised device can certify new devices until it's noticed (W3 still holds for message keys, which
+stay per device). The original WhatsApp-style plan, where only the first device holds the key and
+others get just a certificate, is kept below for reference.
 
 ### 3.2 Device certificate and signed device list
 
@@ -921,6 +924,7 @@ export function deviceCert(aikPriv: Uint8Array, user: string, deviceId: number, 
 | 2 | Server: device registry, signed/one-time prekeys and bundles, signed device lists (checked with the same bytes as the apps; cross-language fixture), v2 linking, per-device mailboxes (`/api/v1/e2e/v2/...`, migration 0009). | Done |
 | 3 | Encrypted local storage on each device (`v2/storage.ts`, transactions with per-transaction views): identity, prekeys, sessions, sender keys, pinned account keys, device lists and the local message database. Web: IndexedDB with every value AES-GCM-encrypted under a non-extractable key (`v2-platform/idbKV.ts`). Phone: SQLite encrypted with SQLCipher, key in Keychain/Keystore (`v2-platform/sqliteKV.ts`). Device upkeep (`v2/device.ts`): registration, first device becomes primary and publishes the signed list, one-time prekeys refilled below 25, signed prekey rotated weekly and kept 30 days. Starts in the background after sign-in; logout removes the device and wipes local data. | Done |
 | 4 | Sending and receiving (`v2/messenger.ts`, shared): device directory with pinned account keys; Double Ratchet per device pair for direct chats, copies to the account's other devices; Sender Keys for groups, handed out once per device and replaced when a member or device leaves or after 7 days/1,000 messages; edits as follow-up packets; mailbox draining with packets that can't be read yet kept for later. Server: WebSocket `message_v2` (timeline row holds only the `e2e2:` marker; packets go to per-device mailboxes and are deleted on acknowledgement). Web and phone: history and chat-list previews filled from the encrypted local database; photos, videos, voice notes and files in PMV2 (streamed on the phone); forwards reuse the file key. A chat uses v2 once every member has a v2 device list, otherwise v1 as before. Browser test `e2e/v2_messaging_e2e.py`. Also: optional encrypted backup with a 64-digit recovery key and a warning before logging out of the last device. | Done |
-| 5 (next) | Linking v2 and history transfer: QR/code flow on both apps, primary certifies the device, encrypted history bundle. | |
+| 5 | Linking v2 and history transfer (`v2/accountLink.ts`, shared; `v2-platform/link.ts` per app). The new device shows a QR code and a 16-character code; any linked device scans or types it, checks the keys against the server's copy, publishes device list v+1 and sends a grant encrypted for the new device only, with the account key, the people's pinned keys, the version 1 keys and (optional) the message history as one PMV2 file (deleted from the server once downloaded). "Start fresh" makes a new account key; restoring a backup re-adds the device with the saved account key (same security code). Logging out takes the device off the list. If every listed device has logged out, a device that still has the keys takes over automatically. Messages sent before a device joined (server clock) show as unreadable rather than waiting forever. Server: migration 0011 (`e2e_devices.history_url`), `DELETE /e2e/v2/devices/{id}/history`, server time in the list-publish reply. | Done |
+| 5 (open) | Approving from the phone was not tried by hand (the test phone blocks automated taps). | |
 | 6 | Safety numbers on account keys, "security code changed" notices, verified contacts. | |
 | 7 | Migration from v1 (read old envelopes, switch sending once everyone has v2), browser and device tests, external review. | |

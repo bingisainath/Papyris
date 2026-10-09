@@ -12,7 +12,7 @@ import type { E2EMedia } from '../crypto/e2e';
 import { e2eSession } from '../crypto/session';
 import { e2eService } from '../services/e2e.service';
 import {
-  confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, lastLocal, localFor, pendingFields, pointerOf, receiveLive,
+  confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, joinedAt, lastLocal, localFor, pendingFields, pointerOf, receiveLive,
   sendMediaV2, sendTextV2, v2For,
 } from '../crypto/v2-platform/chat';
 import type { ChatInfo } from '../crypto/v2-platform/chat';
@@ -268,7 +268,15 @@ function fillV2(conversationId: string, messages: Message[]) {
   const set = useChat.setState as unknown as Setter;
   for (const m of messages) {
     if (m.e2eVersion === 2 && m.e2e === 'pending') {
-      localFor(m.id).then((local) => { if (local) updateMessage(set, conversationId, m.id, fromLocal(local)); }).catch(() => undefined);
+      localFor(m.id).then(async (local) => {
+        if (local) {
+          updateMessage(set, conversationId, m.id, fromLocal(local));
+        } else {
+          const joined = await joinedAt();
+          // Sent before this phone was linked (both times from the server's clock): it will never arrive here
+          if (joined && Date.parse(m.timestamp) < joined) updateMessage(set, conversationId, m.id, { e2e: 'unreadable' });
+        }
+      }).catch(() => undefined);
     }
     if (m.replyTo && isV2Marker(m.replyTo.text)) {
       const reply = m.replyTo;

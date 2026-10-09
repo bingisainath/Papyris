@@ -3,7 +3,7 @@
 // - keep a signed prekey that's at most 7 days old (old ones kept 30 days for late first messages);
 // - keep at least 25 one-time prekeys on the server, refilling to 100;
 // - the account's first v2 device becomes the primary: it creates the account key and publishes the
-//   signed device list. Other devices wait to be linked (phase 5).
+//   signed device list. Other devices are added by linking (accountLink.ts).
 
 import { b64 } from './primitives';
 import { certifyDevice, loadDeviceIdentity, newAccountIdentity, newDeviceIdentity, signDeviceList, storeDeviceIdentity } from './identity';
@@ -13,6 +13,7 @@ import {
   SIGNED_PREKEY_KEEP_MS, SIGNED_PREKEY_ROTATION_MS,
 } from './prekeys';
 import type { EncryptedStore } from './storage';
+import { leaveDeviceList, serverTime } from './accountLink';
 
 /** The apps' HTTP client, returning each response's `data` field. Paths are relative to /api/v1. */
 export interface E2EHttp {
@@ -69,9 +70,10 @@ export class DeviceManager {
         const aik = (await this.store.accountKey()) || newAccountIdentity();
         await this.store.saveAccountKey(aik);
         const me = await this.certifySelf(aik.priv);
-        await this.http.put('/e2e/v2/device-list', { device_list: signDeviceList(aik, this.userId, 1, [me]) });
+        const published = await this.http.put<{ server_time?: string } | undefined>('/e2e/v2/device-list', { device_list: signDeviceList(aik, this.userId, 1, [me]) });
         device = { ...device, primary: true, listed: true };
         await this.store.saveDevice(device);
+        await this.store.saveSetting('joinedAt', serverTime(published));
       } else if (list.devices.some((d) => d.id === device!.deviceId && d.sign === b64(loadDeviceIdentity(device!.identity).sign.pub))) {
         device = { ...device, listed: true };
         await this.store.saveDevice(device);
@@ -117,6 +119,7 @@ export class DeviceManager {
 
   /** Log this device out: the server forgets it, and everything stored locally is wiped. */
   async logout(): Promise<void> {
+    await leaveDeviceList(this.store, this.http, this.userId).catch(() => undefined);
     const device = await this.store.device();
     if (device?.deviceId) await this.http.del(`/e2e/v2/devices/${device.deviceId}`).catch(() => undefined);
     await this.store.wipe();

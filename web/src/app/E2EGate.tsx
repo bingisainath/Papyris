@@ -2,7 +2,8 @@
 // After sign-in, before the chats: make sure this browser has the account's encryption keys.
 // - First device on the account: keys are created here silently, nothing to do.
 // - Another device already has them: show a QR code; the phone (Settings → End-to-end encryption →
-//   Link a device) scans it, or the code under it is typed there, and sends the keys over.
+//   Link a device) scans it, or the code under it is typed there. It adds this browser to the account
+//   and sends the keys and the message history over, encrypted for this browser alone.
 // - No other device available: start fresh with new keys; older encrypted messages can't be read.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -10,10 +11,10 @@ import { QRCodeSVG } from 'qrcode.react';
 import { AlertCircle, Smartphone } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { Loading } from '../components/atoms';
-import { formatLinkCode, publicKeysOf } from '../crypto/e2e';
+import { publicKeysOf } from '../crypto/e2e';
 import { e2eSession } from '../crypto/session';
-import { startLink, waitForKeys } from '../crypto/linking';
-import type { PendingLink } from '../crypto/linking';
+import { linkHere, listStatus, startFreshV2 } from '../crypto/v2-platform/link';
+import type { LinkHere } from '../crypto/v2-platform/link';
 import { e2eService } from '../services/e2e.service';
 import type { MyKeys } from '../services/e2e.service';
 import { parseApiError } from '../utils/apiError';
@@ -51,13 +52,22 @@ export const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
         setStage({ name: 'ready' });
         return;
       }
-      // Keys from an earlier visit, and still the account's current keys?
+      // Keys from an earlier visit, still the account's current keys, and this browser on the device list?
       if (await e2eSession.restore(userId)) {
         if (publicKeysOf(e2eSession.keys()!).enc === mine.enc_public) {
-          setStage({ name: 'ready' });
-          return;
+          const status = await listStatus(userId);
+          if (status === 'orphaned') {
+            // Every device that held the account key has logged out, but this browser has the keys:
+            // it becomes the account's first device (contacts see a new security code; nothing is lost)
+            await startFreshV2(userId);
+          }
+          if (status !== 'not_listed') {
+            setStage({ name: 'ready' });
+            return;
+          }
+        } else {
+          await e2eSession.clear(); // a fresh start on another device since
         }
-        await e2eSession.clear(); // a fresh start on another device since
       }
       setStage({ name: 'link', mine });
     } catch (error) {
@@ -115,7 +125,7 @@ export const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => void }> = ({ mine, userId, onDone }) => {
-  const [link, setLink] = useState<PendingLink | null>(null);
+  const [link, setLink] = useState<LinkHere | null>(null);
   const [expired, setExpired] = useState(false);
   const [error, setError] = useState('');
   const [confirmFresh, setConfirmFresh] = useState(false);
@@ -149,16 +159,15 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
     setError('');
     setLink(null);
     try {
-      const pending = await startLink(browserName());
+      const pending = await linkHere(userId, mine.enc_public!, browserName());
       if (mineAttempt !== attempt.current) return;
       setLink(pending);
-      const keys = await waitForKeys(pending, mine.enc_public!, () => mineAttempt !== attempt.current);
+      const result = await pending.wait(() => mineAttempt !== attempt.current);
       if (mineAttempt !== attempt.current) return;
-      if (!keys) {
+      if (result === 'expired') {
         setExpired(true);
         return;
       }
-      await e2eSession.set(userId, keys);
       onDone();
     } catch (err) {
       if (mineAttempt === attempt.current) setError(parseApiError(err));
@@ -175,6 +184,7 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
     attempt.current += 1;
     try {
       await e2eSession.set(userId, await e2eService.setUp(true));
+      await startFreshV2(userId);
       onDone();
     } catch (err) {
       setError(parseApiError(err));
@@ -202,7 +212,7 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
               <QRCodeSVG value={link.qrText} size={200} level="M" />
             </div>
             <p className="mt-4 text-xs text-muted-500">Or type this code on the other device</p>
-            <p className="mt-1 font-mono text-lg tracking-wider text-muted-900" data-testid="link-code">{formatLinkCode(link.code)}</p>
+            <p className="mt-1 font-mono text-lg tracking-wider text-muted-900" data-testid="link-code">{link.code}</p>
             <p className="mt-3 flex items-center gap-2 text-xs text-muted-500">
               <span className="w-3 h-3 rounded-full border-2 border-primary-200 border-t-primary-700 animate-spin" /> Waiting for your other device…
             </p>

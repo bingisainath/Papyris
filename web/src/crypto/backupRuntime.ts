@@ -9,6 +9,8 @@ import { keysFromSecret, keysToSecret, publicKeysOf, toBase64, fromBase64 } from
 import { e2eSession } from './session';
 import { BackupContent, BackupKey, BackupMeta, backupKeyFrom, checkRecoveryKey, openBackup, sealBackup } from './backup';
 import { startV2 } from './v2-platform/runtime';
+import { restoreAccountKeyV2 } from './v2-platform/link';
+import { b64 } from './v2';
 
 const DAY_MS = 24 * 3600e3;
 
@@ -37,10 +39,12 @@ export async function runBackup(userId: string): Promise<void> {
   const key = await store.setting<BackupKey>('backupKey');
   const keys = e2eSession.keys();
   if (!key || !keys) throw new Error('Backups aren\'t set up on this browser');
+  const aik = await store.accountKey();
   const content: BackupContent = {
     v: 1, user: userId, created: Date.now(),
     v1Secret: toBase64(keysToSecret(keys)), v1EncPublic: publicKeysOf(keys).enc,
     messages: await store.exportMessages(), pins: await store.pins(),
+    aik: aik ? { pub: b64(aik.pub), priv: b64(aik.priv) } : undefined,
   };
   const { blob, meta } = sealBackup(key, content);
   const uploaded = await mediaService.upload(new File([blob], 'backup.enc', { type: 'application/octet-stream' }), undefined, { encrypted: 'backup' });
@@ -95,5 +99,6 @@ export async function restoreFromBackup(userId: string, recoveryKey: string, cur
   const store = await deviceStore(userId);
   await store.saveSetting('backupKey', key); // keep backing up from here
   for (const p of content.pins || []) await store.savePin(p.user, p.pin);
+  await restoreAccountKeyV2(userId, content.aik); // back on the account's device list
   return store.importMessages(content.messages || []);
 }

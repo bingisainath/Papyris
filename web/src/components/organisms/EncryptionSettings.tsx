@@ -4,14 +4,17 @@
 import React, { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { approve, findByCode } from '../../crypto/linking';
-import type { FoundLink } from '../../crypto/linking';
+import { findByCode } from '../../crypto/v2-platform/link';
+import type { FoundDevice } from '../../crypto/v2-platform/link';
 import { parseApiError } from '../../utils/apiError';
+import { useAuth } from '../../app/AuthProvider';
 
 const EncryptionSettings: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
-  const [found, setFound] = useState<FoundLink | null>(null);
+  const { user } = useAuth();
+  const [found, setFound] = useState<FoundDevice | null>(null);
+  const [sendHistory, setSendHistory] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -27,7 +30,7 @@ const EncryptionSettings: React.FC = () => {
     setBusy(true);
     setError('');
     try {
-      setFound(await findByCode(code));
+      setFound(await findByCode(user!.id, code));
     } catch (err) {
       setError(parseApiError(err));
     } finally {
@@ -40,8 +43,8 @@ const EncryptionSettings: React.FC = () => {
     setBusy(true);
     setError('');
     try {
-      await approve(found);
-      toast.success(`${found.request.device_name} is linked`);
+      await found.approve(sendHistory);
+      toast.success(`${found.name} is linked`);
       reset();
     } catch (err) {
       setError(parseApiError(err));
@@ -89,8 +92,12 @@ const EncryptionSettings: React.FC = () => {
 
       {found && (
         <div className="mt-4 max-w-sm p-4 rounded-xl border border-muted-200">
-          <p className="text-sm text-muted-900">Link <span className="font-semibold">{found.request.device_name}</span>?</p>
+          <p className="text-sm text-muted-900">Link <span className="font-semibold">{found.name}</span>?</p>
           <p className="mt-1 text-xs text-muted-500">It will be able to read all your end-to-end encrypted chats. Only continue if it's your own device and you just signed in on it.</p>
+          <label className="mt-3 flex items-start gap-2 text-sm text-muted-700">
+            <input type="checkbox" checked={sendHistory} onChange={(e) => setSendHistory(e.target.checked)} className="mt-0.5" />
+            <span>Send my message history<span className="block text-xs text-muted-500">Encrypted so only that device can open it.</span></span>
+          </label>
           {error && <p className="mt-2 text-sm text-accent-600">{error}</p>}
           <div className="mt-3 flex gap-2">
             <button type="button" onClick={link} disabled={busy} className="px-4 py-2 rounded-lg bg-primary-700 text-white text-sm disabled:opacity-50">

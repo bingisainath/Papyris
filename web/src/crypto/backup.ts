@@ -27,6 +27,8 @@ export interface BackupContent {
   /** v2: this device's chat history and the contacts' pinned account keys */
   messages?: LocalMessage[];
   pins?: { user: string; pin: Pin }[];
+  /** v2 account key (base64), so a restore keeps the same security code */
+  aik?: { pub: string; priv: string };
 }
 
 export interface BackupMeta {

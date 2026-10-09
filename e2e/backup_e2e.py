@@ -82,6 +82,7 @@ def main():
         expect(page.get_by_text(re.compile("^On\\. Last backup"))).to_be_visible(timeout=20000)
         if not sql("select 1 from e2e_backups where user_id = %s", carol):
             problems.append("no backup stored")
+        aik_before = sql("select aik from e2e_device_lists where user_id = %s", carol)[0][0]
 
         # ---- with a backup: the warning mentions the recovery key
         page.get_by_role("button", name="Logout").first.click()
@@ -103,6 +104,14 @@ def main():
         expect(page2.get_by_role("heading", name="Chats")).to_be_visible(timeout=20000)
         if sql("select enc_public from user_keys where user_id = %s", carol)[0][0] != keys_before:
             problems.append("restoring replaced the keys instead of restoring them")
+        # v2: the restored browser is on the device list, signed with the same account key (same security code)
+        page2.wait_for_timeout(1500)
+        aik_after, signed = sql("select aik, signed_list from e2e_device_lists where user_id = %s", carol)[0]
+        newest = sql("select max(device_id) from e2e_devices where user_id = %s", carol)[0][0]
+        if aik_after != aik_before:
+            problems.append("restoring changed the account key (contacts would see a new security code)")
+        if f'"id": {newest},' not in signed:
+            problems.append("the restored browser isn't on the account's device list")
 
         # ---- turning backups off
         page2.goto(f"{WEB}/settings")

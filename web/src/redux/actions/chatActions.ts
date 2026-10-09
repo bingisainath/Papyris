@@ -17,7 +17,7 @@ import {
   updateConversationLastMessage,
 } from '../slices/chatSlice';
 import { decryptMessage, previewText, unverifiedMessages } from '../../crypto/messages';
-import { fromLocal, isV2Marker, lastLocal, localFor, pendingFields } from '../../crypto/v2-platform/chat';
+import { fromLocal, isV2Marker, joinedAt, lastLocal, localFor, pendingFields } from '../../crypto/v2-platform/chat';
 import type { Message } from '../slices/chatSlice';
 
 /**
@@ -128,7 +128,15 @@ const toMessage = (msg: any) => (isV2Marker(msg.text) ? (m: Message) => ({ ...m,
 function fillV2(dispatch: AppDispatch, conversationId: string, messages: Message[]) {
   for (const m of messages) {
     if (m.e2eVersion === 2 && m.e2e === 'pending') {
-      localFor(m.id).then((local) => { if (local) dispatch(updateMessage({ conversationId, messageId: m.id, updates: fromLocal(local) })); }).catch(() => undefined);
+      localFor(m.id).then(async (local) => {
+        if (local) {
+          dispatch(updateMessage({ conversationId, messageId: m.id, updates: fromLocal(local) }));
+        } else {
+          const joined = await joinedAt();
+          // Sent before this browser was linked (both times from the server's clock): it will never arrive here
+          if (joined && Date.parse(m.timestamp) < joined) dispatch(updateMessage({ conversationId, messageId: m.id, updates: { e2e: 'unreadable' } }));
+        }
+      }).catch(() => undefined);
     }
     if (m.replyTo && isV2Marker(m.replyTo.text)) {
       const reply = m.replyTo;

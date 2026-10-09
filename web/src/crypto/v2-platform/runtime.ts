@@ -1,6 +1,6 @@
 // src/crypto/v2-platform/runtime.ts
 // Starts encryption v2 for the signed-in account in this browser, in the background: the device
-// registers its keys and keeps prekeys topped up (phase 3). Sending still uses v1 until phase 4.
+// registers its keys and keeps prekeys topped up; linking and messaging use it (phases 3-5).
 
 import api from '../../utils/axios';
 import { DeviceManager, EncryptedStore, Messenger } from '../v2';
@@ -8,7 +8,7 @@ import type { DeviceState, E2EHttp } from '../v2';
 import { openIdbKV } from './idbKV';
 import { browserName } from '../../app/E2EGate';
 
-const http: E2EHttp = {
+export const http: E2EHttp = {
   get: async (path, params) => (await api.get(`/api/v1${path}`, { params })).data.data,
   post: async (path, body) => (await api.post(`/api/v1${path}`, body)).data.data,
   put: async (path, body) => (await api.put(`/api/v1${path}`, body)).data.data,

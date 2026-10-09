@@ -53,11 +53,18 @@ export function linkCodeV2(o: Pick<LinkOffer, 'ek' | 'identitySign' | 'identityD
 
 /** What the primary sends (decrypted only by the new device). */
 export interface GrantPayload {
-  account: { user: string; aik: string };
+  // Like Signal, every linked device holds the account key, so any of them can link the next one
+  // and losing the first device doesn't force a fresh start (docs §3.3).
+  account: { user: string; aik: string; aikPriv: string };
   device: { id: number; cert: string; created: number };
   deviceList: DeviceList;
   pins: { user: string; aik: string; verified: boolean }[];
-  history?: MediaPointer & { from?: number };
+  /** When the new device joined the list (server clock): older messages weren't encrypted for it. */
+  joinedAt?: number;
+  /** Old messages, encrypted as one PMV2 file whose key only travels here (docs §3.5). */
+  history?: Pick<MediaPointer, 'url' | 'key' | 'sha256' | 'size'> & { count: number };
+  /** The account's version 1 keys, for chats that still use version 1. */
+  v1?: { secret: string; encPublic: string };
 }
 
 export interface LinkGrant { v: 2; requestId: string; e: string; c: string }

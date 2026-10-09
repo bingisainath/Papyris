@@ -346,7 +346,7 @@ describe('linking a device', () => {
     const aik = newAccountIdentity();
     const cert = certifyDevice(aik.priv, 'alice', 4, { sign: offer.identitySign, dh: offer.identityDh, dhSig: identity.dhSig });
     const payload = {
-      account: { user: 'alice', aik: b64(aik.pub) },
+      account: { user: 'alice', aik: b64(aik.pub), aikPriv: b64(aik.priv) },
       device: { id: 4, cert: cert.cert, created: cert.created },
       deviceList: signDeviceList(aik, 'alice', 2, [cert]),
       pins: [],

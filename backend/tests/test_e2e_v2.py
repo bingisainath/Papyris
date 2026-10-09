@@ -194,3 +194,22 @@ async def test_mailboxes(client, make_user, make_group, events):
     await client.post(f"{API}/mailbox/{b1.id}/ack", json={"ids": [inbox[0]["id"]]}, headers=b.headers)
     assert (await client.get(f"{API}/mailbox/{b1.id}", headers=b.headers)).json()["data"] == []
     assert len((await client.get(f"{API}/mailbox/{b2.id}", headers=b.headers)).json()["data"]) == 1
+
+
+async def test_link_history_file_is_deleted_once_downloaded(client, make_user):
+    a = await make_user()
+    primary, new = await register(client, a, Device()), await register(client, a, Device())
+    aik = Ed25519PrivateKey.generate()
+    r = await client.put(f"{API}/device-list", json={"device_list": device_list(aik, a.id, 1, [primary])}, headers=a.headers)
+    assert "server_time" in r.json()["data"]  # devices compare it with message times
+    ek = X25519PrivateKey.generate().public_key().public_bytes(*RAW)
+    request = (await client.post(f"{API}/link-requests", json={"device_id": new.id, "ek": b64(ek)}, headers=a.headers)).json()["data"]
+    uploaded = (await client.post("/api/v1/media/upload", params={"encrypted": "true", "kind": "backup"},
+                                  files={"file": ("history.enc", b"\x01" * 4000, "application/octet-stream")}, headers=a.headers)).json()["data"]
+    grant = {"v": 2, "requestId": request["id"], "e": b64(b"e" * 32), "c": b64(b"c" * 80)}
+    bad = await client.post(f"{API}/link-requests/{request['id']}/grant", json={"grant": grant, "history_url": "/api/v1/media/x.jpg"}, headers=a.headers)
+    assert bad.status_code == 422  # only an end-to-end encrypted upload
+    assert (await client.post(f"{API}/link-requests/{request['id']}/grant", json={"grant": grant, "history_url": uploaded["signedUrl"]}, headers=a.headers)).status_code == 200
+    assert (await client.get(uploaded["signedUrl"])).status_code == 200
+    assert (await client.delete(f"{API}/devices/{new.id}/history", headers=a.headers)).status_code == 200
+    assert (await client.get(uploaded["signedUrl"])).status_code == 404

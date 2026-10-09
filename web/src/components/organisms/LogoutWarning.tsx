@@ -9,10 +9,18 @@ import { v2Runtime } from '../../crypto/v2-platform/runtime';
 
 export interface LogoutRisk { lastDevice: boolean; hasBackup: boolean }
 
+type MyDevices = { devices: { device_id: number }[]; device_list?: { devices: { id: number }[] } | null };
+
+/** Signed-in devices that are on the account's device list (one signed in but never linked can't read anything). */
+const listedDevices = (data: MyDevices) => {
+  const listed = new Set((data.device_list?.devices || []).map((d) => d.id));
+  return data.devices.filter((d) => listed.has(d.device_id));
+};
+
 /** Is this the only signed-in device? (If it can't tell, it assumes yes: better an extra warning.) */
 export async function logoutRisk(): Promise<LogoutRisk> {
   const [devices, backup, me] = await Promise.all([
-    api.get('/api/v1/e2e/v2/devices/me').then((r) => r.data.data.devices as { device_id: number }[]).catch(() => [] as { device_id: number }[]),
+    api.get('/api/v1/e2e/v2/devices/me').then((r) => listedDevices(r.data.data)).catch(() => [] as { device_id: number }[]),
     api.get('/api/v1/e2e/backup').then((r) => !!r.data.data.exists).catch(() => false),
     v2Runtime()?.then((r) => r.state.deviceId).catch(() => null) ?? Promise.resolve(null),
   ]);
