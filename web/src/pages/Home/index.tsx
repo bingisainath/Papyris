@@ -1,6 +1,6 @@
 // src/pages/Home/index.tsx - COMPLETE WITH ALL INTEGRATIONS
 
-import { UsersRound } from 'lucide-react';
+import GroupAddIcon from '../../components/atoms/GroupAddIcon';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -34,6 +34,7 @@ import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
 import ConnectionBanner from '../../components/molecules/ConnectionBanner';
 import { ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
+import SessionsSettings from '../../components/organisms/SessionsSettings';
 import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
 import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
@@ -446,7 +447,7 @@ const GroupsPage: React.FC<{
           onClick={onCreateGroup}
           className="flex-shrink-0 whitespace-nowrap px-4 sm:px-6 py-2.5 sm:py-3 bg-primary-600 text-white rounded-xl font-semibold shadow-card hover:shadow-elevated transition-all flex items-center gap-2"
         >
-          <UsersRound className="w-5 h-5" strokeWidth={2} />
+          <GroupAddIcon size={20} />
           Create Group
         </button>
       </div>
@@ -607,6 +608,8 @@ const SettingsPage: React.FC<{
         </div>
 
         <EncryptionSettings />
+
+        <SessionsSettings />
 
         <BackupSettings userId={user.id} />
 

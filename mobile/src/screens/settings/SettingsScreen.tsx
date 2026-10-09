@@ -1,9 +1,9 @@
 // src/screens/settings/SettingsScreen.tsx
 import React, { useCallback, useState } from 'react';
-import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, LogOut, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
+import { Bell, ChevronRight, LogOut, MonitorSmartphone, QrCode, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
@@ -14,6 +14,7 @@ import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
+import { showAlert } from '../../components/Dialog';
 
 type PushState = Awaited<ReturnType<typeof pushStatus>>;
 
@@ -34,7 +35,7 @@ const SettingsScreen: React.FC = () => {
 
   const notifications = async () => {
     if (push === 'unavailable') {
-      Alert.alert('Notifications', 'Notifications aren\'t set up in this build of the app yet.');
+      showAlert('Notifications', 'Notifications aren\'t set up in this build of the app yet.');
       return;
     }
     if (push === 'off') {
@@ -61,7 +62,11 @@ const SettingsScreen: React.FC = () => {
         </Pressable>
 
         <View style={styles.section}>
-          <Row icon={ShieldCheck} label="End-to-end encryption" hint="On · link a new device" onPress={() => navigation.navigate('Encryption')} />
+          <Row icon={QrCode} label="Link a device" hint="Scan the QR code on a new phone or browser" onPress={() => navigation.navigate('Encryption', { scan: true })} />
+          <Divider />
+          <Row icon={ShieldCheck} label="End-to-end encryption" hint="On · backup and linked devices" onPress={() => navigation.navigate('Encryption')} />
+          <Divider />
+          <Row icon={MonitorSmartphone} label="Sessions" hint="Devices signed in to your account" onPress={() => navigation.navigate('Sessions')} />
           <Divider />
           <Row icon={Bell} label="Notifications" onPress={notifications}
             value={push === null ? '' : push === 'on' ? 'On' : push === 'off' ? 'Off' : 'Not set up'} />
@@ -89,17 +94,17 @@ const SettingsScreen: React.FC = () => {
               const risk = await logoutRisk().catch(() => ({ lastDevice: true, hasBackup: false }));
               const doLogout = async () => { useChat.getState().reset(); await logout(); };
               if (!risk.lastDevice) {
-                Alert.alert('Log out?', 'You can sign back in any time.', [
+                showAlert('Log out?', 'You can sign back in any time.', [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Log out', style: 'destructive', onPress: doLogout },
                 ]);
               } else if (risk.hasBackup) {
-                Alert.alert('Log out of your only device?', "No other phone or browser is signed in. To read your encrypted chats again after logging out, you'll need your 64-digit backup recovery key. Make sure you have it.", [
+                showAlert('Log out of your only device?', "No other phone or browser is signed in. To read your encrypted chats again after logging out, you'll need your 64-digit backup recovery key. Make sure you have it.", [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Log out anyway', style: 'destructive', onPress: doLogout },
                 ]);
               } else {
-                Alert.alert('Log out of your only device?', "No other phone or browser is signed in, and you have no backup. If you log out, your end-to-end encrypted chats can't be read again, on any device.", [
+                showAlert('Log out of your only device?', "No other phone or browser is signed in, and you have no backup. If you log out, your end-to-end encrypted chats can't be read again, on any device.", [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Turn on backup', onPress: () => navigation.navigate('Encryption') },
                   { text: 'Log out anyway', style: 'destructive', onPress: doLogout },

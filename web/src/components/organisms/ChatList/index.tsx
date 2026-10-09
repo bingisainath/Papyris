@@ -1,5 +1,6 @@
 // src/components/organisms/ChatList.tsx
-import { MessageSquarePlus, UsersRound } from 'lucide-react';
+import { MessageSquarePlus } from 'lucide-react';
+import GroupAddIcon from '../../atoms/GroupAddIcon';
 import React, { useState, useMemo } from 'react';
 import { Input, Button, Typography, Loading } from '../../atoms';
 import Icon from '../../atoms/Icon';
@@ -131,7 +132,7 @@ const ChatList: React.FC<ChatListProps> = ({
               <Button
                 variant="primary"
                 size="sm"
-                icon={<UsersRound size={20} strokeWidth={1.75} />}
+                icon={<GroupAddIcon size={22} />}
                 onClick={onNewGroup}
                 title="New group"
               />

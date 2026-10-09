@@ -1,13 +1,16 @@
 // src/components/organisms/EncryptionSettings.tsx
 // Settings: end-to-end encryption is on; link a new device (it shows a code, typed here).
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { findByCode } from '../../crypto/v2-platform/link';
 import type { FoundDevice } from '../../crypto/v2-platform/link';
 import { parseApiError } from '../../utils/apiError';
 import { useAuth } from '../../app/AuthProvider';
+
+/** Fired by other parts of Settings (e.g. Sessions) to open the "Link a device" form here. */
+export const LINK_DEVICE_EVENT = 'papyris:link-device';
 
 const EncryptionSettings: React.FC = () => {
   const [open, setOpen] = useState(false);
@@ -17,6 +20,16 @@ const EncryptionSettings: React.FC = () => {
   const [sendHistory, setSendHistory] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const show = () => {
+      setOpen(true);
+      root.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    window.addEventListener(LINK_DEVICE_EVENT, show);
+    return () => window.removeEventListener(LINK_DEVICE_EVENT, show);
+  }, []);
 
   const reset = () => {
     setOpen(false);
@@ -54,7 +67,7 @@ const EncryptionSettings: React.FC = () => {
   };
 
   return (
-    <div className="card p-4 sm:p-6">
+    <div ref={root} className="card p-4 sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex gap-3">
           <ShieldCheck className="w-6 h-6 text-primary-600 flex-shrink-0" strokeWidth={1.75} />

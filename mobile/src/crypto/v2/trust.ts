@@ -21,12 +21,29 @@ export interface Trust {
   changedAt?: number; // only while the change hasn't been acknowledged
 }
 
-/** The security code between me and another person, and how far it's trusted. */
-export async function trustOf(store: EncryptedStore, me: string, other: string): Promise<Trust> {
+// A code takes ~10,000 SHA-256 rounds (slow on purpose); phones run that in an interpreter, so
+// work it out once per pair of keys
+const codes = new Map<string, string>();
+function codeFor(me: string, myAik: string, other: string, theirAik: string): string {
+  const key = `${me}:${myAik}|${other}:${theirAik}`;
+  let code = codes.get(key);
+  if (!code) {
+    code = safetyNumber({ user: me, aik: unb64(myAik) }, { user: other, aik: unb64(theirAik) });
+    if (codes.size > 500) codes.clear();
+    codes.set(key, code);
+  }
+  return code;
+}
+
+/**
+ * The security code between me and another person, and how far it's trusted. `withCode: false`
+ * skips the code itself (the chat banner only needs to know whether it changed).
+ */
+export async function trustOf(store: EncryptedStore, me: string, other: string, options: { withCode?: boolean } = {}): Promise<Trust> {
   const [mine, theirs] = await Promise.all([store.pin(me), store.pin(other)]);
   return {
     user: other,
-    code: mine && theirs ? safetyNumber({ user: me, aik: unb64(mine.aik) }, { user: other, aik: unb64(theirs.aik) }) : null,
+    code: mine && theirs && options.withCode !== false ? codeFor(me, mine.aik, other, theirs.aik) : null,
     verified: !!theirs?.verified,
     needsAccept: !!theirs?.needsAccept,
     changedAt: theirs?.changedAt && (!theirs.acknowledgedAt || theirs.acknowledgedAt < theirs.changedAt) ? theirs.changedAt : undefined,

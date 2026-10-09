@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { MessageSquarePlus, MessagesSquare, Pin, Search, UsersRound } from 'lucide-react-native';
+import GroupAddIcon from '../../components/GroupAddIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
 import { Empty } from '../../components/ui';
@@ -81,7 +82,7 @@ const ChatListScreen: React.FC = () => {
         <Text style={styles.title}>Chats</Text>
         <View style={styles.headerActions}>
           <Pressable onPress={() => navigation.navigate('NewGroup')} hitSlop={8} style={styles.iconButton} accessibilityLabel="New group">
-            <UsersRound size={22} color={colors.primary700} />
+            <GroupAddIcon size={24} color={colors.primary700} />
           </Pressable>
           <Pressable onPress={() => navigation.navigate('NewChat')} hitSlop={8} style={styles.iconButton} accessibilityLabel="New chat">
             <MessageSquarePlus size={22} color={colors.primary700} />

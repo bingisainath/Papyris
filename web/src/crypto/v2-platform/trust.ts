@@ -17,21 +17,21 @@ async function runtime() {
 }
 
 /** Trust in each of these people (fetching their current keys first). Null when v2 isn't running here. */
-async function trustIn(users: string[]): Promise<Trust[] | null> {
+async function trustIn(users: string[], withCode: boolean): Promise<Trust[] | null> {
   const rt = await runtime();
   if (!rt) return null;
   await rt.messenger.devicesOf(rt.userId).catch(() => null); // our own account key, for the code
   const others = users.filter((u) => u !== rt.userId);
   await Promise.all(others.map((u) => rt.messenger.devicesOf(u).catch(() => null)));
-  return Promise.all(others.map((u) => trustOf(rt.store, rt.userId, u)));
+  return Promise.all(others.map((u) => trustOf(rt.store, rt.userId, u, { withCode })));
 }
 
-function useTrustList(users: string[]): Trust[] | null {
+function useTrustList(users: string[], withCode: boolean): Trust[] | null {
   const [result, setResult] = useState<Trust[] | null>(null);
   const key = users.join(',');
   useEffect(() => {
     let alive = true;
-    const load = () => { trustIn(key ? key.split(',') : []).then((r) => { if (alive) setResult(r); }).catch(() => undefined); };
+    const load = () => { trustIn(key ? key.split(',') : [], withCode).then((r) => { if (alive) setResult(r); }).catch(() => undefined); };
     load();
     window.addEventListener(TRUST_EVENT, load);
     window.addEventListener(E2E_DIRECTORY_EVENT, load);
@@ -40,13 +40,13 @@ function useTrustList(users: string[]): Trust[] | null {
       window.removeEventListener(TRUST_EVENT, load);
       window.removeEventListener(E2E_DIRECTORY_EVENT, load);
     };
-  }, [key]);
+  }, [key, withCode]);
   return result;
 }
 
 /** Direct chats: the security code with this person, whether they're verified, and the QR text to show. */
 export function useTrust(otherId?: string): { trust: Trust | null; qr: string | null } {
-  const list = useTrustList(otherId ? [otherId] : []);
+  const list = useTrustList(otherId ? [otherId] : [], true);
   const [qr, setQr] = useState<string | null>(null);
   const trust = list?.[0] || null;
   useEffect(() => {
@@ -58,7 +58,7 @@ export function useTrust(otherId?: string): { trust: Trust | null; qr: string | 
 
 /** Members whose security code changed and who haven't been looked at yet (for the chat banner). */
 export function useKeyChanges(members: string[]): Trust[] {
-  const list = useTrustList(members);
+  const list = useTrustList(members, false); // no codes: only whether they changed
   return (list || []).filter((t) => t.needsAccept || t.changedAt);
 }
 
