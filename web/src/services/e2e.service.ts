@@ -33,7 +33,9 @@ export interface MemberKeys {
 
 export interface ConversationKeys {
   members: Record<string, MemberKeys>;
-  missing: string[]; // members without encryption set up: the chat stays unencrypted until they do
+  missing: string[]; // members holding up encryption (no version 2 yet): the chat stays unencrypted until they sign in
+  v1_missing?: string[]; // members without version 1 keys (version 1 sending needs everyone)
+  v2_ready?: boolean; // every member has a version 2 device list
 }
 
 const conversationCache = new Map<string, { at: number; value: Promise<ConversationKeys> }>();
@@ -52,6 +54,11 @@ export const e2eService = {
     const pub = publicKeysOf(keys);
     await api.put(`${V1}/keys/me`, { enc_public: pub.enc, sign_public: pub.sign, replace });
     return keys;
+  },
+
+  /** Start fresh with version 2 only: retire this account's version 1 keys (kept for checking old signatures). */
+  async retireKeys(): Promise<void> {
+    await api.delete(`${V1}/keys/me`);
   },
 
   // ---- linking another device (see crypto/linking.ts)

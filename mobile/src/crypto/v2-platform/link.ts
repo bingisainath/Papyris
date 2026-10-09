@@ -187,8 +187,14 @@ export async function startFreshV2(userId: string): Promise<void> {
 /** Restored from a backup: the account key from it, or a fresh one for backups made before it was included. */
 export async function restoreAccountKeyV2(userId: string, aik?: { pub: string; priv: string }): Promise<void> {
   const rt = await startV2(userId);
-  if ((await listStatus(userId)) === 'listed') return; // this phone is already on the list
+  const status = await listStatus(userId);
+  if (status === 'listed') return; // this phone is already on the list
   if (aik) {
+    const current = await http.get<DeviceList>(`/e2e/v2/users/${userId}/device-list`).catch(() => null);
+    if (current && current.aik !== aik.pub && status === 'not_listed') {
+      // Another device is signed in with newer keys: going back to the backup's would undo them
+      throw new Error("This backup is older than your account's current keys. Link this phone from your other device instead.");
+    }
     const pair: KeyPair = { pub: unb64(aik.pub), priv: unb64(aik.priv) };
     await adoptAccountKey(rt.store, http, userId, pair);
   } else {

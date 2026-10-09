@@ -213,3 +213,37 @@ async def test_link_history_file_is_deleted_once_downloaded(client, make_user):
     assert (await client.get(uploaded["signedUrl"])).status_code == 200
     assert (await client.delete(f"{API}/devices/{new.id}/history", headers=a.headers)).status_code == 200
     assert (await client.get(uploaded["signedUrl"])).status_code == 404
+
+
+async def test_chat_encryption_with_both_versions_and_retiring_v1(client, make_user, make_group, events):
+    a, b, c = await make_user(), await make_user(), await make_user()
+    group = await make_group(a, [b, c])
+
+    async def keys():
+        return (await client.get(f"/api/v1/conversations/{group}/keys", headers=a.headers)).json()["data"]
+
+    async def give_v2(u):
+        d = await register(client, u, Device())
+        r = await client.put(f"{API}/device-list", json={"device_list": device_list(Ed25519PrivateKey.generate(), u.id, 1, [d])}, headers=u.headers)
+        assert r.status_code == 200, r.text
+
+    # Everyone on version 1 only: encrypted with version 1
+    for u in (a, b, c):
+        await client.put("/api/v1/keys/me", json={"enc_public": b64(b"e" * 32), "sign_public": b64(b"s" * 32)}, headers=u.headers)
+    assert (await keys())["missing"] == []
+    # a and b move to version 2 and c doesn't: still fine with version 1
+    await give_v2(a)
+    await give_v2(b)
+    data = await keys()
+    assert data["missing"] == [] and data["v2_ready"] is False
+    # a starts fresh with version 2 only (retires version 1): c now holds things up until they sign in again
+    events.clear()
+    assert (await client.delete("/api/v1/keys/me", headers=a.headers)).status_code == 200
+    assert any(p["type"] == "keys_changed" and p["userId"] == a.id for _, p in events)
+    assert (await client.get("/api/v1/keys/me", headers=a.headers)).json()["data"]["has_keys"] is False
+    data = await keys()
+    assert data["v1_missing"] == [a.id] and data["missing"] == [c.id]
+    await give_v2(c)
+    data = await keys()
+    assert data["missing"] == [] and data["v2_ready"] is True
+    assert (await client.delete("/api/v1/keys/me", headers=a.headers)).status_code == 200  # nothing left to retire

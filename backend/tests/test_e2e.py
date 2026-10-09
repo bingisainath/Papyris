@@ -120,7 +120,8 @@ async def test_public_keys_only_for_chat_partners_and_missing_members(client, ma
         await client.put("/api/v1/keys/me", json=keys_body(), headers=u.headers)
 
     data = (await client.get(f"/api/v1/conversations/{group}/keys", headers=a.headers)).json()["data"]
-    assert set(data["members"]) == {a.id, b.id} and data["missing"] == [c.id]
+    assert set(data["members"]) == {a.id, b.id} and data["v1_missing"] == [c.id]
+    assert data["missing"] == sorted([a.id, b.id, c.id]) and data["v2_ready"] is False  # nobody has version 2 here
     assert (await client.get(f"/api/v1/conversations/{group}/keys", headers=outsider.headers)).status_code == 404
 
     # Someone you don't share a chat with is left out

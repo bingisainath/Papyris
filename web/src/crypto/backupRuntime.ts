@@ -38,11 +38,11 @@ export async function runBackup(userId: string): Promise<void> {
   const store = await deviceStore(userId);
   const key = await store.setting<BackupKey>('backupKey');
   const keys = e2eSession.keys();
-  if (!key || !keys) throw new Error('Backups aren\'t set up on this browser');
+  if (!key) throw new Error('Backups aren\'t set up on this browser');
   const aik = await store.accountKey();
   const content: BackupContent = {
     v: 1, user: userId, created: Date.now(),
-    v1Secret: toBase64(keysToSecret(keys)), v1EncPublic: publicKeysOf(keys).enc,
+    ...(keys ? { v1Secret: toBase64(keysToSecret(keys)), v1EncPublic: publicKeysOf(keys).enc } : {}), // version 1: only accounts that had it
     messages: await store.exportMessages(), pins: await store.pins(),
     aik: aik ? { pub: b64(aik.pub), priv: b64(aik.priv) } : undefined,
   };
@@ -85,17 +85,17 @@ export async function backupIfDue(userId: string): Promise<void> {
  * New browser, no other device: restore the account keys (and v2 history) from the backup.
  * Returns how many messages were restored into this browser.
  */
-export async function restoreFromBackup(userId: string, recoveryKey: string, currentEncPublic: string): Promise<number> {
+export async function restoreFromBackup(userId: string, recoveryKey: string, currentEncPublic?: string): Promise<number> {
   const server = await serverBackup();
   if (!server.exists || !server.url) throw new Error('There is no backup for this account');
   const key = checkRecoveryKey(recoveryKey, server as BackupMeta);
   const response = await fetch(resolveMediaUrl(server.url)!);
   if (!response.ok) throw new Error("Couldn't download the backup");
   const content = openBackup(key, server as BackupMeta, new Uint8Array(await response.arrayBuffer()));
-  if (!content.v1Secret || content.v1EncPublic !== currentEncPublic) {
-    throw new Error('This backup was made before your encryption keys were replaced, so it can\'t restore them');
+  // Version 1 keys (older messages) come back only if they're still the account's current ones
+  if (content.v1Secret && currentEncPublic && content.v1EncPublic === currentEncPublic) {
+    await e2eSession.set(userId, keysFromSecret(fromBase64(content.v1Secret)));
   }
-  await e2eSession.set(userId, keysFromSecret(fromBase64(content.v1Secret)));
   const store = await deviceStore(userId);
   await store.saveSetting('backupKey', key); // keep backing up from here
   for (const p of content.pins || []) await store.savePin(p.user, p.pin);

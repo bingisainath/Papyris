@@ -358,3 +358,66 @@ describe('linking a device', () => {
     await expectCode(() => openGrant(grant, newX25519()), 'decrypt_failed');
   });
 });
+
+describe('pairwise sessions under a hostile network (seeded, repeatable)', () => {
+  // Small deterministic PRNG so a failure can be replayed
+  const rng = (seed: number) => () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+
+  it.each([1, 2, 3])('random order, drops, duplicates and bit flips, both directions (seed %i)', async (seed) => {
+    const random = rng(seed);
+    const alice = new TestDevice({ user: 'alice', device: 1 }, newAccountIdentity());
+    const bob = new TestDevice({ user: 'bob', device: 1 }, newAccountIdentity());
+    const peer = { alice: bob, bob: alice } as const;
+    const devices = { alice, bob } as const;
+    type Who = keyof typeof devices;
+    type Packet = ReturnType<typeof toMessagePacket>;
+    const inFlight: { to: Who; packet: Packet; text: string }[] = [];
+    const delivered = new Set<string>();
+    let sent = 0;
+    let read = 0;
+
+    const deliver = async (i: number) => {
+      const { to, packet, text } = inFlight[i];
+      const at = devices[to];
+      const from = peer[to];
+      const roll = random();
+      if (roll < 0.05) {
+        // A flipped bit in the ciphertext or header: refused, and nothing changes
+        const forged = { ...packet, c: b64(unb64(packet.c).map((x, j) => (j === 5 ? x ^ 0x40 : x))) };
+        await expect(receive(at, from, forged)).rejects.toBeInstanceOf(CryptoError);
+        return; // the real one stays in flight
+      }
+      inFlight.splice(i, 1);
+      if (roll < 0.12) return; // lost
+      if (delivered.has(text)) {
+        await expect(receive(at, from, packet)).rejects.toBeInstanceOf(CryptoError); // replay
+        return;
+      }
+      expect(await receive(at, from, packet)).toBe(text);
+      delivered.add(text);
+      read += 1;
+      if (roll > 0.9) inFlight.push({ to, packet, text }); // the network delivers it again later
+    };
+
+    // Alice opens the session and Bob answers once, then anything goes
+    const first = await send(alice, bob, 'c', 'hello');
+    expect(await receive(bob, alice, first)).toBe('hello');
+    for (let step = 0; step < 300; step++) {
+      if (random() < 0.55 || !inFlight.length) {
+        const who: Who = random() < 0.5 ? 'alice' : 'bob';
+        const text = `${who}-${sent++}`;
+        inFlight.push({ to: who === 'alice' ? 'bob' : 'alice', packet: await send(devices[who], peer[who], 'c', text), text });
+      } else {
+        await deliver(Math.floor(random() * inFlight.length));
+      }
+    }
+    while (inFlight.length) await deliver(Math.floor(random() * inFlight.length));
+    expect(read).toBeGreaterThan(sent * 0.7);
+    // Still in sync afterwards
+    expect(await receive(bob, alice, await send(alice, bob, 'c', 'end-a'))).toBe('end-a');
+    expect(await receive(alice, bob, await send(bob, alice, 'c', 'end-b'))).toBe('end-b');
+  });
+});

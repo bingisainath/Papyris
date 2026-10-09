@@ -32,6 +32,7 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.conversation_member import ConversationMember
 from app.models.e2e_key import KeyLinkRequest, PreviousUserKeys, UserKeys
+from app.models.e2e_v2 import E2EDeviceList
 from app.models.user import User
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
@@ -162,6 +163,27 @@ async def set_my_keys(body: SetKeysBody, current_user: User = Depends(get_curren
     return {"success": True, "data": _mine(keys)}
 
 
+@router.delete("/keys/me")
+async def retire_my_keys(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Starting fresh with encryption v2 only: the version 1 keys are retired. Nobody encrypts to them any
+    more; they're kept (as previous keys) so signatures on older messages can still be checked.
+    """
+    existing = await db.get(UserKeys, current_user.id)
+    if existing is None:
+        return {"success": True}
+    db.add(PreviousUserKeys(
+        user_id=current_user.id, enc_public=existing.enc_public, sign_public=existing.sign_public,
+        created_at=existing.created_at or _now(),
+    ))
+    await db.delete(existing)
+    await db.execute(delete(KeyLinkRequest).where(KeyLinkRequest.user_id == current_user.id))
+    await db.commit()
+    partners = await _chat_partner_ids(db, current_user.id)
+    await publish_users([str(u) for u in partners], {"type": "keys_changed", "userId": str(current_user.id)})
+    return {"success": True}
+
+
 # ---- linking a new device
 
 def _link_view(request: KeyLinkRequest) -> dict:
@@ -277,15 +299,25 @@ async def public_keys(
 @router.get("/conversations/{conversation_id}/keys")
 async def conversation_keys(conversation_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
-    Members' public keys. `missing` lists members who haven't set up encryption yet: until they do,
-    the apps send this chat's messages unencrypted and say so.
+    Who can receive encrypted messages here. The chat is encrypted when every member has version 2
+    (a signed device list) or every member has version 1 keys. `missing` lists the members holding
+    that up (those without version 2, the way forward): until they sign in, the apps send this chat's
+    messages unencrypted and say so. `members` and `v1_missing` are for sending with version 1.
     """
     if not await MessageService.is_member(db, conversation_id, current_user.id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     members = {uuid.UUID(m) for m in await MessageService.member_ids(db, conversation_id)}
     keys = await _public_keys(db, members)
     ready = {uid: k for uid, k in keys.items() if k["enc"]}
+    v1_missing = sorted(str(m) for m in members if str(m) not in ready)
+    with_v2 = set((await db.execute(select(E2EDeviceList.user_id).where(E2EDeviceList.user_id.in_(members)))).scalars().all())
+    v2_missing = sorted(str(m) for m in members if m not in with_v2)
     return {
         "success": True,
-        "data": {"members": ready, "missing": sorted(str(m) for m in members if str(m) not in ready)},
+        "data": {
+            "members": ready,
+            "v1_missing": v1_missing,
+            "v2_ready": not v2_missing,
+            "missing": [] if not v2_missing or not v1_missing else v2_missing,
+        },
     }

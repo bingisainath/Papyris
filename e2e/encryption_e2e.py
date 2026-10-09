@@ -113,6 +113,11 @@ def main():
         bob_ctx, bob = new_page("bob")
         login(bob, "qa_bob")
         chats_ready(bob)
+        # New accounts get encryption version 2 only (version 1 is kept just for reading older messages)
+        if sql("select count(*) from user_keys where user_id::text in %s", (str(users["qa_alice"]), str(users["qa_bob"])))[0][0]:
+            problems.append("a new account got version 1 keys")
+        if sql("select count(*) from e2e_device_lists where user_id::text in %s", (str(users["qa_alice"]), str(users["qa_bob"])))[0][0] != 2:
+            problems.append("a new account has no version 2 device list")
 
         # ---- encrypted text with a link
         alice.goto(f"{WEB}/chat/{dm}")
@@ -224,14 +229,14 @@ def main():
         alice.wait_for_url(lambda url: "/login" in url)  # logout finishes wiping this browser's keys first
         login(alice, "qa_alice")
         expect(alice.get_by_role("heading", name="Link this browser")).to_be_visible(timeout=15000)
-        old_sign = sql("select sign_public from user_keys where user_id::text = %s", str(users["qa_alice"]))[0][0]
+        old_aik = sql("select aik from e2e_device_lists where user_id::text = %s", str(users["qa_alice"]))[0][0]
         alice.get_by_role("button", name="Don't have your other device?").click()
         alice.get_by_role("button", name="Start fresh").click()
         chats_ready(alice)
         alice.goto(f"{WEB}/chat/{dm}")
         expect(alice.get_by_text("This message can't be decrypted on this device").first).to_be_visible(timeout=15000)
-        if sql("select count(*) from previous_user_keys where sign_public = %s", old_sign)[0][0] != 1:
-            problems.append("the replaced key wasn't kept for checking older signatures")
+        if sql("select aik from e2e_device_lists where user_id::text = %s", str(users["qa_alice"]))[0][0] == old_aik:
+            problems.append("starting fresh didn't make a new account key")
         alice.get_by_label("Message", exact=True).fill("after the fresh start")
         alice.get_by_label("Send", exact=True).click()
         expect(bob.locator("[data-message-id]", has_text="after the fresh start").last).to_be_visible(timeout=15000)

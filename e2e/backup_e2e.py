@@ -60,7 +60,7 @@ def main():
         page = fresh()
         login(page)
         pass_encryption_gate(page)
-        keys_before = sql("select enc_public from user_keys where user_id = %s", carol)[0][0]
+        keys_before = sql("select enc_public from user_keys where user_id = %s", carol)  # none for version 2-only accounts
 
         # ---- no backup: the warning says chats will be lost
         page.wait_for_timeout(1500)  # let this browser register as a v2 device
@@ -102,7 +102,7 @@ def main():
         page2.screenshot(path=SHOTS / "b3-restore.png")
         page2.get_by_role("button", name="Restore").click()
         expect(page2.get_by_role("heading", name="Chats")).to_be_visible(timeout=20000)
-        if sql("select enc_public from user_keys where user_id = %s", carol)[0][0] != keys_before:
+        if sql("select enc_public from user_keys where user_id = %s", carol) != keys_before:
             problems.append("restoring replaced the keys instead of restoring them")
         # v2: the restored browser is on the device list, signed with the same account key (same security code)
         page2.wait_for_timeout(1500)

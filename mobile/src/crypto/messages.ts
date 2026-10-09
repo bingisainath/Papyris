@@ -113,7 +113,7 @@ export async function recipientsFor(conversationId: string): Promise<Recipient[]
   const me = e2eSession.userId();
   if (!keys || !me) return null;
   const chat = await e2eService.conversationKeys(conversationId);
-  if (chat.missing.length) return null;
+  if ((chat.v1_missing ?? chat.missing).length) return null; // version 1 needs everyone's version 1 keys
   const mine = chat.members[me];
   if (!mine || mine.enc !== publicKeysOf(keys).enc) {
     // Our keys were reset elsewhere: messages sealed with these would be unreadable to us later

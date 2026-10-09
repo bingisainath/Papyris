@@ -45,29 +45,24 @@ export const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
     setStage({ name: 'checking' });
     try {
       const mine = await e2eService.mine();
-      if (!mine.has_keys) {
-        // First device on this account: create the keys here, nothing to ask
+      // Version 1 keys from earlier on this browser: only for reading older messages, so optional.
+      // Dropped if they were replaced or retired on another device since.
+      if (mine.has_keys && (await e2eSession.restore(userId))) {
+        if (publicKeysOf(e2eSession.keys()!).enc !== mine.enc_public) await e2eSession.clear();
+      } else {
         await e2eSession.clear();
-        await e2eSession.set(userId, await e2eService.setUp());
+      }
+      const hasV1 = !!e2eSession.keys();
+      // Registers this browser; the account's first device creates the signed device list (and the account key)
+      const status = await listStatus(userId);
+      if (status === 'orphaned' && hasV1) {
+        // Every device that held the account key has logged out, but this browser has the keys:
+        // it becomes the account's first device (contacts see a new security code; nothing is lost)
+        await startFreshV2(userId);
+      }
+      if (status === 'listed' || (status === 'orphaned' && hasV1)) {
         setStage({ name: 'ready' });
         return;
-      }
-      // Keys from an earlier visit, still the account's current keys, and this browser on the device list?
-      if (await e2eSession.restore(userId)) {
-        if (publicKeysOf(e2eSession.keys()!).enc === mine.enc_public) {
-          const status = await listStatus(userId);
-          if (status === 'orphaned') {
-            // Every device that held the account key has logged out, but this browser has the keys:
-            // it becomes the account's first device (contacts see a new security code; nothing is lost)
-            await startFreshV2(userId);
-          }
-          if (status !== 'not_listed') {
-            setStage({ name: 'ready' });
-            return;
-          }
-        } else {
-          await e2eSession.clear(); // a fresh start on another device since
-        }
       }
       setStage({ name: 'link', mine });
     } catch (error) {
@@ -183,7 +178,9 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
     setBusy(true);
     attempt.current += 1;
     try {
-      await e2eSession.set(userId, await e2eService.setUp(true));
+      // New keys are version 2 only; the old version 1 keys are retired (nobody encrypts to them any more)
+      if (mine.has_keys) await e2eService.retireKeys();
+      await e2eSession.clear();
       await startFreshV2(userId);
       onDone();
     } catch (err) {

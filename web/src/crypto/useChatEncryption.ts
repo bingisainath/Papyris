@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react';
 import { e2eService } from '../services/e2e.service';
-import { e2eSession } from './session';
 
 /** Fired when someone's keys or a chat's members change, so open chats check again. */
 export const E2E_DIRECTORY_EVENT = 'papyris:e2e-directory';
@@ -19,7 +18,6 @@ export function useChatEncryption(conversationId: string): ChatEncryption {
   useEffect(() => {
     let alive = true;
     const check = (force = false) => {
-      if (!e2eSession.keys()) return;
       e2eService.conversationKeys(conversationId, force)
         .then((keys) => {
           if (!alive) return;
