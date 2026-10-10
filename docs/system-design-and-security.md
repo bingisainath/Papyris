@@ -86,7 +86,7 @@ Full detail: [encryption-design-v2.md](encryption-design-v2.md).
 
 | Topic | Papyris today | Status |
 |---|---|---|
-| HTTPS | Not set up (dev runs on http). An nginx config exists in `infra/ngnix`. | Before production: TLS everywhere (HSTS), the WebSocket over wss |
+| HTTPS | Not set up (dev runs on http). | Before production: TLS everywhere (HSTS), the WebSocket over wss |
 | CORS | Allowed origins come from settings. | Before production: only the real web domain |
 | Rate limiting | Only for specific actions: AI scans per month, link requests (5 pending), reminders (1 a day), email codes. | Before production: per-IP and per-account limits on login, register, reset, uploads, messages and WebSocket events |
 | Input validation | Pydantic models with lengths and patterns; uploads checked by type and size; signed media links; the "contains a link" flag comes from the sender. | Done |

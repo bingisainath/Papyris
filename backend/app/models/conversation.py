@@ -1,7 +1,7 @@
 # backend/app/models/conversation.py - FIX ID TYPE
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, func, UUID as SQLUUID, ForeignKey, Index
+from sqlalchemy import String, Boolean, DateTime, func, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

@@ -3,11 +3,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 import bcrypt
 from fastapi import HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from app.config.settings import settings
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 def hash_password(password: str) -> str:
     password_bytes = password.encode('utf-8')[:72]

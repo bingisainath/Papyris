@@ -6,11 +6,11 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { Archive, ArchiveRestore, Bell, BellOff, Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Avatar from '../../components/Avatar';
-import EditableField from '../../components/EditableField';
-import EncryptionInfo from '../../components/EncryptionInfo';
-import UserSearch from '../../components/UserSearch';
-import { Divider } from '../../components/ui';
+import Avatar from '../../components/common/Avatar';
+import EditableField from '../../components/common/EditableField';
+import EncryptionInfo from '../../components/chat/EncryptionInfo';
+import UserSearch from '../../components/chat/UserSearch';
+import { Divider } from '../../components/common/ui';
 import { isMuted, chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
 import { expenseService, ExpenseSettings } from '../../api/expenses';
 import { api, errorMessage } from '../../api/client';
@@ -18,8 +18,8 @@ import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
-import CurrencyPicker from '../expenses/CurrencyPicker';
-import { showAlert } from '../../components/Dialog';
+import CurrencyPicker from '../../components/expenses/CurrencyPicker';
+import { showAlert } from '../../components/common/Dialog';
 
 const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'>> = ({ route, navigation }) => {
   const { conversationId, addMembers } = route.params;

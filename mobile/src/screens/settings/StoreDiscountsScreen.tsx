@@ -7,10 +7,10 @@ import { Plus, Store } from 'lucide-react-native';
 import { expenseService } from '../../api/expenses';
 import type { StoreDiscount } from '../../api/expenses';
 import { errorMessage } from '../../api/client';
-import { Button, Divider, Empty, TextField } from '../../components/ui';
+import { Button, Divider, Empty, TextField } from '../../components/common/ui';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { colors, radius, space } from '../../theme';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 type Draft = { id?: number; store_name: string; percent: string; excluded: string; stacks_with_reduced: boolean; active: boolean };
 const emptyDraft: Draft = { store_name: '', percent: '10', excluded: '', stacks_with_reduced: false, active: true };

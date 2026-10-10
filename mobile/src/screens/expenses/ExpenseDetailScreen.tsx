@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Lock, LockOpen, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react-native';
-import { Button } from '../../components/ui';
+import { Button } from '../../components/common/ui';
 import { Expense, expenseService, HistoryEntry } from '../../api/expenses';
 import { errorMessage } from '../../api/client';
 import { mediaUrl } from '../../config';
@@ -11,10 +11,10 @@ import { useAuth } from '../../store/auth';
 import { formatMinor } from '../../utils/money';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
-import CategoryIcon from './CategoryIcon';
+import CategoryIcon from '../../components/expenses/CategoryIcon';
 import { Segmented } from './AddExpenseScreen';
-import { memberName, useChatMoney, useExpenseChanges } from './useMembers';
-import { showAlert } from '../../components/Dialog';
+import { memberName, useChatMoney, useExpenseChanges } from '../../hooks/useMembers';
+import { showAlert } from '../../components/common/Dialog';
 
 const ACTION_ICONS = { created: Plus, updated: PenLine, deleted: Trash2, restored: RotateCcw, locked: Lock, unlocked: LockOpen };
 

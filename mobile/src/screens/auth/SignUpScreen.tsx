@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useAuth } from '../../store/auth';
-import { Banner, Button, TextField } from '../../components/ui';
+import { Banner, Button, TextField } from '../../components/common/ui';
 import { colors, space } from '../../theme';
 import AuthLayout from './AuthLayout';
 import { passwordProblem } from '../../utils/password';

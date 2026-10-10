@@ -1,7 +1,7 @@
 // src/api/expenses.ts (adapted from web/src/services/expense.service.ts)
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { api, refreshAccessToken } from './client';
-import { tokens } from '../auth/tokens';
+import { tokens } from './tokens';
 import { API_V1_URL } from '../config';
 import { saveLocalFile } from '../utils/save';
 import type { CurrencyInfo } from '../utils/money';

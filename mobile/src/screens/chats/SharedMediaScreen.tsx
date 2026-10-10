@@ -4,8 +4,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Download, FileText, Link2, Play } from 'lucide-react-native';
-import MediaViewer, { ViewerItem } from '../../components/MediaViewer';
-import VoiceNote from '../../components/VoiceNote';
+import MediaViewer, { ViewerItem } from '../../components/chat/MediaViewer';
+import VoiceNote from '../../components/chat/VoiceNote';
 import { api, errorMessage } from '../../api/client';
 import { openText } from '../../crypto/messages';
 import { useMediaSrc } from '../../crypto/media';
@@ -16,7 +16,7 @@ import { formatDuration, formatSize } from '../../utils/time';
 import { saveToPhone } from '../../utils/save';
 import type { AppStackParams } from '../../navigation/types';
 import { Segmented } from '../expenses/AddExpenseScreen';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 type Kind = 'media' | 'docs' | 'links';
 interface Item {

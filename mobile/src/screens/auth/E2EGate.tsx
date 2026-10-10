@@ -11,7 +11,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import AuthLayout from './AuthLayout';
-import { Banner, Button, TextField } from '../../components/ui';
+import { Banner, Button, TextField } from '../../components/common/ui';
 import { publicKeysOf } from '../../crypto/e2e';
 import { e2eSession } from '../../crypto/session';
 import { linkHere, listStatus, startFreshV2 } from '../../crypto/v2-platform/link';
@@ -27,7 +27,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../store/auth';
 import { phoneName } from '../../utils/device';
 import { colors, radius, space } from '../../theme';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 

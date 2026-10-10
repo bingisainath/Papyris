@@ -4,7 +4,7 @@
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { API_V1_URL } from '../config';
-import { tokens } from '../auth/tokens';
+import { tokens } from './tokens';
 
 export const api = axios.create({ baseURL: API_V1_URL, timeout: 30000 });
 

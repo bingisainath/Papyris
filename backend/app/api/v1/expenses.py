@@ -13,7 +13,6 @@ from types import SimpleNamespace
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,54 +30,13 @@ from app.services.balances import net_balances, pairwise, simplify
 from app.services.money import CURRENCIES, MoneyError, format_minor, is_supported, to_minor
 from app.services.split_engine import split_manual, validate_payers
 from app.websocket.routes import publish_users
+from app.schemas.expenses import (
+    ExpenseRequest, LockRequest, SettlementRequest, SettingsRequest, RemindRequest,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Expenses"])
-
-
-class SplitEntry(BaseModel):
-    user_id: uuid.UUID
-    # exact: amount ("4.50"); percent: "25"; shares: "2"; ignored for equal
-    value: Optional[str] = Field(None, max_length=20)
-
-
-class PayerEntry(BaseModel):
-    user_id: uuid.UUID
-    amount: str = Field(..., max_length=20)
-
-
-class ExpenseRequest(BaseModel):
-    description: str = Field(..., min_length=1, max_length=200)
-    category: str = "other"
-    currency: str = Field(..., min_length=3, max_length=3)
-    amount: str = Field(..., max_length=20)
-    spent_at: Optional[datetime] = None
-    split_mode: Literal["equal", "exact", "percent", "shares", "itemized"] = "equal"
-    splits: list[SplitEntry] = Field(default_factory=list, max_length=200)
-    # None = the person adding it paid everything
-    payers: Optional[list[PayerEntry]] = Field(None, max_length=200)
-    # Required when editing: the version you started from
-    version: Optional[int] = None
-
-
-class LockRequest(BaseModel):
-    locked: bool
-
-
-class SettlementRequest(BaseModel):
-    from_user: uuid.UUID
-    to_user: uuid.UUID
-    currency: str = Field(..., min_length=3, max_length=3)
-    amount: str = Field(..., max_length=20)
-    note: Optional[str] = Field(None, max_length=200)
-
-
-class SettingsRequest(BaseModel):
-    default_currency: Optional[str] = Field(None, min_length=3, max_length=3)
-    simplify_debts: Optional[bool] = None
-    # 0 = clear (use each person's own choice)
-    receipt_model_id: Optional[int] = None
 
 
 def _ok(data, message: str = "OK") -> dict:
@@ -744,7 +702,7 @@ async def expense_summary(
 
 
 @router.get("/conversations/{conversation_id}/history")
-async def expense_history(
+async def conversation_expense_history(
     conversation_id: uuid.UUID,
     category: Optional[str] = None,
     member: Optional[uuid.UUID] = Query(None, description="Only entries this person paid, shares or settled"),
@@ -788,10 +746,6 @@ async def expense_history(
 
 
 # ------------------------------------------------------------------ reminders
-
-class RemindRequest(BaseModel):
-    user_id: uuid.UUID
-    currency: str = Field(..., min_length=3, max_length=3)
 
 
 REMIND_EVERY = 24 * 3600  # one reminder per person, chat and currency a day

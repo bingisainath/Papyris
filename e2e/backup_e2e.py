@@ -47,6 +47,7 @@ def main():
     carol = sql("select id from users where username = 'qa_carol'")[0][0]
     sql("delete from e2e_backups where user_id = %s", carol)
     sql("update e2e_devices set removed_at = now() where user_id = %s and removed_at is null", carol)  # no other devices
+    sql("delete from e2e_link_requests where user_id = %s", carol)  # earlier test runs can leave the 5-request limit full
     problems = []
 
     with sync_playwright() as p:

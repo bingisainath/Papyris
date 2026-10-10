@@ -1,6 +1,6 @@
 # backend/app/schemas/auth.py
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from typing import Optional
 
 class Token(BaseModel):
@@ -37,3 +37,12 @@ class ResetPasswordRequest(BaseModel):
                 "new_password": "NewSecurePassword123"
             }
         }
+
+
+class VerifyEmailRequest(BaseModel):
+    identifier: str = Field(..., min_length=1, max_length=255)  # email or username
+    code: str = Field(..., pattern=r"^\s*\d{6}\s*$")
+
+
+class ResendCodeRequest(BaseModel):
+    identifier: str = Field(..., min_length=1, max_length=255)

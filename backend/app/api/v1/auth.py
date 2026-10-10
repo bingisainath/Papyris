@@ -1,7 +1,6 @@
 # backend/app/api/v1/auth.py - FIXED LOGGING VERSION
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
-from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
@@ -17,8 +16,11 @@ from app.services.auth_service import AuthService
 from app.services import sessions
 from app.services.email_service import email_service
 from app.config.settings import settings
-from app.utils.deps import get_current_user
+from app.api.dependencies import get_current_user
 from app.models.user import User
+from app.schemas.auth import (
+    VerifyEmailRequest, ResendCodeRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +42,6 @@ async def register(payload: UserCreate, background: BackgroundTasks, db: AsyncSe
         message="Account created. Enter the code we emailed you",
         data=user,
     )
-
-
-class VerifyEmailRequest(BaseModel):
-    identifier: str = Field(..., min_length=1, max_length=255)  # email or username
-    code: str = Field(..., pattern=r"^\s*\d{6}\s*$")
-
-
-class ResendCodeRequest(BaseModel):
-    identifier: str = Field(..., min_length=1, max_length=255)
 
 
 @router.post("/verify-email", response_model=APIResponse[Token])

@@ -4,13 +4,13 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, Text } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { AtSign, Camera, Info, User as UserIcon, Wallet, CreditCard, IndianRupee } from 'lucide-react-native';
-import Avatar from '../../components/Avatar';
-import EditableField from '../../components/EditableField';
+import Avatar from '../../components/common/Avatar';
+import EditableField from '../../components/common/EditableField';
 import { authApi } from '../../api/auth';
 import { api, errorMessage } from '../../api/client';
 import { useAuth } from '../../store/auth';
 import { colors, space } from '../../theme';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 const ProfileScreen: React.FC = () => {
   const { user, setUser } = useAuth();

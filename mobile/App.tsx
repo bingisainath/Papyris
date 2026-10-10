@@ -10,7 +10,7 @@ import { onNotificationTap } from './src/notifications/push';
 import type { AppStackParams } from './src/navigation/types';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
-import { DialogHost } from './src/components/Dialog';
+import { DialogHost } from './src/components/common/Dialog';
 import { useAuth } from './src/store/auth';
 import { colors } from './src/theme';
 

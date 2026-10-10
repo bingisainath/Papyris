@@ -71,7 +71,7 @@ class EmailService:
             logger.info("Email sent: %s", subject)
             return True
 
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to send email: %s", subject)
             return False
 

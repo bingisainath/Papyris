@@ -25,10 +25,9 @@ import base64
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,14 +40,14 @@ from app.services import e2e_v2 as checks
 from app.services import e2e_mailbox as mailbox_service
 from app.services import media_storage
 from app.services import sessions
-from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
+from app.schemas.e2e_v2 import (
+    MAX_ONE_TIME_PREKEYS, RegisterDevice, PreKeyUpload, PublishList, LinkRequestBody, GrantBody, SendBody, AckBody,
+)
 
 router = APIRouter(prefix="/e2e/v2", tags=["Encryption v2"])
 
 MAX_DEVICES = 10
-MAX_ONE_TIME_PREKEYS = 200
-MAX_PACKETS_PER_SEND = mailbox_service.MAX_PACKETS_PER_SEND
 LINK_TTL = timedelta(minutes=10)
 MAILBOX_PAGE = 200
 STALE_UNLINKED = timedelta(days=1)
@@ -89,12 +88,6 @@ def _device_view(d: E2EDevice) -> dict:
 
 
 # ---- devices
-
-class RegisterDevice(BaseModel):
-    sign: str = Field(..., max_length=64)
-    dh: str = Field(..., max_length=64)
-    dhSig: str = Field(..., max_length=100)
-    name: str = Field("Device", max_length=100)
 
 
 async def _free_stale_devices(db: AsyncSession, user_id: uuid.UUID, idle: timedelta) -> None:
@@ -196,11 +189,6 @@ async def history_downloaded(device_id: int, user: User = Depends(get_current_us
     return {"success": True}
 
 
-class PreKeyUpload(BaseModel):
-    signedPreKey: Optional[dict[str, Any]] = None  # {id, pub, sig}
-    oneTimePreKeys: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_ONE_TIME_PREKEYS)  # [{id, pub}]
-
-
 @router.put("/devices/{device_id}/prekeys")
 async def upload_prekeys(device_id: int, body: PreKeyUpload, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     device = await _my_device(db, user, device_id)
@@ -255,11 +243,6 @@ async def prekey_status(device_id: int, user: User = Depends(get_current_user), 
 
 
 # ---- device lists
-
-class PublishList(BaseModel):
-    device_list: dict[str, Any]
-    # True only for a fresh start (a new account key; contacts will see "security code changed")
-    replace: bool = False
 
 
 @router.put("/device-list")
@@ -335,10 +318,6 @@ async def prekey_bundle(user_id: uuid.UUID, device_id: int, user: User = Depends
 
 # ---- linking
 
-class LinkRequestBody(BaseModel):
-    device_id: int
-    ek: str = Field(..., max_length=64)
-
 
 def _link_view(r: E2ELinkRequest, device: E2EDevice) -> dict:
     return {"id": str(r.id), "device_id": r.device_id, "name": device.name, "ek": r.ephemeral_public,
@@ -398,12 +377,6 @@ async def link_request(request_id: uuid.UUID, user: User = Depends(get_current_u
     return {"success": True, "data": {**view, "status": "approved", "grant": grant}}
 
 
-class GrantBody(BaseModel):
-    grant: dict[str, Any]
-    # The encrypted history file (its key is inside the grant): deleted once the new device has it
-    history_url: Optional[str] = Field(None, max_length=1000)
-
-
 @router.post("/link-requests/{request_id}/grant")
 async def grant_link(request_id: uuid.UUID, body: GrantBody, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """The primary hands over the encrypted grant (it publishes the new device list separately)."""
@@ -426,17 +399,6 @@ async def grant_link(request_id: uuid.UUID, body: GrantBody, user: User = Depend
 
 
 # ---- mailboxes
-
-class OutgoingPacket(BaseModel):
-    to_user: uuid.UUID
-    to_device: int
-    packet: dict[str, Any]
-
-
-class SendBody(BaseModel):
-    from_device: int
-    packets: list[OutgoingPacket] = Field(..., min_length=1, max_length=MAX_PACKETS_PER_SEND)
-    message_id: Optional[uuid.UUID] = None
 
 
 async def deliver(db: AsyncSession, user: User, conversation_id: uuid.UUID, body: SendBody) -> list[str]:
@@ -467,10 +429,6 @@ async def mailbox(device_id: int, user: User = Depends(get_current_user), db: As
     ).order_by(E2EEnvelope.created_at, E2EEnvelope.id).limit(MAILBOX_PAGE + 1))).scalars().all()
     await db.commit()
     return {"success": True, "data": [mailbox_service.envelope_view(e) for e in rows[:MAILBOX_PAGE]], "has_more": len(rows) > MAILBOX_PAGE}
-
-
-class AckBody(BaseModel):
-    ids: list[uuid.UUID] = Field(..., max_length=500)
 
 
 @router.post("/mailbox/{device_id}/ack")

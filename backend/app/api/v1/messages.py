@@ -7,7 +7,6 @@ from uuid import UUID
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +17,10 @@ from app.models.message_reaction import MessageReaction
 from app.models.user import User
 from app.services import media_storage
 from app.services.message_service import MessageService
-from app.websocket.routes import MAX_ENCRYPTED_LENGTH, MAX_TEXT_LENGTH, publish_users
+from app.websocket.routes import publish_users
+from app.schemas.messages import (
+    EditMessageRequest, ReactRequest,
+)
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
 
@@ -26,23 +28,6 @@ router = APIRouter(prefix="/messages", tags=["Messages"])
 PERSIST_WAIT_SECONDS = 3
 
 ALLOWED_REACTIONS = {"👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉", "👏", "😍", "😡", "👀"}
-
-
-class EditMessageRequest(BaseModel):
-    text: str = Field(..., max_length=MAX_ENCRYPTED_LENGTH)
-    has_link: bool = False  # encrypted edits: whether the new text contains a link
-
-    @field_validator("text")
-    @classmethod
-    def strip_text(cls, v: str) -> str:
-        v = v.strip()
-        if not media_storage.is_encrypted(v) and len(v) > MAX_TEXT_LENGTH:
-            raise ValueError(f"Message too long (max {MAX_TEXT_LENGTH} characters)")
-        return v
-
-
-class ReactRequest(BaseModel):
-    emoji: str = Field(..., max_length=16)
 
 
 async def _load_own_message(db: AsyncSession, message_id: UUID, user: User) -> Message:

@@ -16,15 +16,12 @@ End-to-end encryption keys. The server only holds public keys (see app/models/e2
 """
 
 import base64
-import binascii
 import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,60 +33,19 @@ from app.models.e2e_v2 import E2EDeviceList
 from app.models.user import User
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
+from app.schemas.e2e_keys import (
+    SetKeysBody, LinkRequestBody, ApproveBody,
+)
 
 router = APIRouter(tags=["Encryption keys"])
 
 LINK_TTL = timedelta(minutes=10)
 MAX_PENDING_LINKS = 5
-MAX_LINK_PAYLOAD_BYTES = 4096
-
-
-def _public_key(value: str) -> str:
-    try:
-        raw = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError):
-        raise ValueError("Not base64")
-    if len(raw) != 32:
-        raise ValueError("A public key is 32 bytes")
-    return value
 
 
 def link_code(ephemeral_public: str) -> str:
     """16 characters (80 bits) of the key's SHA-256 in base32: same as linkCode() in the apps."""
     return base64.b32encode(hashlib.sha256(base64.b64decode(ephemeral_public)).digest()).decode()[:16]
-
-
-class SetKeysBody(BaseModel):
-    enc_public: str = Field(..., max_length=64)
-    sign_public: str = Field(..., max_length=64)
-    # True for a fresh start (no other device to link from): older encrypted messages become unreadable
-    replace: bool = False
-
-    @field_validator("enc_public", "sign_public")
-    @classmethod
-    def check_public_key(cls, v: str) -> str:
-        return _public_key(v)
-
-
-class LinkRequestBody(BaseModel):
-    ephemeral_public: str = Field(..., max_length=64)
-    device_name: str = Field("New device", max_length=100)
-
-    @field_validator("ephemeral_public")
-    @classmethod
-    def check_public_key(cls, v: str) -> str:
-        return _public_key(v)
-
-
-class ApproveBody(BaseModel):
-    payload: dict[str, Any]
-
-    @field_validator("payload")
-    @classmethod
-    def check_payload(cls, v: dict) -> dict:
-        if len(json.dumps(v)) > MAX_LINK_PAYLOAD_BYTES or not {"e", "n", "c"} <= v.keys():
-            raise ValueError("Invalid payload")
-        return v
 
 
 def _mine(keys: UserKeys | None) -> dict:

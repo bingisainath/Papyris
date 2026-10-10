@@ -8,7 +8,7 @@ import { api } from '../../api/client';
 import { uploadFile } from '../../api/media';
 import type { LocalFile } from '../../api/media';
 import type { Message, ReplyPreview } from '../../api/chat';
-import { socket } from '../../ws/socket';
+import { socket } from '../../websocket/socket';
 import { isV2Marker, LocalMessage, MediaPointer, MessageBody } from '../v2';
 import type { IncomingEnvelope, OutgoingEnvelope, Received } from '../v2';
 import { encryptFileV2, rememberDecrypted } from '../media';

@@ -7,16 +7,16 @@ import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 're
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, CameraType } from 'react-native-camera-kit';
 import { QrCode, ShieldCheck, X } from 'lucide-react-native';
-import { Banner, Button, TextField } from '../../components/ui';
+import { Banner, Button, TextField } from '../../components/common/ui';
 import { findByCode, findByQr } from '../../crypto/v2-platform/link';
 import type { FoundDevice } from '../../crypto/v2-platform/link';
 import { errorMessage } from '../../api/client';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { cameraAllowed } from '../../utils/camera';
-import BackupSection from '../../components/BackupSection';
+import BackupSection from '../../components/settings/BackupSection';
 import { useAuth } from '../../store/auth';
 import { colors, radius, space } from '../../theme';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 const EncryptionScreen: React.FC = () => {
   const keyboard = useKeyboardOffset();

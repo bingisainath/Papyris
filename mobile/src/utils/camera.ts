@@ -2,7 +2,7 @@
 // The app declares the camera permission (for scanning QR codes to link devices). On Android that
 // means the system camera used for photos also needs it granted first, or it refuses to open.
 import { Linking, PermissionsAndroid, Platform } from 'react-native';
-import { showAlert } from '../components/Dialog';
+import { showAlert } from '../components/common/Dialog';
 
 /** True if the camera may be used now; asks if needed, and offers Settings if it was refused for good. */
 export async function cameraAllowed(): Promise<boolean> {

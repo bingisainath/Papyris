@@ -3,15 +3,15 @@ import React, { useLayoutEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { X } from 'lucide-react-native';
-import UserSearch from '../../components/UserSearch';
-import { TextField } from '../../components/ui';
+import UserSearch from '../../components/chat/UserSearch';
+import { TextField } from '../../components/common/ui';
 import { chatApi, UserSummary } from '../../api/chat';
 import { errorMessage } from '../../api/client';
 import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 const NewGroupScreen: React.FC<NativeStackScreenProps<AppStackParams, 'NewGroup'>> = ({ navigation }) => {
   const me = useAuth((s) => s.user)!;

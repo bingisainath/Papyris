@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import aliased
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
 from app.db.session import get_db
@@ -20,13 +20,14 @@ from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
 from app.websocket.routes import publish_users
-from pydantic import BaseModel, Field
-from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
 
 from app.api.v1.groups import muted_until_view  # noqa: E402
+from app.schemas.chat import (
+    CreateConversationRequest,
+)
 
 router = APIRouter()
 
@@ -34,14 +35,6 @@ MIN_USER_SEARCH_LENGTH = 2
 USER_SEARCH_LIMIT = 20
 USER_LIST_LIMIT = 50
 
-
-# Request/Response Models
-class CreateConversationRequest(BaseModel):
-    kind: str  # 'dm' or 'group'
-    title: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    avatar_url: Optional[str] = None
-    participant_ids: List[str]
 
 @router.get("/conversations")
 async def get_conversations(

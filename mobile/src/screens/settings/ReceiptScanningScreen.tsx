@@ -7,10 +7,10 @@ import { Check, KeyRound } from 'lucide-react-native';
 import { expenseService } from '../../api/expenses';
 import type { AISettings } from '../../api/expenses';
 import { errorMessage } from '../../api/client';
-import { Button, Divider, TextField } from '../../components/ui';
+import { Button, Divider, TextField } from '../../components/common/ui';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { colors, radius, space } from '../../theme';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 type Provider = 'anthropic' | 'openai';
 const PROVIDERS: { id: Provider; name: string; hint: string; url: string }[] = [

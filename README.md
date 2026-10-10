@@ -8,8 +8,10 @@ group can tap who each item is for.
 |------|-------|
 | `backend/` | FastAPI, SQLAlchemy (async), PostgreSQL, Redis (pub/sub + streams), Alembic |
 | `web/` | React 19, TypeScript, Redux Toolkit, Tailwind |
-| `infra/docker/` | Docker Compose for Postgres and Redis |
-| `mobile/` | React Native scaffold (not started) |
+| `mobile/` | React Native 0.82 (Android; the iOS project hasn't been built yet) |
+| `infra/docker/` | Docker Compose for Postgres and Redis; the backend image |
+| `e2e/` | Browser tests (Playwright) |
+| `docs/` | Design, security and feature documents |
 
 ## How it fits together
 
@@ -26,6 +28,52 @@ group can tap who each item is for.
   AI model (Claude by default) in a background task; the AI only transcribes the receipt, and
   `app/services/split_engine.py` does all the maths. Balances are always recalculated from the
   expenses and payments, never stored.
+
+## Where code goes
+
+**Backend** (`backend/app/`)
+
+| Folder | Holds |
+|---|---|
+| `api/v1/` | Routes only: read the request, check access, call a service, shape the response |
+| `api/dependencies.py` | Shared route dependencies (`get_current_user`) |
+| `schemas/` | Request and response bodies (Pydantic), one file per route module |
+| `services/` | Business logic and integrations (money maths, media, push, email, AI) |
+| `models/` | Database tables (SQLAlchemy); change them with an Alembic migration |
+| `websocket/` | Live connection, Redis pub/sub and the message stream |
+| `core/`, `config/`, `db/` | Security helpers, errors and logging; settings; database session |
+| `worker.py` | Background worker (saves messages, sends push notifications) |
+
+`backend/scripts/` has the admin commands (`create_tables`, `create_test_user`, `make_admin`,
+`encrypt_media`); `backend/tests/` has one test file per area.
+
+**Web** (`web/src/`)
+
+| Folder | Holds |
+|---|---|
+| `components/atoms`, `molecules`, `organisms` | Shared UI, smallest to largest (atomic design) |
+| `components/expenses/` | The expenses feature's components, kept together |
+| `pages/` | One folder per route |
+| `services/` | Every call to the API (through the client in `utils/axios.ts`) |
+| `redux/` | Store, slices and thunks (`actions/`) |
+| `crypto/` | End-to-end encryption (`v2/` is shared with mobile, see below) |
+| `app/`, `routes/`, `hooks/`, `utils/`, `types/`, `config/` | App shell, router, hooks, helpers, types, settings |
+
+**Mobile** (`mobile/src/`)
+
+| Folder | Holds |
+|---|---|
+| `screens/<area>/` | One file per screen: `auth`, `chats`, `expenses`, `settings` |
+| `components/common`, `chat`, `expenses`, `settings` | Reusable pieces, by where they're used |
+| `navigation/` | Navigators and route types |
+| `api/` | API client, tokens and one file per area |
+| `store/` | App state (Zustand) |
+| `websocket/` | Live connection |
+| `crypto/`, `services/`, `hooks/`, `utils/`, `notifications/` | Encryption, app services, hooks, helpers, push |
+
+Tests sit next to the code they test (`name.test.ts`). The encryption files in
+`crypto/` (`e2e.ts`, `messages.ts`, `linking.ts`, `backup.ts` and `v2/`) must be identical in web and
+mobile: `npm run check:e2e` in either app checks this.
 
 ## Running locally
 

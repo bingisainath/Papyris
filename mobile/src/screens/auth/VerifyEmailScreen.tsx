@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useAuth } from '../../store/auth';
-import { Banner, Button } from '../../components/ui';
+import { Banner, Button } from '../../components/common/ui';
 import { colors, radius, space } from '../../theme';
 import AuthLayout from './AuthLayout';
 import type { AuthStackParams } from '../../navigation/types';

@@ -6,15 +6,15 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Bell, ChevronRight, LogOut, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Avatar from '../../components/Avatar';
-import { Divider } from '../../components/ui';
+import Avatar from '../../components/common/Avatar';
+import { Divider } from '../../components/common/ui';
 import { enablePush, pushStatus } from '../../notifications/push';
 import { logoutRisk } from '../../crypto/backupRuntime';
 import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 type PushState = Awaited<ReturnType<typeof pushStatus>>;
 

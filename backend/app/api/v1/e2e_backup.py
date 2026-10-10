@@ -14,10 +14,8 @@ file, and store here the blob's address plus its key wrapped with a key derived 
 
 import json
 from datetime import datetime, timezone
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
@@ -25,16 +23,11 @@ from app.db.session import get_db
 from app.models.e2e_v2 import E2EBackup
 from app.models.user import User
 from app.services import media_storage
+from app.schemas.e2e_backup import (
+    BackupBody,
+)
 
 router = APIRouter(prefix="/e2e/backup", tags=["Encrypted backup"])
-
-
-class BackupBody(BaseModel):
-    url: str = Field(..., max_length=500)
-    sha256: str = Field(..., max_length=64)
-    size: int = Field(..., ge=0, le=media_storage.MAX_BACKUP_SIZE)
-    wrapped_key: dict[str, Any]
-    verifier: str = Field(..., max_length=64)
 
 
 def _view(b: E2EBackup) -> dict:

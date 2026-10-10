@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { authApi } from '../../api/auth';
 import { errorMessage } from '../../api/client';
-import { Banner, Button, TextField } from '../../components/ui';
+import { Banner, Button, TextField } from '../../components/common/ui';
 import { colors, space } from '../../theme';
 import AuthLayout from './AuthLayout';
 import type { AuthStackParams } from '../../navigation/types';

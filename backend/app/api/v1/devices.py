@@ -3,10 +3,8 @@
 """Phones register their push token after sign-in and remove it on logout."""
 
 from datetime import datetime, timezone
-from typing import Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,17 +12,11 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.device import DeviceToken
 from app.models.user import User
+from app.schemas.devices import (
+    DeviceRequest, RemoveDeviceRequest,
+)
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
-
-
-class DeviceRequest(BaseModel):
-    token: str = Field(..., min_length=20, max_length=512)
-    platform: Literal["android", "ios"]
-
-
-class RemoveDeviceRequest(BaseModel):
-    token: str = Field(..., min_length=20, max_length=512)
 
 
 @router.post("")

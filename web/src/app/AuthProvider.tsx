@@ -10,9 +10,9 @@ import React, {
   useState,
 } from "react";
 import { useDispatch } from "react-redux";
-import { loginUser, registerUser, getMe, updateMe, verifyEmailCode, resendVerificationCode } from "../api/auth.api";
+import { authService, loginUser, registerUser, getMe, updateMe, verifyEmailCode, resendVerificationCode } from "../services/auth.service";
 import { AxiosError } from "axios";
-import type { ProfileUpdate } from "../api/auth.api";
+import type { ProfileUpdate } from "../services/auth.service";
 import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
 import { e2eSession } from "../crypto/session";
@@ -22,7 +22,6 @@ import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
 import type { AppDispatch } from "../redux/store";
-import { authService } from "../services/auth.service";
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data?: T };
 

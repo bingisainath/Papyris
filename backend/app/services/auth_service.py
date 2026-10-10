@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, func
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac

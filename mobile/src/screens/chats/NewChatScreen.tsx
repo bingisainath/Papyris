@@ -2,14 +2,14 @@
 import React from 'react';
 import { View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import UserSearch from '../../components/UserSearch';
+import UserSearch from '../../components/chat/UserSearch';
 import { chatApi } from '../../api/chat';
 import { errorMessage } from '../../api/client';
 import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 
 const NewChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'NewChat'>> = ({ navigation }) => {
   const me = useAuth((s) => s.user)!;

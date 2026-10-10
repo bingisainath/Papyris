@@ -1,7 +1,7 @@
 import React from "react";
 import LoginForm from "../../molecules/LoginForm";
 import RegisterForm from "../../molecules/RegisterForm";
-import TogglePanel from "../../molecules/ TogglePanel";
+import TogglePanel from "../../molecules/TogglePanel";
 import "./AuthContainer.css";
 import { Images } from "../../../assets";
 

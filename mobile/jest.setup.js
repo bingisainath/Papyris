@@ -1,3 +1,4 @@
+/* eslint-env jest */
 // Native modules aren't available in Jest; give them small in-memory stand-ins.
 jest.mock('react-native-keychain', () => {
   let saved = null;
@@ -15,4 +16,4 @@ jest.mock('@op-engineering/op-sqlite', () => ({ open: jest.fn() }));
 jest.mock('react-native-blob-util', () => ({ __esModule: true, default: { fs: { dirs: {} }, config: jest.fn() } }));
 
 // The app's dialog (icons and a Modal); tests only need to know it was asked to show something
-jest.mock('./src/components/Dialog', () => ({ showAlert: jest.fn(), DialogHost: () => null }));
+jest.mock('./src/components/common/Dialog', () => ({ showAlert: jest.fn(), DialogHost: () => null }));

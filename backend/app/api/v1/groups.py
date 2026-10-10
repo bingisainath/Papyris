@@ -6,11 +6,10 @@ add/remove members, roles and leaving.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Literal, Optional
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,35 +21,11 @@ from app.models.user import User
 from app.services import media_storage
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
+from app.schemas.groups import (
+    UpdateGroupRequest, AddMembersRequest, UpdateMemberRequest, PinRequest, MuteRequest, ArchiveRequest,
+)
 
 router = APIRouter(prefix="/conversations", tags=["Groups"])
-
-
-class UpdateGroupRequest(BaseModel):
-    title: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    avatar_url: Optional[str] = Field(None, description="Uploaded image URL, or empty string to remove")
-
-
-class AddMembersRequest(BaseModel):
-    user_ids: List[UUID] = Field(..., min_length=1, max_length=100)
-
-
-class UpdateMemberRequest(BaseModel):
-    role: MemberRole
-
-
-class PinRequest(BaseModel):
-    pinned: bool
-
-
-class MuteRequest(BaseModel):
-    """How long to mute the chat for; null unmutes."""
-    duration: Optional[Literal["8h", "1w", "always"]] = None
-
-
-class ArchiveRequest(BaseModel):
-    archived: bool
 
 
 MUTE_FOR = {"8h": timedelta(hours=8), "1w": timedelta(weeks=1), "always": timedelta(days=365 * 100)}

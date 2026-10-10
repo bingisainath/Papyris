@@ -4,7 +4,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MessagesSquare, Settings, Wallet } from 'lucide-react-native';
-import OfflineBanner from '../components/OfflineBanner';
+import OfflineBanner from '../components/common/OfflineBanner';
 import { useAuth } from '../store/auth';
 import { useChat } from '../store/chat';
 import { isMuted } from '../api/chat';

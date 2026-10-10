@@ -6,11 +6,11 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { useFocusEffect } from '@react-navigation/native';
 import { Globe, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react-native';
 import { api, errorMessage } from '../../api/client';
-import { Banner } from '../../components/ui';
+import { Banner } from '../../components/common/ui';
 import { v2Runtime } from '../../crypto/v2-platform/runtime';
 import { logOutDevice } from '../../crypto/v2-platform/link';
 import { useAuth } from '../../store/auth';
-import { showAlert } from '../../components/Dialog';
+import { showAlert } from '../../components/common/Dialog';
 import { colors, radius, space } from '../../theme';
 
 export interface Session {

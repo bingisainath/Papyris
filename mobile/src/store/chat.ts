@@ -3,7 +3,7 @@
 
 import { create } from 'zustand';
 import { chatApi, Conversation, Message, MuteDuration, ReplyPreview } from '../api/chat';
-import { OutgoingMedia, socket, WsEvent } from '../ws/socket';
+import { OutgoingMedia, socket, WsEvent } from '../websocket/socket';
 import { LocalFile, UploadQuality, uploadFile } from '../api/media';
 import { createThumbnail } from 'react-native-create-thumbnail';
 import { decryptedFields, decryptMessage, mediaLabel, openText, recipientsFor, sealFor, unverifiedMessages } from '../crypto/messages';
@@ -17,7 +17,7 @@ import {
 } from '../crypto/v2-platform/chat';
 import type { ChatInfo } from '../crypto/v2-platform/chat';
 import type { Received } from '../crypto/v2';
-import { showAlert } from '../components/Dialog';
+import { showAlert } from '../components/common/Dialog';
 
 const TYPING_TTL_MS = 6000;
 
