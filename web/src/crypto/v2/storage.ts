@@ -61,6 +61,9 @@ export interface LocalMessage {
   serverId?: string; // the server's timeline row (for receipts, replies)
 }
 
+/** Lower case without accents, for search ("Café" matches "cafe"). */
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
 const pad13 = (n: number) => String(Math.max(0, Math.floor(n))).padStart(13, '0');
 const messageKey = (conv: string, ts: number, id: string) => `m:${conv}:${pad13(ts)}:${id}`;
 
@@ -260,6 +263,21 @@ export class StoreView implements ProtocolStore {
     const updated: LocalMessage = { ...m, deleted: true, text: undefined, media: undefined, reactions: undefined };
     await this.saveMessage(updated, true);
     return updated;
+  }
+
+  /**
+   * Messages whose text (or file name) contains `query`, ignoring case and accents, newest first.
+   * End-to-end encrypted chats can only be searched here, on the device (the server can't read them).
+   */
+  async searchMessages(query: string, options: { conv?: string; limit?: number } = {}): Promise<LocalMessage[]> {
+    const needle = fold(query.trim());
+    if (needle.length < 2) return [];
+    const rows = await this.kv.range(options.conv ? `m:${options.conv}:` : 'm:');
+    return rows
+      .map(([, v]) => JSON.parse(v) as LocalMessage)
+      .filter((m) => !m.deleted && fold(`${m.text || ''} ${m.media?.[0]?.name || ''}`).includes(needle))
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, options.limit ?? 50);
   }
 
   /** Every stored message of every chat since `fromTs` (for moving history to a linked device). */

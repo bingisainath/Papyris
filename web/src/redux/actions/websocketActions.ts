@@ -20,6 +20,7 @@ import {
   applyMessageUpdate,
   setReactions,
   setPinned,
+  setConversationPrefs,
   markMessagesRead,
   syncOnlineStatus,
   setActiveConversation,
@@ -620,6 +621,17 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     if (data.roomId && data.userId) {
       setTypingWithExpiry(dispatch, data.roomId, data.userId, !!data.isTyping, data.userName);
     }
+  });
+
+  // Mute / archive changed on another of our devices
+  wsService.on('conversation_prefs', (data) => {
+    if (!data.conversationId) return;
+    dispatch(setConversationPrefs({
+      conversationId: data.conversationId,
+      ...('mutedUntil' in data ? { mutedUntil: data.mutedUntil } : {}),
+      ...('isArchived' in data ? { isArchived: data.isArchived } : {}),
+      ...(data.isPinned === false ? { isPinned: false } : {}),
+    }));
   });
 
   wsService.on('conversation_pinned', (data) => {

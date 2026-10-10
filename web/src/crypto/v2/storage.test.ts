@@ -226,6 +226,18 @@ describe('local message database', () => {
     expect(deleted.deleted && deleted.text === undefined).toBe(true);
   });
 
+  it('searches text and file names, ignoring case and accents, newest first', async () => {
+    const store = new EncryptedStore(new MemoryKV());
+    const base = { sender: { user: 'a', device: 1 }, kind: 'text' as const };
+    await store.saveMessage({ ...base, id: '1', conv: 'c1', ts: 1, text: 'Dinner at the Café' });
+    await store.saveMessage({ ...base, id: '2', conv: 'c2', ts: 2, text: 'cafe tomorrow?' });
+    await store.saveMessage({ ...base, id: '3', conv: 'c1', ts: 3, text: 'old cafe', deleted: true });
+    await store.saveMessage({ ...base, id: '4', conv: 'c1', ts: 4, kind: 'media', media: [{ name: 'cafe-menu.pdf' } as never] });
+    expect((await store.searchMessages('CAFE')).map((m) => m.id)).toEqual(['4', '2', '1']);
+    expect((await store.searchMessages('café', { conv: 'c1' })).map((m) => m.id)).toEqual(['4', '1']);
+    expect(await store.searchMessages('c')).toEqual([]);
+  });
+
   it('exports and imports history (for linking a device)', async () => {
     const from = new EncryptedStore(new MemoryKV());
     for (let i = 1; i <= 5; i++) await from.saveMessage(msg(`m${i}`, i * 100, i % 2 ? 'c1' : 'c2'));

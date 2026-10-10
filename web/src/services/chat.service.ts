@@ -36,6 +36,17 @@ export interface ConversationDetails {
   members: ConversationMemberInfo[];
 }
 
+export interface ServerSearchHit {
+  id: string;
+  conversationId: string;
+  conversationTitle: string | null;
+  isGroup: boolean;
+  senderId: string | null;
+  senderName: string | null;
+  text: string;
+  timestamp: string;
+}
+
 class ChatService {
   /**
    * Get all conversations for current user
@@ -190,6 +201,27 @@ class ChatService {
     return response.data.data;
   }
 
+  /** Mute a chat for yourself for 8 hours, a week or always (null unmutes). */
+  async muteConversation(conversationId: string, duration: '8h' | '1w' | 'always' | null) {
+    const response = await axios.put(`${API_URL}/conversations/${conversationId}/mute`, { duration }, { headers: getAuthHeader() });
+    return response.data;
+  }
+
+  /** Archive a chat for yourself, or bring it back. */
+  async archiveConversation(conversationId: string, archived: boolean) {
+    const response = await axios.put(`${API_URL}/conversations/${conversationId}/archive`, { archived }, { headers: getAuthHeader() });
+    return response.data;
+  }
+
+  /** Search message text the server can read (not end-to-end encrypted chats). */
+  async searchMessages(q: string, conversationId?: string): Promise<ServerSearchHit[]> {
+    const response = await axios.get(`${API_URL}/messages/search`, {
+      params: { q, ...(conversationId ? { conversation_id: conversationId } : {}) },
+      headers: getAuthHeader(),
+    });
+    return response.data.data;
+  }
+
   /**
    * Pin a conversation to the top of your list (max 3), or unpin it
    */
@@ -247,19 +279,6 @@ class ChatService {
     return response.data;
   }
 
-  /**
-   * Search messages
-   */
-  async searchMessages(query: string, conversationId?: string) {
-    const response = await axios.get(`${API_URL}/messages/search`, {
-      params: {
-        q: query,
-        conversation_id: conversationId,
-      },
-      headers: getAuthHeader(),
-    });
-    return response.data;
-  }
 }
 
 export const chatService = new ChatService();

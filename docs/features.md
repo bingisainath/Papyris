@@ -41,8 +41,8 @@ See also:
 | Push notifications (Android) | Done | Encrypted messages only say "New message" or "Photo". |
 | End-to-end encryption for messages and media (Signal protocol design) | Done | See the security document. |
 | Security codes, QR verification, "security code changed" notices | Done | |
-| Mute a chat; archive a chat | Next | Standard in WhatsApp and Signal. |
-| Search in messages | Next | Encrypted chats would search on the device (as Signal does). |
+| Mute a chat (8 hours, 1 week, always); archive a chat | Done | Muted chats send no notifications and don't count in unread totals; archived chats stay archived when messages arrive (WhatsApp's default). |
+| Search in messages (all chats, or inside one chat), jumping to the message | Done | Encrypted chats are searched on the device in its encrypted database, as Signal does; the server searches only chats it can read. Old version 1 encrypted messages aren't searchable. |
 | Block and report | Next | Needed before going public. |
 | Disappearing messages | Consider | WhatsApp and Signal have them. |
 | Voice and video calls | Consider | A big project (WebRTC plus TURN servers). |
@@ -88,7 +88,6 @@ See also:
 
 1. Before going public: block and report, delete account and download data, rate limits, production
    setup (see the checklist in the security document).
-2. Chat basics people expect: mute, archive, message search.
-3. Expenses: recurring expenses, default splits.
-4. iOS build.
-5. Then: disappearing messages, polls, calls, desktop app, as people ask for them.
+2. Expenses: recurring expenses, default splits.
+3. iOS build.
+4. Then: disappearing messages, polls, calls, desktop app, as people ask for them.

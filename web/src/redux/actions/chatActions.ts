@@ -8,7 +8,7 @@ import {
   setConversations,
   setMessages,
   prependMessages,
-  setPinned,
+  setPinned, setConversationPrefs,
   setLoading,
   setMessagesLoading,
   setError,
@@ -315,6 +315,34 @@ export const togglePinConversation = (conversationId: string) => async (
     dispatch(setPinned({ conversationId, pinnedAt: response.data?.pinnedAt ?? null }));
   } catch (error) {
     dispatch(setPinned({ conversationId, pinnedAt: previous }));
+    toast.error(parseApiError(error));
+  }
+};
+
+/** Mute a chat for yourself (optimistic). */
+export const muteConversation = (conversationId: string, duration: '8h' | '1w' | 'always' | null) => async (
+  dispatch: AppDispatch,
+  getState: () => RootState
+) => {
+  const previous = getState().chat.conversations.find(c => c.id === conversationId)?.mutedUntil ?? null;
+  const hours = { '8h': 8, '1w': 24 * 7, always: 24 * 365 * 100 };
+  dispatch(setConversationPrefs({ conversationId, mutedUntil: duration ? new Date(Date.now() + hours[duration] * 3600e3).toISOString() : null }));
+  try {
+    const response = await chatService.muteConversation(conversationId, duration);
+    dispatch(setConversationPrefs({ conversationId, mutedUntil: response.data?.mutedUntil ?? null }));
+  } catch (error) {
+    dispatch(setConversationPrefs({ conversationId, mutedUntil: previous }));
+    toast.error(parseApiError(error));
+  }
+};
+
+/** Archive a chat for yourself, or bring it back (optimistic). */
+export const archiveConversation = (conversationId: string, archived: boolean) => async (dispatch: AppDispatch) => {
+  dispatch(setConversationPrefs({ conversationId, isArchived: archived, ...(archived ? { isPinned: false } : {}) }));
+  try {
+    await chatService.archiveConversation(conversationId, archived);
+  } catch (error) {
+    dispatch(setConversationPrefs({ conversationId, isArchived: !archived }));
     toast.error(parseApiError(error));
   }
 };

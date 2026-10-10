@@ -4,14 +4,14 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
+import { Archive, ArchiveRestore, Bell, BellOff, Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
 import EditableField from '../../components/EditableField';
 import EncryptionInfo from '../../components/EncryptionInfo';
 import UserSearch from '../../components/UserSearch';
 import { Divider } from '../../components/ui';
-import { chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
+import { isMuted, chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
 import { expenseService, ExpenseSettings } from '../../api/expenses';
 import { api, errorMessage } from '../../api/client';
 import { useAuth } from '../../store/auth';
@@ -25,6 +25,17 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   const { conversationId, addMembers } = route.params;
   const me = useAuth((s) => s.user)!;
   const pinned = useChat((s) => !!s.conversations.find((c) => c.id === conversationId)?.isPinned);
+  const chat = useChat((s) => s.conversations.find((c) => c.id === conversationId));
+  const muted = isMuted(chat);
+  const mutedLabel = !muted ? 'On' : new Date(chat!.mutedUntil!).getFullYear() > 2100 ? 'Muted always'
+    : `Muted until ${new Date(chat!.mutedUntil!).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  const muteMenu = () => showAlert('Notifications', muted ? mutedLabel : 'Mute this chat: no notifications, but new messages still appear here.', [
+    ...(muted ? [{ text: 'Unmute', onPress: () => run(() => useChat.getState().mute(conversationId, null)) }] : []),
+    { text: 'Mute for 8 hours', onPress: () => run(() => useChat.getState().mute(conversationId, '8h')) },
+    { text: 'Mute for 1 week', onPress: () => run(() => useChat.getState().mute(conversationId, '1w')) },
+    { text: 'Mute always', onPress: () => run(() => useChat.getState().mute(conversationId, 'always')) },
+    { text: 'Cancel', style: 'cancel' },
+  ], { cancelable: true });
   const [details, setDetails] = useState<ConversationDetails | null>(null);
   const [settings, setSettings] = useState<ExpenseSettings | null>(null);
   const [adding, setAdding] = useState(false);
@@ -162,10 +173,19 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
           <Divider />
           <Row icon={Wallet} label="Balances & expenses" onPress={() => navigation.navigate('ChatExpenses', { conversationId })} />
           <Divider />
-          <Row icon={pinned ? PinOff : Pin} label={pinned ? 'Unpin chat' : 'Pin chat'} onPress={() => run(async () => {
-            await chatApi.pin(conversationId, !pinned);
-            useChat.getState().setPinned(conversationId, !pinned);
-          })} />
+          <Row icon={muted ? BellOff : Bell} label="Notifications" value={mutedLabel} onPress={muteMenu} />
+          <Divider />
+          {!chat?.isArchived && (
+            <>
+              <Row icon={pinned ? PinOff : Pin} label={pinned ? 'Unpin chat' : 'Pin chat'} onPress={() => run(async () => {
+                await chatApi.pin(conversationId, !pinned);
+                useChat.getState().setPinned(conversationId, !pinned);
+              })} />
+              <Divider />
+            </>
+          )}
+          <Row icon={chat?.isArchived ? ArchiveRestore : Archive} label={chat?.isArchived ? 'Unarchive chat' : 'Archive chat'}
+            onPress={() => run(() => useChat.getState().archive(conversationId, !chat?.isArchived))} />
         </View>
 
         {settings && (
@@ -244,15 +264,17 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   );
 };
 
-const Row: React.FC<{ icon: React.ComponentType<{ size?: number; color?: string }>; label: string; onPress: () => void; danger?: boolean }> = ({ icon: Icon, label, onPress, danger }) => (
+const Row: React.FC<{ icon: React.ComponentType<{ size?: number; color?: string }>; label: string; value?: string; onPress: () => void; danger?: boolean }> = ({ icon: Icon, label, value, onPress, danger }) => (
   <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted50 }]}>
     <Icon size={20} color={danger ? colors.danger600 : colors.primary700} />
     <Text style={[styles.rowText, danger && { color: colors.danger600 }]}>{label}</Text>
+    {!!value && <Text style={styles.rowValue} numberOfLines={1}>{value}</Text>}
     {!danger && <ChevronRight size={18} color={colors.muted400} />}
   </Pressable>
 );
 
 const styles = StyleSheet.create({
+  rowValue: { maxWidth: '50%', fontSize: 13, color: colors.muted500 },
   safe: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hero: { alignItems: 'center', paddingVertical: space(6), backgroundColor: colors.white },

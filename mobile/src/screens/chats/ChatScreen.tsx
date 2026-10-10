@@ -4,7 +4,8 @@ import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, Te
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, ShieldAlert, Trash2, X } from 'lucide-react-native';
+import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Search, ShieldAlert, Trash2, X } from 'lucide-react-native';
+import ChatSearch from './ChatSearch';
 import { useKeyChanges, useTrustActions } from '../../crypto/v2-platform/trust';
 import { useChatEncryption } from '../../crypto/useChatEncryption';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -103,6 +104,9 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       ),
       headerRight: () => (
         <View style={styles.headerActions}>
+          <Pressable onPress={() => setSearching(true)} hitSlop={8} accessibilityLabel="Search in this chat">
+            <Search size={22} color={colors.primary700} />
+          </Pressable>
           <Pressable onPress={() => navigation.navigate('AddExpense', { conversationId })} hitSlop={8} accessibilityLabel="Add expense">
             <ReceiptText size={22} color={colors.primary700} />
           </Pressable>
@@ -208,10 +212,40 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     ]);
   };
 
-  const jumpTo = (messageId: string) => {
-    const index = rows.findIndex((r) => r.kind === 'message' && r.message.id === messageId);
-    if (index >= 0) list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const jumpTo = (messageId: string): boolean => {
+    const index = rows.findIndex((r) => (r.kind === 'message' && r.message.id === messageId) || (r.kind === 'album' && r.messages.some((m) => m.id === messageId)));
+    if (index < 0) return false;
+    list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    setHighlighted(messageId);
+    setTimeout(() => setHighlighted(null), 1600);
+    return true;
   };
+
+  // Opened from a search result (messageId): load older pages until the message is here, then show it
+  const [target, setTarget] = useState<string | undefined>(route.params.messageId);
+  useEffect(() => { if (route.params.messageId) setTarget(route.params.messageId); }, [route.params.messageId]);
+  useEffect(() => {
+    if (!target || loading) return;
+    let cancelled = false;
+    const has = () => (useChat.getState().messages[conversationId] || []).some((m) => m.id === target);
+    (async () => {
+      for (let page = 0; page < 40 && !cancelled && !has(); page++) {
+        if (!useChat.getState().hasMore[conversationId]) break;
+        await loadOlder(conversationId).catch(() => undefined);
+      }
+      if (cancelled) return;
+      setTimeout(() => {
+        if (!jumpToRef.current(target)) showAlert("Couldn't find that message in this chat any more.");
+        setTarget(undefined);
+        navigation.setParams({ messageId: undefined });
+      }, 300);
+    })();
+    return () => { cancelled = true; };
+  }, [target, loading, conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const jumpToRef = useRef(jumpTo);
+  jumpToRef.current = jumpTo;
+  const [searching, setSearching] = useState(false);
 
   const renderRow = ({ item }: { item: Row }) => {
     if (item.kind === 'day') return <Text style={styles.day}>{item.label}</Text>;
@@ -219,7 +253,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       return <AlbumGrid messages={item.messages} mine={item.messages[0].senderId === me.id} showSender={!!conversation?.isGroup} onOpen={openMedia} />;
     }
     const m = item.message;
-    return (
+    const bubble = (
       <MessageBubble
         message={m}
         mine={m.senderId === me.id}
@@ -236,6 +270,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         onJumpToReply={jumpTo}
       />
     );
+    return highlighted === m.id ? <View style={styles.highlight}>{bubble}</View> : bubble;
   };
 
   const loadMore = async () => {
@@ -247,6 +282,10 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
+      {searching && (
+        <ChatSearch conversationId={conversationId} currentUserId={me.id} onClose={() => setSearching(false)}
+          onPick={(id) => { setSearching(false); setTarget(id); }} />
+      )}
       <View ref={keyboard.ref} style={[styles.flex, { paddingBottom: keyboard.offset }]}>
         {/* Someone's security code changed (they started fresh): say so once; verified contacts must be accepted */}
         {keyChanges.map((t) => {
@@ -291,7 +330,11 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             renderItem={renderRow}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
-            onScrollToIndexFailed={() => undefined}
+            onScrollToIndexFailed={(info) => {
+              // Far up the list and not measured yet: get close first, then aim again
+              list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+              setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), 120);
+            }}
             ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ margin: space(3) }} color={colors.primary700} /> : null}
             ListEmptyComponent={<Text style={styles.day}>No messages yet. Say hello.</Text>}
             contentContainerStyle={styles.listContent}
@@ -388,6 +431,7 @@ const SheetAction: React.FC<{ icon: React.ComponentType<{ size?: number; color?:
 );
 
 const styles = StyleSheet.create({
+  highlight: { backgroundColor: colors.primary100, borderRadius: radius.md },
   safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },

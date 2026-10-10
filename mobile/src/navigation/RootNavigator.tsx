@@ -7,6 +7,7 @@ import { MessagesSquare, Settings, Wallet } from 'lucide-react-native';
 import OfflineBanner from '../components/OfflineBanner';
 import { useAuth } from '../store/auth';
 import { useChat } from '../store/chat';
+import { isMuted } from '../api/chat';
 import { colors } from '../theme';
 import type { AppStackParams, AuthStackParams, TabParams } from './types';
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -46,7 +47,8 @@ const headerStyle = {
 
 const Tabs: React.FC = () => {
   const unread = useChat(s =>
-    s.conversations.reduce((sum, c) => sum + (c.unreadCount > 0 ? 1 : 0), 0),
+    // Muted and archived chats don't count (like WhatsApp)
+    s.conversations.reduce((sum, c) => sum + (c.unreadCount > 0 && !c.isArchived && !isMuted(c) ? 1 : 0), 0),
   );
   return (
     <Tab.Navigator

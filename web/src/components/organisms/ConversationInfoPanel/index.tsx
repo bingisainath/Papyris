@@ -2,6 +2,7 @@
 // Slide-over with group info (name, photo, description, members, admin actions, leave)
 // or contact info for a direct chat.
 
+import { Archive, ArchiveRestore } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Avatar, Loading } from '../../atoms';
@@ -16,7 +17,8 @@ import { mediaTypeOf, validateFile } from '../../../utils/media';
 import { CONVERSATION_UPDATED_EVENT, NAVIGATE_EVENT } from '../../../utils/events';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../redux/store';
-import { togglePinConversation } from '../../../redux/actions/chatActions';
+import { archiveConversation, muteConversation, togglePinConversation } from '../../../redux/actions/chatActions';
+import { isMuted } from '../../molecules/ChatListItem';
 import { ChatExpenseSettings } from '../../expenses/ExpenseSettingsSections';
 import SharedMedia, { SharedMediaRow } from '../SharedMedia';
 import EncryptionInfo from '../EncryptionInfo';
@@ -48,6 +50,13 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const dispatch = useDispatch<AppDispatch>();
+  const prefs = useSelector((state: RootState) => {
+    const c = state.chat.conversations.find(x => x.id === conversationId);
+    return { mutedUntil: c?.mutedUntil ?? null, isArchived: !!c?.isArchived };
+  });
+  const muted = isMuted(prefs.mutedUntil);
+  const mutedLabel = !muted ? '' : new Date(prefs.mutedUntil!).getFullYear() > 2100 ? 'Muted always'
+    : `Muted until ${new Date(prefs.mutedUntil!).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
   const isPinned = useSelector((state: RootState) =>
     !!state.chat.conversations.find(c => c.id === conversationId)?.isPinned
   );
@@ -442,14 +451,44 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
               </section>
             )}
 
-            <div className="px-6 pt-4">
-              <button
-                onClick={() => dispatch(togglePinConversation(conversationId))}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
-              >
-                <Icon name="pin" size={16} /> {isPinned ? 'Unpin chat' : 'Pin chat'}
-              </button>
-            </div>
+            {/* Your own settings for this chat: notifications, archive, pin */}
+            <section className="px-6 pt-4 space-y-2" aria-label="Chat settings">
+              <label className="flex items-center justify-between gap-3 text-sm text-muted-800">
+                <span>
+                  Notifications
+                  {muted && <span className="block text-xs text-muted-500">{mutedLabel}</span>}
+                </span>
+                <select
+                  aria-label="Mute notifications"
+                  value={muted ? 'muted' : ''}
+                  onChange={(e) => dispatch(muteConversation(conversationId, (e.target.value || null) as '8h' | '1w' | 'always' | null))}
+                  className="px-2 py-1.5 text-sm rounded-lg border border-muted-200 bg-white"
+                >
+                  <option value="">On</option>
+                  {muted && <option value="muted" disabled>Muted</option>}
+                  <option value="8h">Mute for 8 hours</option>
+                  <option value="1w">Mute for 1 week</option>
+                  <option value="always">Mute always</option>
+                </select>
+              </label>
+              <div className="flex gap-2">
+                {!prefs.isArchived && (
+                  <button
+                    onClick={() => dispatch(togglePinConversation(conversationId))}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
+                  >
+                    <Icon name="pin" size={16} /> {isPinned ? 'Unpin chat' : 'Pin chat'}
+                  </button>
+                )}
+                <button
+                  onClick={() => dispatch(archiveConversation(conversationId, !prefs.isArchived))}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-muted-700 bg-muted-100 hover:bg-muted-200 rounded-lg"
+                >
+                  {prefs.isArchived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                  {prefs.isArchived ? 'Unarchive chat' : 'Archive chat'}
+                </button>
+              </div>
+            </section>
 
             {isGroup && (
               <div className="px-6 py-4">

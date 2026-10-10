@@ -14,7 +14,7 @@ export type TabParams = {
 
 export type AppStackParams = {
   Tabs: undefined;
-  Chat: { conversationId: string };
+  Chat: { conversationId: string; messageId?: string }; // messageId: open at that message (search)
   ChatInfo: { conversationId: string; addMembers?: boolean };
   SharedMedia: { conversationId: string };
   NewChat: undefined;

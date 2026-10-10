@@ -26,6 +26,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from app.api.v1.groups import muted_until_view  # noqa: E402
+
 router = APIRouter()
 
 MIN_USER_SEARCH_LENGTH = 2
@@ -138,6 +140,8 @@ async def get_conversations(
                 "members": member_ids[conv.id],
                 "isPinned": my_membership.pinned_at is not None,
                 "pinnedAt": my_membership.pinned_at.isoformat() if my_membership.pinned_at else None,
+                "mutedUntil": muted_until_view(my_membership),
+                "isArchived": my_membership.archived_at is not None,
                 "isTyping": False,
             })
 

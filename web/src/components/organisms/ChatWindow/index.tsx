@@ -23,7 +23,8 @@ import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { useSearchParams } from 'react-router-dom';
-import { Lock, LockOpen, ShieldAlert, UserPlus } from 'lucide-react';
+import { Lock, LockOpen, Search, ShieldAlert, UserPlus } from 'lucide-react';
+import ChatSearch from './ChatSearch';
 import { downloadDecrypted } from '../../../crypto/media';
 import { sealFor } from '../../../crypto/messages';
 import { useChatEncryption } from '../../../crypto/useChatEncryption';
@@ -82,6 +83,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // Expenses: ?receipt=<id> opens a receipt to review, ?expense=<id> opens an expense
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searching, setSearching] = useState(false);
   const [addingExpense, setAddingExpense] = useState(false);
   const openReceiptId = searchParams.get('receipt');
   const openExpenseId = searchParams.get('expense');
@@ -323,12 +325,37 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     dispatch(fetchMessages(conversationId));
   }, [dispatch, conversationId]);
 
+  // Opened from a search result (?msg=<id>): load older pages until the message is there, then show it
+  const searchTarget = searchParams.get('msg');
+  const hasMoreRef = useRef(hasMoreMessages);
+  hasMoreRef.current = hasMoreMessages;
+  useEffect(() => {
+    if (!searchTarget) return;
+    let cancelled = false;
+    const found = () => !!scrollContainerRef.current?.querySelector(`[data-message-id="${searchTarget}"]`);
+    const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    (async () => {
+      await wait(400); // first page
+      for (let page = 0; page < 40 && !cancelled && !found(); page++) {
+        if (!hasMoreRef.current) break;
+        await dispatch(fetchOlderMessages(conversationId));
+        await wait(150);
+      }
+      if (cancelled) return;
+      jumpToMessage(searchTarget, "Couldn't find that message in this chat any more.");
+      const next = new URLSearchParams(searchParams);
+      next.delete('msg');
+      setSearchParams(next, { replace: true });
+    })();
+    return () => { cancelled = true; };
+  }, [searchTarget, conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Scroll to (and briefly highlight) the message a reply quotes
-  const jumpToMessage = (messageId: string) => {
+  const jumpToMessage = (messageId: string, notFound = 'Load older messages to see the original.') => {
     const container = scrollContainerRef.current;
     const target = container?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
     if (!container || !target) {
-      toast.info('Load older messages to see the original.');
+      toast.info(notFound);
       return;
     }
     const offset = target.getBoundingClientRect().top - container.getBoundingClientRect().top;
@@ -484,6 +511,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             </button>
           )}
           <button
+            onClick={() => setSearching((v) => !v)}
+            className={`p-2 rounded-lg transition-colors ${searching ? 'bg-primary-50 text-primary-700' : 'hover:bg-muted-100 text-muted-600'}`}
+            title="Search in this chat"
+            aria-label="Search in this chat"
+            aria-expanded={searching}
+          >
+            <Search className="w-5 h-5" />
+          </button>
+          <button
             onClick={() => setShowInfo(true)}
             className="p-2 hover:bg-muted-100 rounded-lg transition-colors"
             title={isGroup ? 'Group info' : 'Contact info'}
@@ -495,6 +531,19 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           </button>
         </div>
       </div>
+
+      {searching && (
+        <ChatSearch
+          conversationId={conversationId}
+          currentUserId={currentUserId}
+          onPick={(id) => {
+            const next = new URLSearchParams(searchParams);
+            next.set('msg', id);
+            setSearchParams(next, { replace: true });
+          }}
+          onClose={() => setSearching(false)}
+        />
+      )}
 
       {/* Someone's security code changed (they started fresh): say so once; verified contacts must be accepted */}
       {keyChanges.map((t) => {

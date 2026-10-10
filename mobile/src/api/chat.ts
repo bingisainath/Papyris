@@ -14,6 +14,24 @@ export interface Conversation {
   members: string[];
   isPinned: boolean;
   pinnedAt: string | null;
+  mutedUntil?: string | null; // muted for you until then (no notifications)
+  isArchived?: boolean; // archived by you
+}
+
+/** Muted right now? */
+export const isMuted = (c?: { mutedUntil?: string | null } | null) => !!c?.mutedUntil && new Date(c.mutedUntil).getTime() > Date.now();
+
+export type MuteDuration = '8h' | '1w' | 'always';
+
+export interface ServerSearchHit {
+  id: string;
+  conversationId: string;
+  conversationTitle: string | null;
+  isGroup: boolean;
+  senderId: string | null;
+  senderName: string | null;
+  text: string;
+  timestamp: string;
 }
 
 export interface Reaction {
@@ -152,6 +170,12 @@ export const chatApi = {
     data<{ id: string }>(api.post('/conversations', { kind: 'group', title, participant_ids: memberIds })),
   searchUsers: (search: string) => data<UserSummary[]>(api.get('/users', { params: { search } })),
   pin: (conversationId: string, pinned: boolean) => api.put(`/conversations/${conversationId}/pin`, { pinned }),
+  mute: (conversationId: string, duration: MuteDuration | null) =>
+    api.put(`/conversations/${conversationId}/mute`, { duration }).then((r) => r.data.data as { mutedUntil: string | null }),
+  archive: (conversationId: string, archived: boolean) => api.put(`/conversations/${conversationId}/archive`, { archived }),
+  /** Message text the server can read (not end-to-end encrypted chats). */
+  search: (q: string, conversationId?: string) =>
+    api.get('/messages/search', { params: { q, ...(conversationId ? { conversation_id: conversationId } : {}) } }).then((r) => r.data.data as ServerSearchHit[]),
   /** hasLink: encrypted edits tell the server whether there's a link (for the Links tab) */
   editMessage: (messageId: string, text: string, hasLink?: boolean) => api.patch(`/messages/${messageId}`, { text, has_link: !!hasLink }),
   deleteMessage: (messageId: string) => api.delete(`/messages/${messageId}`),

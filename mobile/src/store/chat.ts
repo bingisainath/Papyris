@@ -2,7 +2,7 @@
 // Chats and messages, kept up to date by the WebSocket (mirrors the web app's chat slice).
 
 import { create } from 'zustand';
-import { chatApi, Conversation, Message, ReplyPreview } from '../api/chat';
+import { chatApi, Conversation, Message, MuteDuration, ReplyPreview } from '../api/chat';
 import { OutgoingMedia, socket, WsEvent } from '../ws/socket';
 import { LocalFile, UploadQuality, uploadFile } from '../api/media';
 import { createThumbnail } from 'react-native-create-thumbnail';
@@ -42,6 +42,10 @@ interface ChatState {
   retryUpload: (clientId: string) => void;
   forward: (message: Message, conversationIds: string[]) => Promise<{ sent: number; skipped: number }>;
   setPinned: (conversationId: string, pinned: boolean) => void;
+  /** Mute / archive for you (from this phone or another of your devices). */
+  setPrefs: (conversationId: string, prefs: { mutedUntil?: string | null; isArchived?: boolean }) => void;
+  mute: (conversationId: string, duration: MuteDuration | null) => Promise<void>;
+  archive: (conversationId: string, archived: boolean) => Promise<void>;
   reset: () => void;
 }
 
@@ -235,6 +239,36 @@ export const useChat = create<ChatState>((set, get) => ({
         c.id === conversationId ? { ...c, isPinned: pinned, pinnedAt: pinned ? new Date().toISOString() : null } : c,
       ),
     })),
+
+  setPrefs: (conversationId, prefs) =>
+    set((s) => ({
+      conversations: s.conversations.map((c) => (c.id !== conversationId ? c : {
+        ...c, ...prefs, ...(prefs.isArchived ? { isPinned: false, pinnedAt: null } : {}),
+      })),
+    })),
+
+  mute: async (conversationId, duration) => {
+    const before = get().conversations.find((c) => c.id === conversationId)?.mutedUntil ?? null;
+    const hours = { '8h': 8, '1w': 24 * 7, always: 24 * 365 * 100 };
+    get().setPrefs(conversationId, { mutedUntil: duration ? new Date(Date.now() + hours[duration] * 3600e3).toISOString() : null });
+    try {
+      const r = await chatApi.mute(conversationId, duration);
+      get().setPrefs(conversationId, { mutedUntil: r.mutedUntil });
+    } catch (e) {
+      get().setPrefs(conversationId, { mutedUntil: before });
+      throw e;
+    }
+  },
+
+  archive: async (conversationId, archived) => {
+    get().setPrefs(conversationId, { isArchived: archived });
+    try {
+      await chatApi.archive(conversationId, archived);
+    } catch (e) {
+      get().setPrefs(conversationId, { isArchived: !archived });
+      throw e;
+    }
+  },
 
   reset: () => set({ conversations: [], loaded: false, messages: {}, hasMore: {}, typing: {}, online: [], activeId: null }),
 }));
@@ -605,6 +639,14 @@ socket.on((e) => {
       if (e.roomId && e.messageId) {
         updateMessage(set, e.roomId, e.messageId, {
           reactions: (e.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.userIds || r.user_ids || [] })),
+        });
+      }
+      break;
+    case 'conversation_prefs':
+      if (e.conversationId) {
+        state.setPrefs(e.conversationId, {
+          ...('mutedUntil' in e ? { mutedUntil: e.mutedUntil } : {}),
+          ...('isArchived' in e ? { isArchived: e.isArchived } : {}),
         });
       }
       break;

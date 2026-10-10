@@ -70,6 +70,8 @@ interface Conversation {
   isTyping?: boolean;
   isPinned?: boolean;
   pinnedAt?: string | null;
+  mutedUntil?: string | null; // muted for you until then (no notifications)
+  isArchived?: boolean; // archived by you: in the Archived list, not the main one
   isGroup?: boolean;
   members?: string[];
 }
@@ -270,6 +272,19 @@ const chatSlice = createSlice({
       const { conversationId, messageId, reactions } = action.payload;
       const message = (state.messages[conversationId] || []).find(m => m.id === messageId);
       if (message) message.reactions = reactions;
+    },
+
+    /** Mute / archive (and the unpin archiving does), from this browser or another of your devices. */
+    setConversationPrefs: (state, action: PayloadAction<{ conversationId: string; mutedUntil?: string | null; isArchived?: boolean; isPinned?: boolean }>) => {
+      const { conversationId, ...prefs } = action.payload;
+      const conversation = state.conversations.find(c => c.id === conversationId);
+      if (!conversation) return;
+      if (prefs.mutedUntil !== undefined) conversation.mutedUntil = prefs.mutedUntil;
+      if (prefs.isArchived !== undefined) conversation.isArchived = prefs.isArchived;
+      if (prefs.isPinned === false) {
+        conversation.isPinned = false;
+        conversation.pinnedAt = null;
+      }
     },
 
     setPinned: (state, action: PayloadAction<{ conversationId: string; pinnedAt: string | null }>) => {
@@ -482,6 +497,7 @@ export const {
   upsertMessage,
   removeMessage,
   setPinned,
+  setConversationPrefs,
   applyMessageUpdate,
   setReactions,
   markMessagesRead,

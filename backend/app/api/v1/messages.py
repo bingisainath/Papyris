@@ -1,9 +1,12 @@
 # backend/app/api/v1/messages.py
 
+import re
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -169,3 +172,53 @@ async def react_to_message(
     }
     await publish_users(await MessageService.member_ids(db, message.conversation_id), event)
     return {"success": True, "message": "Reaction updated", "data": event}
+
+
+SEARCH_LIMIT = 50
+
+
+@router.get("/search")
+async def search_messages(
+    q: str = Query(..., min_length=2, max_length=100),
+    conversation_id: Optional[UUID] = None,
+    limit: int = Query(SEARCH_LIMIT, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Search message text in your chats (one chat with `conversation_id`), newest first.
+    End-to-end encrypted messages aren't here: the server can't read them, so the apps search those
+    in their own encrypted database and merge the results.
+    """
+    from app.models.conversation import Conversation
+    from app.models.conversation_member import ConversationMember
+    mine = select(ConversationMember.conversation_id).where(ConversationMember.user_id == current_user.id)
+    # % and _ typed by the person are matched literally
+    pattern = "%" + re.sub(r"([\\%_])", r"\\\1", q.strip()) + "%"
+    stmt = (
+        select(Message, User.username, User.name, Conversation.title, Conversation.kind)
+        .join(User, User.id == Message.sender_id, isouter=True)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            Message.conversation_id.in_(mine),
+            Message.is_deleted.is_(False),
+            Message.message_type != MessageType.SYSTEM,
+            Message.text.ilike(pattern, escape="\\"),
+            ~Message.text.startswith(media_storage.ENCRYPTED_PREFIX),
+            ~Message.text.startswith(media_storage.V2_MARKER),
+        )
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    if conversation_id:
+        stmt = stmt.where(Message.conversation_id == conversation_id)
+    rows = (await db.execute(stmt)).all()
+    return {"success": True, "data": [
+        {
+            "id": str(m.id), "conversationId": str(m.conversation_id),
+            "conversationTitle": title if kind == "group" else None, "isGroup": kind == "group",
+            "senderId": str(m.sender_id) if m.sender_id else None, "senderName": name or username,
+            "text": m.text, "timestamp": m.created_at.isoformat(),
+        }
+        for m, username, name, title, kind in rows
+    ]}

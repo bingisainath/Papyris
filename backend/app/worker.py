@@ -195,7 +195,8 @@ class MessageWorker:
 
                 # Phones get a notification; a failure here never affects the saved message
                 try:
-                    await self.notify(db, message, data, [m.user_id for m in members])
+                    now = datetime.now(timezone.utc)
+                    await self.notify(db, message, data, [m.user_id for m in members if not (m.muted_until and m.muted_until > now)])
                 except Exception:
                     logger.exception("Push notification for %s failed", message_id)
                 

@@ -1,10 +1,15 @@
 // src/screens/chats/ChatListScreen.tsx
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import { MessageSquarePlus, MessagesSquare, Pin, Search, UsersRound } from 'lucide-react-native';
+import { Archive, ArrowLeft, BellOff, Lock, MessageSquarePlus, MessagesSquare, Pin, Search, UsersRound } from 'lucide-react-native';
+import { searchMessages } from '../../services/messageSearch';
+import type { SearchHit } from '../../services/messageSearch';
+import { chatApi, isMuted } from '../../api/chat';
+import { errorMessage } from '../../api/client';
+import { showAlert } from '../../components/Dialog';
 import GroupAddIcon from '../../components/GroupAddIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/Avatar';
@@ -25,6 +30,38 @@ const ChatListScreen: React.FC = () => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const archived = conversations.filter((c) => c.isArchived);
+  const archivedUnread = archived.filter((c) => c.unreadCount > 0).length;
+
+  // Message search (2+ characters): the server's results plus this phone's encrypted chats
+  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setHits(null); return; }
+    let alive = true;
+    const timer = setTimeout(() => {
+      searchMessages(q).then((r) => { if (alive) setHits(r); }).catch(() => { if (alive) setHits([]); });
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [query]);
+
+  // Long press: pin, mute, archive (like WhatsApp)
+  const actions = (c: Conversation) => {
+    const run = (p: Promise<unknown>) => p.catch((e) => showAlert("Couldn't change it", errorMessage(e)));
+    const muteMenu = () => showAlert(`Mute ${c.name}`, 'No notifications from this chat. You can still see new messages here.', [
+      { text: 'For 8 hours', onPress: () => run(useChat.getState().mute(c.id, '8h')) },
+      { text: 'For 1 week', onPress: () => run(useChat.getState().mute(c.id, '1w')) },
+      { text: 'Always', onPress: () => run(useChat.getState().mute(c.id, 'always')) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+    showAlert(c.name, undefined, [
+      ...(!c.isArchived ? [{ text: c.isPinned ? 'Unpin chat' : 'Pin chat', onPress: () => run(chatApi.pin(c.id, !c.isPinned).then(() => useChat.getState().setPinned(c.id, !c.isPinned))) }] : []),
+      isMuted(c) ? { text: 'Unmute', onPress: () => run(useChat.getState().mute(c.id, null)) } : { text: 'Mute notifications', onPress: muteMenu },
+      { text: c.isArchived ? 'Unarchive chat' : 'Archive chat', onPress: () => run(useChat.getState().archive(c.id, !c.isArchived)) },
+      { text: 'Cancel', style: 'cancel' },
+    ], { cancelable: true });
+  };
 
   useFocusEffect(useCallback(() => { loadConversations().catch(() => undefined); }, [loadConversations]));
 
@@ -32,10 +69,11 @@ const ChatListScreen: React.FC = () => {
     const q = query.trim().toLowerCase();
     const time = (v?: string | null) => (v ? new Date(v).getTime() : 0);
     return conversations
+      .filter((c) => (q ? true : showArchived ? c.isArchived : !c.isArchived)) // searching looks everywhere
       .filter((c) => (filter === 'all' ? true : filter === 'groups' ? c.isGroup : !c.isGroup))
       .filter((c) => !q || c.name.toLowerCase().includes(q) || c.lastMessage.toLowerCase().includes(q))
       .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || time(b.pinnedAt) - time(a.pinnedAt) || time(b.lastMessageTime) - time(a.lastMessageTime));
-  }, [conversations, query, filter]);
+  }, [conversations, query, filter, showArchived]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -50,6 +88,7 @@ const ChatListScreen: React.FC = () => {
     return (
       <Pressable
         onPress={() => navigation.navigate('Chat', { conversationId: item.id })}
+        onLongPress={() => actions(item)}
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
         accessibilityLabel={`${item.name}${item.unreadCount ? `, ${item.unreadCount} unread` : ''}`}
       >
@@ -59,6 +98,7 @@ const ChatListScreen: React.FC = () => {
             <View style={styles.nameRow}>
               {item.isGroup && <UsersRound size={14} color={colors.muted400} />}
               <Text style={[styles.name, item.unreadCount > 0 && styles.bold]} numberOfLines={1}>{item.name}</Text>
+              {isMuted(item) && <BellOff size={14} color={colors.muted400} accessibilityLabel="Muted" />}
             </View>
             <Text style={[styles.time, item.unreadCount > 0 && { color: colors.primary700 }]}>{listTime(item.lastMessageTime)}</Text>
           </View>
@@ -67,7 +107,7 @@ const ChatListScreen: React.FC = () => {
             <View style={styles.badges}>
               {item.isPinned && <Pin size={14} color={colors.muted400} />}
               {item.unreadCount > 0 && (
-                <View style={styles.badge}><Text style={styles.badgeText}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text></View>
+                <View style={[styles.badge, isMuted(item) && { backgroundColor: colors.muted400 }]}><Text style={styles.badgeText}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text></View>
               )}
             </View>
           </View>
@@ -91,7 +131,7 @@ const ChatListScreen: React.FC = () => {
       </View>
       <View style={styles.search}>
         <Search size={18} color={colors.muted400} />
-        <TextInput value={query} onChangeText={setQuery} placeholder="Search chats" placeholderTextColor={colors.muted400} style={styles.searchInput} />
+        <TextInput value={query} onChangeText={setQuery} placeholder="Search chats and messages" placeholderTextColor={colors.muted400} style={styles.searchInput} />
       </View>
       <View style={styles.filters}>
         {(['all', 'direct', 'groups'] as Filter[]).map((f) => (
@@ -105,9 +145,42 @@ const ChatListScreen: React.FC = () => {
         keyExtractor={(c) => c.id}
         renderItem={renderItem}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[colors.primary700]} />}
-        contentContainerStyle={list.length === 0 && styles.emptyList}
+        contentContainerStyle={list.length === 0 && !hits?.length && styles.emptyList}
+        ListHeaderComponent={query.trim() ? null : showArchived ? (
+          <Pressable onPress={() => setShowArchived(false)} style={styles.archivedRow} accessibilityLabel="Back to chats">
+            <ArrowLeft size={18} color={colors.primary700} /><Text style={styles.archivedBack}>Archived chats</Text>
+          </Pressable>
+        ) : archived.length > 0 ? (
+          <Pressable onPress={() => setShowArchived(true)} style={styles.archivedRow} accessibilityLabel={`Archived, ${archived.length} chats`}>
+            <Archive size={18} color={colors.muted500} />
+            <Text style={styles.archivedText}>Archived</Text>
+            <Text style={[styles.archivedCount, archivedUnread > 0 && { color: colors.primary700, fontWeight: '700' }]}>{archivedUnread || archived.length}</Text>
+          </Pressable>
+        ) : null}
+        ListFooterComponent={hits && hits.length > 0 ? (
+          <View>
+            <Text style={styles.sectionTitle}>Messages</Text>
+            {hits.map((h) => {
+              const chat = conversations.find((c) => c.id === h.conversationId);
+              const who = h.senderId && h.senderId === me?.id ? 'You' : h.senderName;
+              return (
+                <Pressable key={h.id} onPress={() => navigation.navigate('Chat', { conversationId: h.conversationId, messageId: h.id })}
+                  style={({ pressed }) => [styles.hit, pressed && styles.pressed]}>
+                  <View style={styles.rowTop}>
+                    <Text style={styles.hitChat} numberOfLines={1}>{chat?.name || 'Chat'}</Text>
+                    <Text style={styles.time}>{listTime(h.timestamp)}</Text>
+                  </View>
+                  <View style={styles.hitTextRow}>
+                    {h.encrypted && <Lock size={12} color={colors.muted400} />}
+                    <Text style={styles.preview} numberOfLines={2}>{who ? `${who}: ` : ''}{h.text}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         ListEmptyComponent={loaded ? (
-          <Empty icon={MessagesSquare} title={query ? 'No chats found' : 'No conversations yet'} text={query ? undefined : 'Start a chat or create a group'} />
+          <Empty icon={MessagesSquare} title={query ? (hits?.length ? 'No chats found' : 'Nothing found') : showArchived ? 'No archived chats' : archived.length ? 'Your other chats are archived' : 'No conversations yet'} text={query || archived.length || showArchived ? undefined : 'Start a chat or create a group'} />
         ) : null}
       />
     </SafeAreaView>
@@ -116,6 +189,14 @@ const ChatListScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.white },
+  archivedRow: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingHorizontal: space(5), paddingVertical: space(3) },
+  archivedText: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.muted700 },
+  archivedBack: { fontSize: 15, fontWeight: '700', color: colors.primary700 },
+  archivedCount: { fontSize: 14, color: colors.muted500 },
+  sectionTitle: { paddingHorizontal: space(4), paddingTop: space(4), paddingBottom: space(1), fontSize: 12, fontWeight: '700', color: colors.muted500, textTransform: 'uppercase', letterSpacing: 0.5 },
+  hit: { paddingHorizontal: space(4), paddingVertical: space(2.5), gap: 2 },
+  hitChat: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.muted900 },
+  hitTextRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space(4), paddingTop: space(2) },
   title: { fontSize: 26, fontWeight: '700', color: colors.muted900 },
   headerActions: { flexDirection: 'row', gap: space(1) },

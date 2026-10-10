@@ -1,6 +1,7 @@
 // src/pages/Home/index.tsx - COMPLETE WITH ALL INTEGRATIONS
 
 import GroupAddIcon from '../../components/atoms/GroupAddIcon';
+import { isMuted } from '../../components/molecules/ChatListItem';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -20,6 +21,7 @@ import {
   createDirectConversation,
   createGroupConversation,
   togglePinConversation,
+  archiveConversation,
 } from '../../redux/actions/chatActions';
 import type { AppDispatch, RootState } from '../../redux/store';
 import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
@@ -77,7 +79,9 @@ const Home: React.FC = () => {
 
   // Active route
   // Unread count in the browser tab title, e.g. "(3) Papyris"
-  const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+  // Muted and archived chats don't count (like WhatsApp)
+  const counted = conversations.filter(c => !c.isArchived && !isMuted(c.mutedUntil));
+  const totalUnread = counted.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
   useEffect(() => {
     document.title = totalUnread > 0 ? `(${totalUnread}) Papyris` : 'Papyris';
   }, [totalUnread]);
@@ -293,7 +297,7 @@ const Home: React.FC = () => {
             avatar: currentUser.avatar
           }}
           activeRoute={`/${activeRoute}`}
-          unreadChats={conversations.filter(c => c.unreadCount && c.unreadCount > 0).length}
+          unreadChats={counted.filter(c => c.unreadCount && c.unreadCount > 0).length}
           pendingExpenses={0}
           onNavigate={handleNavigate}
           onProfileClick={() => setShowProfileModal(true)}
@@ -315,6 +319,9 @@ const Home: React.FC = () => {
                 activeConversationId={activeConversationId}
                 onSelectConversation={handleSelectConversation}
                 onTogglePin={(id) => dispatch(togglePinConversation(id))}
+                onToggleArchive={(id, archived) => dispatch(archiveConversation(id, archived))}
+                onOpenMessage={(id, messageId) => navigate(`/chat/${id}?msg=${messageId}`)}
+                currentUserId={currentUser?.id}
                 onNewChat={() => setShowSearchUserModal(true)}
                 onNewGroup={() => setShowCreateGroupModal(true)}
                 isLoading={isLoading}

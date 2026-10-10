@@ -79,6 +79,10 @@ export interface WebSocketEvent {
   left?: boolean;
   pinned?: boolean;
   pinnedAt?: string | null;
+  // conversation_prefs (mute / archive on another of our devices)
+  mutedUntil?: string | null;
+  isArchived?: boolean;
+  isPinned?: boolean;
   userName?: string | null;
   messageType?: 'text' | 'image' | 'video' | 'file' | 'system';
   replyTo?: {

@@ -63,6 +63,12 @@ export async function joinedAt(): Promise<number> {
   return (runtime && (await runtime.store.setting<number>('joinedAt'))) || 0;
 }
 
+/** Search this phone's encrypted message database (end-to-end encrypted chats). */
+export async function searchLocal(query: string, conversationId?: string): Promise<LocalMessage[]> {
+  const runtime = await v2Runtime()?.catch(() => null);
+  return runtime ? runtime.store.searchMessages(query, { conv: conversationId }) : [];
+}
+
 export async function lastLocal(conversationId: string): Promise<LocalMessage | null> {
   const runtime = await v2Runtime()?.catch(() => null);
   return runtime ? runtime.store.lastMessage(conversationId) : null;
