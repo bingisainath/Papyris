@@ -2,6 +2,7 @@
 // allows you to do things like:
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
+/* global globalThis */
 import '@testing-library/jest-dom';
 // Encryption code (src/crypto) needs these; browsers have them, the test environment may not
 const { TextEncoder: NodeTextEncoder, TextDecoder: NodeTextDecoder } = require('util');

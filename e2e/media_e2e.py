@@ -216,7 +216,7 @@ def main():
         dialog.get_by_role("button", name=other_title).click()
         page.screenshot(path=SHOTS / "m7-forward.png")
         dialog.get_by_label("Send forward").click()
-        if not wait_for_messages(alice_tok, other, lambda m: (m["text"] or "").startswith("e2e1:")):
+        if not wait_for_messages(alice_tok, other, lambda m: (m["text"] or "").startswith(("e2e1:", "e2e2:"))):
             problems.append("forward didn't arrive (encrypted)")
 
         # ---- download from the viewer

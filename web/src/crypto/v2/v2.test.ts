@@ -379,6 +379,16 @@ describe('pairwise sessions under a hostile network (seeded, repeatable)', () =>
     let sent = 0;
     let read = 0;
 
+    // Outcomes are checked without expect() inside branches (failures throw, so the test still fails)
+    const mustFail = async (fn: () => Promise<unknown>) => {
+      try {
+        await fn();
+      } catch (e) {
+        if (e instanceof CryptoError) return;
+        throw e;
+      }
+      throw new Error('a forged or replayed packet was accepted');
+    };
     const deliver = async (i: number) => {
       const { to, packet, text } = inFlight[i];
       const at = devices[to];
@@ -387,13 +397,13 @@ describe('pairwise sessions under a hostile network (seeded, repeatable)', () =>
       if (roll < 0.05) {
         // A flipped bit in the ciphertext or header: refused, and nothing changes
         const forged = { ...packet, c: b64(unb64(packet.c).map((x, j) => (j === 5 ? x ^ 0x40 : x))) };
-        await expect(receive(at, from, forged)).rejects.toBeInstanceOf(CryptoError);
+        await mustFail(() => receive(at, from, forged));
         return; // the real one stays in flight
       }
       inFlight.splice(i, 1);
       if (roll < 0.12) return; // lost
       if (delivered.has(text)) {
-        await expect(receive(at, from, packet)).rejects.toBeInstanceOf(CryptoError); // replay
+        await mustFail(() => receive(at, from, packet)); // replay
         return;
       }
       expect(await receive(at, from, packet)).toBe(text);

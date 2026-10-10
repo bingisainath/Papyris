@@ -179,6 +179,9 @@ async def get_media(
         # Cache only as long as the link is valid
         "Cache-Control": f"private, max-age={max(int(exp) - int(time.time()), 0)}",
         "X-Content-Type-Options": "nosniff",
+        # The same file is loaded by <img>/<video> (no Origin) and by fetch() for decryption (CORS):
+        # without this a browser can reuse the first, header-less response for the second and block it
+        "Vary": "Origin",
     }
     if download:
         # Save to disk under the original name (?download=1&name=holiday.jpg)

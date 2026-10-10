@@ -93,3 +93,6 @@ e2e-screenshots/
 
 # Firebase service account keys are server secrets: never commit them
 *firebase-adminsdk*.json
+
+# Personal learning notes (not part of the project)
+learning/

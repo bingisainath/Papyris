@@ -27,6 +27,7 @@ async def test_upload_and_serve_signed(client, make_user):
     assert data["mediaType"] == "image" and "sig=" not in data["url"]
     served = await client.get(data["signedUrl"])
     assert served.status_code == 200
+    assert "origin" in served.headers.get("vary", "").lower()  # <img> and fetch() can't share a cached copy
     # Re-saved without metadata, so not byte-identical, but the same picture
     from PIL import Image
     import io

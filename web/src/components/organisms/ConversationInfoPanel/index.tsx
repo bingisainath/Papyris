@@ -50,10 +50,10 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const dispatch = useDispatch<AppDispatch>();
-  const prefs = useSelector((state: RootState) => {
-    const c = state.chat.conversations.find(x => x.id === conversationId);
-    return { mutedUntil: c?.mutedUntil ?? null, isArchived: !!c?.isArchived };
-  });
+  // Two plain values (a selector returning a new object would re-render on every store change)
+  const mutedUntil = useSelector((state: RootState) => state.chat.conversations.find(x => x.id === conversationId)?.mutedUntil ?? null);
+  const isArchived = useSelector((state: RootState) => !!state.chat.conversations.find(x => x.id === conversationId)?.isArchived);
+  const prefs = { mutedUntil, isArchived };
   const muted = isMuted(prefs.mutedUntil);
   const mutedLabel = !muted ? '' : new Date(prefs.mutedUntil!).getFullYear() > 2100 ? 'Muted always'
     : `Muted until ${new Date(prefs.mutedUntil!).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;

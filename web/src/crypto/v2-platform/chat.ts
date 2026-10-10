@@ -13,6 +13,7 @@ import type { Message, ReplyPreview } from '../../redux/slices/chatSlice';
 import { encryptMedia, isV2Marker, LocalMessage, MediaPointer, MessageBody } from '../v2';
 import type { IncomingEnvelope, OutgoingEnvelope, Received } from '../v2';
 import { rememberDecrypted } from '../media';
+import { jpegOrientation, stripJpegMetadata } from '../e2e';
 import { v2Runtime } from './runtime';
 
 const LINK_RE = /https?:\/\/\S/i;
@@ -96,7 +97,11 @@ export async function sendTextV2(v2: NonNullable<Awaited<ReturnType<typeof v2For
 
 /** Encrypt a file (PMV2) and upload it. */
 async function uploadV2(file: Blob, kind: 'image' | 'video' | 'audio' | 'file', onProgress?: (p: number) => void, signal?: AbortSignal) {
-  const sealed = encryptMedia(new Uint8Array(await file.arrayBuffer()));
+  let data = new Uint8Array(await file.arrayBuffer());
+  // Photos sent as documents aren't re-drawn, so drop their location/camera data here (as version 1 did).
+  // Only when upright already: rotated photos keep their EXIF so they don't display sideways.
+  if (file.type === 'image/jpeg' && jpegOrientation(data) === 1) data = stripJpegMetadata(data);
+  const sealed = encryptMedia(data);
   const uploaded = await mediaService.upload(new File([sealed.blob], 'file.enc', { type: 'application/octet-stream' }), onProgress, { signal, encrypted: kind });
   return { url: uploaded.url, key: sealed.key, sha256: sealed.sha256, size: sealed.size };
 }

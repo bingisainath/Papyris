@@ -102,7 +102,7 @@ Full detail: [encryption-design-v2.md](encryption-design-v2.md).
 | CI | None: tests are run by hand. | Before production: run every suite on each push |
 | Monitoring | Logs only. | Before production: error tracking (e.g. Sentry), metrics, uptime alerts |
 | Worker | One process. If it stops, messages wait in Redis and are saved when it restarts. | Before production: supervised (restart on crash), at least two |
-| Migrations | Alembic, 13 so far. | Done (zero-downtime migration practice: Before production) |
+| Migrations | Alembic, 14 so far. | Done (zero-downtime migration practice: Before production) |
 | Mobile release | Debug build only; release builds are signed with the debug key; iOS not built. | Before production: release signing, Play Store and App Store builds, crash reporting |
 | Data deletion | No "delete my account" yet. | Before production (required by app stores and GDPR) |
 | Privacy | No privacy policy or terms. | Before production (GDPR: data export, deletion, retention, processors such as Firebase and the AI providers) |
