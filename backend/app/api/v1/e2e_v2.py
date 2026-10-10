@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,7 @@ from app.models.user import User
 from app.services import e2e_v2 as checks
 from app.services import e2e_mailbox as mailbox_service
 from app.services import media_storage
+from app.services import sessions
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
 
@@ -50,6 +51,7 @@ MAX_ONE_TIME_PREKEYS = 200
 MAX_PACKETS_PER_SEND = mailbox_service.MAX_PACKETS_PER_SEND
 LINK_TTL = timedelta(minutes=10)
 MAILBOX_PAGE = 200
+STALE_UNLINKED = timedelta(days=1)
 
 
 def _now() -> datetime:
@@ -95,8 +97,37 @@ class RegisterDevice(BaseModel):
     name: str = Field("Device", max_length=100)
 
 
+async def _free_stale_devices(db: AsyncSession, user_id: uuid.UUID, idle: timedelta) -> None:
+    """
+    Devices that signed in but were never linked (not on the account's list) and haven't been seen for
+    `idle`: they can't read anything, so they shouldn't use up the account's device slots.
+    """
+    signed = await _current_list(db, user_id)
+    listed = {d["id"] for d in (signed or {}).get("devices", [])}
+    stale = (await db.execute(select(E2EDevice).where(
+        E2EDevice.user_id == user_id, E2EDevice.removed_at.is_(None), E2EDevice.last_seen_at < _now() - idle,
+    ))).scalars().all()
+    for device in stale:
+        if device.device_id not in listed:
+            await _log_out(db, user_id, device)
+
+
+async def _log_out(db: AsyncSession, user_id: uuid.UUID, device: E2EDevice) -> None:
+    """Remove a device and end the sign-in that registered it."""
+    device.removed_at = _now()
+    for model in (E2ESignedPreKey, E2EOneTimePreKey):
+        await db.execute(delete(model).where(model.user_id == user_id, model.device_id == device.device_id))
+    await db.execute(delete(E2EEnvelope).where(E2EEnvelope.recipient_user_id == user_id, E2EEnvelope.recipient_device_id == device.device_id))
+    _remove_history(device)
+    # End its sign-in (each phone or browser has its own), unless another active device still uses it
+    if device.session_id and not await db.scalar(select(func.count()).select_from(E2EDevice).where(
+        E2EDevice.session_id == device.session_id, E2EDevice.removed_at.is_(None), E2EDevice.id != device.id,
+    )):
+        await sessions.revoke(db, device.session_id)
+
+
 @router.post("/devices")
-async def register_device(body: RegisterDevice, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def register_device(body: RegisterDevice, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """A new phone or browser registers its identity keys and gets its device number."""
     try:
         sign_pub, dh_pub = checks.key32(body.sign), checks.key32(body.dh)
@@ -104,14 +135,19 @@ async def register_device(body: RegisterDevice, user: User = Depends(get_current
             raise checks.KeyCheckError("The device's keys don't belong together")
     except checks.KeyCheckError as e:
         _bad(e)
-    active = await db.scalar(select(func.count()).select_from(E2EDevice).where(E2EDevice.user_id == user.id, E2EDevice.removed_at.is_(None)))
-    if active >= MAX_DEVICES:
-        raise HTTPException(status_code=409, detail=f"At most {MAX_DEVICES} devices. Log out of one first.")
+    count = lambda: db.scalar(select(func.count()).select_from(E2EDevice).where(E2EDevice.user_id == user.id, E2EDevice.removed_at.is_(None)))  # noqa: E731
+    await _free_stale_devices(db, user.id, STALE_UNLINKED)
+    if await count() >= MAX_DEVICES:
+        # Full: also free never-linked devices idle for a few minutes (a link request lasts 10)
+        await _free_stale_devices(db, user.id, LINK_TTL + timedelta(minutes=5))
+    if await count() >= MAX_DEVICES:
+        raise HTTPException(status_code=409, detail=f"At most {MAX_DEVICES} devices. Log one out in Settings → Sessions first.")
     # Lock this user's device rows so two registrations can't get the same number
     await db.execute(select(E2EDevice.id).where(E2EDevice.user_id == user.id).with_for_update())
     highest = await db.scalar(select(func.max(E2EDevice.device_id)).where(E2EDevice.user_id == user.id)) or 0
     device = E2EDevice(user_id=user.id, device_id=highest + 1, name=body.name.strip() or "Device",
-                       sign_public=body.sign, dh_public=body.dh, dh_signature=body.dhSig)
+                       sign_public=body.sign, dh_public=body.dh, dh_signature=body.dhSig,
+                       session_id=sessions.id_from_request(request))
     db.add(device)
     await db.commit()
     return {"success": True, "data": _device_view(device)}
@@ -131,14 +167,15 @@ async def my_devices(user: User = Depends(get_current_user), db: AsyncSession = 
 
 @router.delete("/devices/{device_id}")
 async def remove_device(device_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Log a device out. The primary also publishes a new device list without it."""
+    """
+    Log a device out: this one (logging out) or another of yours (Settings → Sessions). Its sign-in
+    ends too, and it's told to sign out right away if it's online. The device that asked publishes
+    the new device list without it (only devices hold the account key).
+    """
     device = await _my_device(db, user, device_id)
-    device.removed_at = _now()
-    for model in (E2ESignedPreKey, E2EOneTimePreKey):
-        await db.execute(delete(model).where(model.user_id == user.id, model.device_id == device_id))
-    await db.execute(delete(E2EEnvelope).where(E2EEnvelope.recipient_user_id == user.id, E2EEnvelope.recipient_device_id == device_id))
-    _remove_history(device)
+    await _log_out(db, user.id, device)
     await db.commit()
+    await publish_users([str(user.id)], {"type": "session_revoked", "deviceId": device_id})
     return {"success": True}
 
 

@@ -1,7 +1,7 @@
 // Phase 5: linking devices (QR or code), moving the history, starting fresh, restoring the account key.
 
 import {
-  adoptAccountKey, approveDeviceLink, decryptMedia, encryptMedia, exportHistory, findLinkByCode, findLinkByQr, importHistory,
+  adoptAccountKey, approveDeviceLink, logOutOtherDevice, decryptMedia, encryptMedia, exportHistory, findLinkByCode, findLinkByQr, importHistory,
   startDeviceLink, startFreshAccount, waitForGrant,
 } from './index';
 import type { GrantPayload } from './index';
@@ -128,5 +128,20 @@ describe('without another device', () => {
     expect(list.devices.map((d) => d.id)).toEqual([1, 2]);
     expect(list.aik).toBe((await phone.store.pin('alice'))?.aik ?? list.aik);
     await expect(adoptAccountKey(laptop.store, server.http('alice'), 'alice', { ...aik, pub: new Uint8Array(32) })).rejects.toThrow('damaged');
+  });
+});
+
+describe('logging out another device', () => {
+  it('removes it from the server and the signed list; it gets no more messages', async () => {
+    const { server, phone, bob } = await setup();
+    const laptop = await new Device(server, 'alice', 'Alice laptop').start();
+    await linkNew(laptop, phone);
+    await logOutOtherDevice(phone.store, server.http('alice'), 'alice', laptop.address.device);
+    expect(server.removed.has(`alice:${laptop.address.device}`)).toBe(true);
+    expect(server.lists.get('alice')!.devices.map((d) => d.id)).toEqual([1]);
+    bob.messenger.forget('alice');
+    const sent = await bob.send('dm', false, ['alice', 'bob'], 'only the phone');
+    expect(sent.envelopes.map((e) => `${e.to_user}:${e.to_device}`)).toEqual(['alice:1']);
+    await expect(logOutOtherDevice(phone.store, server.http('alice'), 'alice', 1)).rejects.toThrow('this device');
   });
 });

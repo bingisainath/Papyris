@@ -8,8 +8,11 @@ import { tokens } from '../auth/tokens';
 
 export const api = axios.create({ baseURL: API_V1_URL, timeout: 30000 });
 
-let onSessionExpired: () => void = () => undefined;
-export const setSessionExpiredHandler = (handler: () => void) => {
+/** The server's message when this device's sign-in was logged out (backend app/services/sessions.py). */
+export const LOGGED_OUT = 'This device was logged out';
+
+let onSessionExpired: (loggedOut: boolean) => void = () => undefined;
+export const setSessionExpiredHandler = (handler: (loggedOut: boolean) => void) => {
   onSessionExpired = handler;
 };
 
@@ -36,7 +39,8 @@ export function refreshAccessToken(): Promise<string | null> {
       // Only a rejected refresh token ends the session; network errors may be temporary
       if (error.response && [400, 401, 403].includes(error.response.status)) {
         await tokens.clear();
-        onSessionExpired();
+        const message = (error.response.data as { message?: unknown } | undefined)?.message;
+        onSessionExpired(message === LOGGED_OUT); // logged out from another device: wipe this one
       }
       return null;
     })

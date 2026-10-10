@@ -5,7 +5,7 @@
 // - otherwise the version 1 way (crypto/linking.ts).
 
 import {
-  adoptAccountKey, approveDeviceLink, decryptMedia, encryptMedia, exportHistory, findLinkByCode, findLinkByQr, historyDownloaded,
+  adoptAccountKey, approveDeviceLink, logOutOtherDevice, decryptMedia, encryptMedia, exportHistory, findLinkByCode, findLinkByQr, historyDownloaded,
   importHistory, startDeviceLink, startFreshAccount, unb64, waitForGrant,
 } from '../v2';
 import type { DeviceList, FoundDeviceLink, GrantPayload, KeyPair } from '../v2';
@@ -202,4 +202,11 @@ export async function restoreAccountKeyV2(userId: string, aik?: { pub: string; p
   }
   rt.state.listed = true;
   rt.messenger.forget();
+}
+
+/** Settings → Sessions → Log out on another of your devices. */
+export async function logOutDevice(userId: string, deviceId: number): Promise<void> {
+  const rt = await startV2(userId);
+  await logOutOtherDevice(rt.store, http, userId, deviceId);
+  rt.messenger.forget(userId);
 }

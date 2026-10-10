@@ -127,6 +127,21 @@ export async function leaveDeviceList(store: EncryptedStore, http: E2EHttp, user
   await publishDeviceList(store, http, user, aik, { remove: [device.deviceId] });
 }
 
+/**
+ * Settings → Sessions → Log out on another of your devices: the server ends its sign-in and forgets
+ * it, then this device publishes the account's list without it (so nobody encrypts to it any more).
+ */
+export async function logOutOtherDevice(store: EncryptedStore, http: E2EHttp, user: string, deviceId: number): Promise<void> {
+  const device = await store.device();
+  if (device?.deviceId === deviceId) throw new CryptoError('bad_format', 'Use Log out for this device');
+  await http.del(`/e2e/v2/devices/${deviceId}`);
+  const aik = await store.accountKey();
+  const list = await currentList(http, user);
+  if (aik && list && list.aik === b64(aik.pub) && list.devices.some((d) => d.id === deviceId)) {
+    await publishDeviceList(store, http, user, aik, { remove: [deviceId] });
+  }
+}
+
 // ---------------------------------------------------------------- new device
 
 export interface PendingDeviceLink {

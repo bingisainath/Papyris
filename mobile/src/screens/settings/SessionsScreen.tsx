@@ -2,12 +2,15 @@
 // Settings → Sessions: the phones and browsers signed in to this account right now, with when each
 // signed in and was last active, and whether it's linked for end-to-end encryption.
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Globe, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react-native';
 import { api, errorMessage } from '../../api/client';
 import { Banner } from '../../components/ui';
 import { v2Runtime } from '../../crypto/v2-platform/runtime';
+import { logOutDevice } from '../../crypto/v2-platform/link';
+import { useAuth } from '../../store/auth';
+import { showAlert } from '../../components/Dialog';
 import { colors, radius, space } from '../../theme';
 
 export interface Session {
@@ -38,6 +41,25 @@ const SessionsScreen: React.FC = () => {
   const [mine, setMine] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
+  const userId = useAuth((s) => s.user?.id);
+
+  const logOut = (s: Session) => showAlert(`Log out ${s.name}?`, "It's signed out right away, its encrypted chats are wiped from it, and it would need linking again to use them.", [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Log out', style: 'destructive', onPress: async () => {
+        setBusy(s.device_id);
+        try {
+          await logOutDevice(userId!, s.device_id);
+          await load();
+        } catch (e) {
+          showAlert("Couldn't log it out", errorMessage(e));
+        } finally {
+          setBusy(null);
+        }
+      },
+    },
+  ]);
 
   const load = useCallback(async () => {
     try {
@@ -62,7 +84,7 @@ const SessionsScreen: React.FC = () => {
   return (
     <ScrollView contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
-      <Text style={styles.lead}>Phones and browsers signed in to your account. Logging out on a device ends its session.</Text>
+      <Text style={styles.lead}>Phones and browsers signed in to your account. Don't recognise one? Log it out.</Text>
       {!!error && <Banner text={error} />}
       {sessions?.map((s) => {
         const Icon = BROWSERS.test(s.name) ? Globe : Smartphone;
@@ -85,6 +107,11 @@ const SessionsScreen: React.FC = () => {
                   {s.linked ? 'Linked: can read your encrypted chats' : 'Not linked yet: waiting to be approved'}
                 </Text>
               </View>
+              {!current && (
+                <Pressable onPress={() => logOut(s)} disabled={busy !== null} style={[styles.logout, busy !== null && { opacity: 0.5 }]} accessibilityLabel={`Log out ${s.name}`}>
+                  {busy === s.device_id ? <ActivityIndicator size="small" color={colors.danger600} /> : <Text style={styles.logoutText}>Log out</Text>}
+                </Pressable>
+              )}
             </View>
           </View>
         );
@@ -106,6 +133,8 @@ const styles = StyleSheet.create({
   badge: { fontSize: 11, fontWeight: '700', color: colors.primary800, backgroundColor: colors.primary50, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.full, overflow: 'hidden' },
   active: { marginTop: 2, fontSize: 13, color: colors.muted700 },
   detail: { fontSize: 12, color: colors.muted500, marginTop: 2 },
+  logout: { alignSelf: 'center', paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted200 },
+  logoutText: { fontSize: 13, fontWeight: '600', color: colors.danger600 },
   encRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: space(1) },
 });
 

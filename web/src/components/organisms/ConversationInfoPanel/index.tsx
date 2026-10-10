@@ -271,6 +271,7 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
                     onKeyDown={e => { if (e.key === 'Enter' && nameDraft.trim()) saveName(); }}
                     maxLength={100}
                     autoFocus
+                    aria-label="Group name"
                     className="flex-1 min-w-0 px-3 py-2 border-2 border-primary-300 rounded-lg outline-none focus:border-primary-600"
                   />
                   <button onClick={saveName} disabled={busy || !nameDraft.trim()} className="px-3 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-50">Save</button>

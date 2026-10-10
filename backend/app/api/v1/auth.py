@@ -1,6 +1,6 @@
 # backend/app/api/v1/auth.py - FIXED LOGGING VERSION
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
@@ -14,6 +14,7 @@ from app.core.security import decode_token, password_fingerprint
 from uuid import UUID
 from app.schemas.response import APIResponse
 from app.services.auth_service import AuthService
+from app.services import sessions
 from app.services.email_service import email_service
 from app.config.settings import settings
 from app.utils.deps import get_current_user
@@ -51,11 +52,13 @@ class ResendCodeRequest(BaseModel):
 
 
 @router.post("/verify-email", response_model=APIResponse[Token])
-async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
+async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Check the emailed code; on success the person is signed in"""
     user = await AuthService.verify_email_code(db, payload.identifier, payload.code)
     logger.info("Email verified for user %s", user.id)
-    return APIResponse(success=True, message="Email verified", data=AuthService.issue_tokens(user))
+    session_id = await sessions.start(db, user.id, request.headers.get("user-agent"))
+    await db.commit()
+    return APIResponse(success=True, message="Email verified", data=AuthService.issue_tokens(user, session_id))
 
 
 @router.post("/resend-code", response_model=APIResponse[dict])
@@ -75,13 +78,13 @@ async def resend_code(payload: ResendCodeRequest, background: BackgroundTasks, d
 # LOGIN (✅ Username OR Email)
 # ============================================
 @router.post("/login", response_model=APIResponse[Token])
-async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(payload: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
     """
     ✅ UPDATED: Login with username OR email
     
     The frontend sends 'identifier' which can be either username or email
     """
-    token = await AuthService.login_user(db, payload.identifier, payload.password)
+    token = await AuthService.login_user(db, payload.identifier, payload.password, request.headers.get("user-agent"))
     return APIResponse(
         success=True,
         message="Login successful",
@@ -90,7 +93,7 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=APIResponse[Token])
-async def refresh(payload: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
+async def refresh(payload: RefreshTokenRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Exchange a refresh token for a new access + refresh token pair.
     Fails if the token expired, the user is inactive, or the password changed since.
@@ -109,11 +112,16 @@ async def refresh(payload: RefreshTokenRequest, db: AsyncSession = Depends(get_d
     user = await db.get(User, UUID(claims["sub"]))
     if user is None or not user.is_active or claims.get("pwd") != password_fingerprint(user.hashed_password):
         raise invalid
+    # Same sign-in as before; logged out (here or from another device) means signing in again
+    if not await sessions.is_active(db, claims.get("sid"), user.id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=sessions.LOGGED_OUT)
+    session_id = claims.get("sid") or await sessions.start(db, user.id, request.headers.get("user-agent"))
+    await db.commit()
 
     return APIResponse(
         success=True,
         message="Token refreshed",
-        data=AuthService.issue_tokens(user),
+        data=AuthService.issue_tokens(user, session_id),
     )
 
 # ============================================

@@ -7,6 +7,9 @@ import { Globe, MonitorSmartphone, ShieldCheck, ShieldOff, Smartphone } from 'lu
 import api from '../../utils/axios';
 import { v2Runtime } from '../../crypto/v2-platform/runtime';
 import { parseApiError } from '../../utils/apiError';
+import { toast } from 'react-toastify';
+import { useAuth } from '../../app/AuthProvider';
+import { logOutDevice } from '../../crypto/v2-platform/link';
 
 interface Session { device_id: number; name: string; created_at: string | null; last_seen_at: string | null; linked: boolean }
 
@@ -27,6 +30,23 @@ const SessionsSettings: React.FC = () => {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [mine, setMine] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState<number | null>(null);
+  const { user } = useAuth();
+  const [version, setVersion] = useState(0);
+
+  const logOut = async (s: Session) => {
+    if (!window.confirm(`Log out ${s.name}? It's signed out right away, its encrypted chats are wiped from it, and it would need linking again to use them.`)) return;
+    setBusy(s.device_id);
+    try {
+      await logOutDevice(user!.id, s.device_id);
+      toast.success(`${s.name} is logged out`);
+      setVersion((v) => v + 1);
+    } catch (e) {
+      toast.error(parseApiError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -37,7 +57,7 @@ const SessionsSettings: React.FC = () => {
         || new Date(b.last_seen_at || 0).getTime() - new Date(a.last_seen_at || 0).getTime()));
       setMine(me);
     }).catch((e) => setError(parseApiError(e)));
-  }, []);
+  }, [version]);
 
   return (
     <div className="card p-4 sm:p-6">
@@ -45,7 +65,7 @@ const SessionsSettings: React.FC = () => {
         <MonitorSmartphone className="w-6 h-6 text-primary-600 flex-shrink-0" strokeWidth={1.75} />
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-muted-900">Sessions</h2>
-          <p className="text-sm text-muted-500">Phones and browsers signed in to your account. Logging out on a device ends its session.</p>
+          <p className="text-sm text-muted-500">Phones and browsers signed in to your account. Don't recognise one? Log it out.</p>
           {error && <p className="mt-2 text-sm text-accent-600">{error}</p>}
           <ul className="mt-4 space-y-2" aria-label="Active sessions">
             {sessions?.map((s) => {
@@ -68,6 +88,12 @@ const SessionsSettings: React.FC = () => {
                       {s.linked ? 'Linked: can read your encrypted chats' : 'Not linked yet: waiting to be approved'}
                     </p>
                   </div>
+                  {!current && (
+                    <button type="button" onClick={() => logOut(s)} disabled={busy !== null} aria-label={`Log out ${s.name}`}
+                      className="self-center flex-shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg border border-muted-200 text-accent-700 hover:bg-accent-50 disabled:opacity-50">
+                      {busy === s.device_id ? 'Logging out…' : 'Log out'}
+                    </button>
+                  )}
                 </li>
               );
             })}

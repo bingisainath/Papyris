@@ -247,3 +247,56 @@ async def test_chat_encryption_with_both_versions_and_retiring_v1(client, make_u
     data = await keys()
     assert data["missing"] == [] and data["v2_ready"] is True
     assert (await client.delete("/api/v1/keys/me", headers=a.headers)).status_code == 200  # nothing left to retire
+
+
+async def test_remote_logout_ends_only_that_sign_in(client, make_user, events, db):
+    from tests.conftest import PASSWORD
+    a = await make_user()
+
+    async def sign_in():
+        r = await client.post("/api/v1/auth/login", json={"identifier": a.username, "password": PASSWORD})
+        tokens = r.json()["data"]
+        return {"Authorization": f"Bearer {tokens['access_token']}"}, tokens["refresh_token"]
+
+    phone_headers, _ = await sign_in()
+    laptop_headers, laptop_refresh = await sign_in()
+    phone = Device()
+    r = await client.post(f"{API}/devices", json=phone.registration(), headers=phone_headers)
+    phone.id = r.json()["data"]["device_id"]
+    laptop = Device()
+    r = await client.post(f"{API}/devices", json=laptop.registration(), headers=laptop_headers)
+    laptop.id = r.json()["data"]["device_id"]
+
+    # The phone logs the laptop out (Settings → Sessions)
+    events.clear()
+    assert (await client.delete(f"{API}/devices/{laptop.id}", headers=phone_headers)).status_code == 200
+    assert any(p == {"type": "session_revoked", "deviceId": laptop.id} for _, p in events)
+    assert (await client.get("/api/v1/auth/me", headers=laptop_headers)).status_code == 401
+    assert (await client.post("/api/v1/auth/refresh", json={"refresh_token": laptop_refresh})).status_code == 401
+    assert (await client.get("/api/v1/auth/me", headers=phone_headers)).status_code == 200
+    mine = (await client.get(f"{API}/devices/me", headers=phone_headers)).json()["data"]["devices"]
+    assert [d["device_id"] for d in mine] == [phone.id]
+
+    # Logging the phone out ends its own sign-in too
+    assert (await client.delete(f"{API}/devices/{phone.id}", headers=phone_headers)).status_code == 200
+    assert (await client.get("/api/v1/auth/me", headers=phone_headers)).status_code == 401
+
+
+async def test_never_linked_devices_free_their_slots(client, make_user, db):
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import update
+    from app.models.e2e_v2 import E2EDevice
+    a = await make_user()
+    primary = await register(client, a, Device())
+    aik = Ed25519PrivateKey.generate()
+    assert (await client.put(f"{API}/device-list", json={"device_list": device_list(aik, a.id, 1, [primary])}, headers=a.headers)).status_code == 200
+    waiting = [await register(client, a, Device()) for _ in range(9)]  # signed in, never linked: 10 in all
+    assert (await client.post(f"{API}/devices", json=Device().registration(), headers=a.headers)).status_code == 409
+
+    # Nine idle for 20 minutes (longer than a link request): a new device can register; the primary stays
+    await db.execute(update(E2EDevice).where(E2EDevice.device_id.in_([d.id for d in waiting])).values(
+        last_seen_at=datetime.now(timezone.utc) - timedelta(minutes=20)))
+    await db.commit()
+    assert (await client.post(f"{API}/devices", json=Device().registration(), headers=a.headers)).status_code == 200
+    mine = (await client.get(f"{API}/devices/me", headers=a.headers)).json()["data"]["devices"]
+    assert primary.id in [d["device_id"] for d in mine] and len(mine) == 2

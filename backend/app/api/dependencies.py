@@ -11,6 +11,7 @@ from jose import JWTError, jwt
 
 from app.db.session import get_db
 from app.models.user import User
+from app.services import sessions
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,9 @@ async def get_current_user(
         raise credentials_exception
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    # Logged out (here or from another device): the sign-in's tokens no longer work
+    if not await sessions.is_active(db, payload.get("sid"), user.id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=sessions.LOGGED_OUT, headers={"WWW-Authenticate": "Bearer"})
     return user
 
 

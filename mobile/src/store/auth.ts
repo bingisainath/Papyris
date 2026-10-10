@@ -9,7 +9,7 @@ import { tokens } from '../auth/tokens';
 import { socket } from '../ws/socket';
 import { disablePush, enablePush } from '../notifications/push';
 import { e2eSession } from '../crypto/session';
-import { stopV2 } from '../crypto/v2-platform/runtime';
+import { stopV2, v2Runtime } from '../crypto/v2-platform/runtime';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -41,9 +41,33 @@ export const useAuth = create<AuthState>((set) => {
     enablePush();
   };
 
-  setSessionExpiredHandler(() => {
+  // Logged out from another device: wipe this one's keys and messages, like logging out here
+  const loggedOutElsewhere = async () => {
+    socket.stop();
+    await stopV2().catch(() => undefined);
+    await e2eSession.clear();
+    set({ user: null, status: 'signedOut' });
+  };
+
+  setSessionExpiredHandler((loggedOut) => {
+    if (loggedOut) {
+      loggedOutElsewhere().catch(() => undefined);
+      return;
+    }
     socket.stop();
     set({ user: null, status: 'signedOut' });
+  });
+
+  // Online when it happens: the server says which device was logged out
+  socket.on((e) => {
+    if (e.type !== 'session_revoked') return;
+    const running = v2Runtime();
+    if (!running) return;
+    running.then((r) => {
+      if (r.state.deviceId === e.deviceId) {
+        tokens.clear().then(loggedOutElsewhere).catch(() => undefined);
+      }
+    }).catch(() => undefined);
   });
 
   return {

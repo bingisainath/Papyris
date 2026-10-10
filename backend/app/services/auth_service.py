@@ -13,6 +13,7 @@ from app.models.user import User
 from app.schemas.user import UserCreate
 from app.schemas.auth import Token
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.services import sessions
 from app.config.settings import settings
 
 
@@ -124,7 +125,7 @@ class AuthService:
         return user
 
     @staticmethod
-    async def login_user(db: AsyncSession, identifier: str, password: str) -> Token:
+    async def login_user(db: AsyncSession, identifier: str, password: str, user_agent: str | None = None) -> Token:
         """
         ✅ UPDATED: Login with username OR email
         """
@@ -139,11 +140,12 @@ class AuthService:
                 },
             )
 
-        # Update last login
+        # Update last login; each sign-in is its own session
         user.last_login = datetime.now(timezone.utc)
+        session_id = await sessions.start(db, user.id, user_agent)
         await db.commit()
 
-        return AuthService.issue_tokens(user)
+        return AuthService.issue_tokens(user, session_id)
 
     # -----------------------------
     # Email verification codes
@@ -201,11 +203,12 @@ class AuthService:
         return user
 
     @staticmethod
-    def issue_tokens(user: User) -> Token:
-        """Access + refresh token pair for a user"""
+    def issue_tokens(user: User, session_id) -> Token:
+        """Access + refresh token pair for one sign-in (session)"""
+        sid = str(session_id)
         return Token(
-            access_token=create_access_token(subject=str(user.id)),
-            refresh_token=create_refresh_token(str(user.id), user.hashed_password),
+            access_token=create_access_token(subject=str(user.id), session_id=sid),
+            refresh_token=create_refresh_token(str(user.id), user.hashed_password, session_id=sid),
             token_type="bearer",
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )

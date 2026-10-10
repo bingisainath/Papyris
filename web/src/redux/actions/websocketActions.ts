@@ -29,6 +29,8 @@ import {
 } from '../slices/chatSlice';
 import type { Message, ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
+import { v2Runtime } from '../../crypto/v2-platform/runtime';
+import { LOGGED_OUT_ELSEWHERE_EVENT } from '../../utils/authRefresh';
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
 import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
@@ -686,6 +688,13 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     window.dispatchEvent(new CustomEvent(EXPENSE_CHANGED_EVENT, {
       detail: { conversationId: data.conversationId, expenseId: data.expenseId, action: data.action },
     }));
+  });
+
+  // One of our devices was logged out (Settings → Sessions): if it's this browser, sign out here
+  wsService.on('session_revoked', (data) => {
+    v2Runtime()?.then((r) => {
+      if (r.state.deviceId === data.deviceId) window.dispatchEvent(new Event(LOGGED_OUT_ELSEWHERE_EVENT));
+    }).catch(() => undefined);
   });
 
   // Someone in a chat reminded us that we owe them

@@ -36,6 +36,8 @@ class E2EDevice(Base):
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Encrypted message history sent when it was linked; deleted once the device has downloaded it
     history_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # The sign-in that registered it: logging the device out also ends that sign-in
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
 
 class E2EDeviceList(Base):

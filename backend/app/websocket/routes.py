@@ -124,6 +124,15 @@ async def ws_chat(ws: WebSocket):
         logger.info("WebSocket rejected: invalid or expired token")
         await ws.close(code=1008, reason="Invalid token")
         return
+    # A sign-in that was logged out (here or from another device) can't connect
+    async with async_session_maker() as db:
+        from app.services import sessions
+        from jose import jwt as _jwt
+        sid = _jwt.get_unverified_claims(token).get("sid")  # signature already checked above
+        if not await sessions.is_active(db, sid, user_id):
+            logger.info("WebSocket rejected: signed out session")
+            await ws.close(code=1008, reason="Signed out")
+            return
 
     # 2. Accept connection and track presence
     await manager.accept(ws)

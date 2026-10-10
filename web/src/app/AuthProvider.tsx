@@ -17,7 +17,7 @@ import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
 import { e2eSession } from "../crypto/session";
 import { stopV2 } from "../crypto/v2-platform/runtime";
-import { refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
+import { LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
@@ -111,7 +111,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     };
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
-    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    // Logged out from another device: logging out here also wipes this browser's keys and messages
+    const onLoggedOut = () => {
+      tokenStore.clear();
+      logout();
+      toast.info("This browser was logged out from another of your devices.");
+    };
+    window.addEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+      window.removeEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
+    };
   }, [logout]);
 
   useEffect(() => {

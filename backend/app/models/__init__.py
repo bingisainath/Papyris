@@ -15,9 +15,11 @@ from app.models.expense import (
 from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, StoreDiscountRule
 from app.models.device import DeviceToken
 from app.models.e2e_key import KeyLinkRequest, PreviousUserKeys, UserKeys
+from app.models.auth_session import AuthSession
 from app.models.e2e_v2 import E2EBackup, E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequest, E2EOneTimePreKey, E2ESignedPreKey
 
 __all__ = [
+    "AuthSession",
     "DeviceToken",
     "E2EBackup",
     "E2EDevice",
