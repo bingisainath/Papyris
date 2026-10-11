@@ -22,6 +22,11 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        // Body text; headings and big numbers use the display face
+        sans: ['"DM Sans"', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', 'sans-serif'],
+        display: ['Manrope', '"DM Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
       colors: {
         // Purple-based primary palette
         primary: {

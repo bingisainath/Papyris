@@ -2,6 +2,7 @@
 // Small pieces shared by the expense screens.
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Avatar } from '../atoms';
 import { chatService } from '../../services/chat.service';
@@ -66,11 +67,12 @@ export function useExpenseChanges(conversationId: string | undefined, callback: 
 
 export const Sheet: React.FC<{
   title: string;
+  eyebrow?: string;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
   wide?: boolean;
-}> = ({ title, onClose, children, footer, wide }) => {
+}> = ({ title, eyebrow, onClose, children, footer, wide }) => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -78,23 +80,24 @@ export const Sheet: React.FC<{
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-5 bg-[#18121f]/60 backdrop-blur-[3px]" onClick={onClose}>
       <div
         role="dialog"
         aria-label={title}
-        className={`flex flex-col w-full ${wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'} h-[100dvh] sm:h-auto sm:max-h-[90vh] bg-white sm:rounded-2xl shadow-elevated`}
+        className={`flex flex-col w-full ${wide ? 'sm:max-w-3xl' : 'sm:max-w-[620px]'} max-h-[94dvh] sm:max-h-[92vh] bg-white rounded-t-[22px] sm:rounded-[20px] shadow-[0_30px_80px_rgba(0,0,0,0.33)]`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-muted-200">
-          <h2 className="text-lg font-semibold text-muted-900 truncate">{title}</h2>
-          <button onClick={onClose} className="p-2 -mr-2 rounded-lg hover:bg-muted-100" aria-label="Close">
-            <svg className="w-5 h-5 text-muted-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+        <div className="flex items-center justify-between gap-3 px-5 sm:px-6 py-4 sm:py-5 border-b border-muted-200">
+          <div className="min-w-0">
+            {eyebrow && <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary-500 truncate">{eyebrow}</p>}
+            <h2 className="font-display text-xl sm:text-[22px] font-semibold text-muted-900 truncate">{title}</h2>
+          </div>
+          <button onClick={onClose} className="p-2 -mr-2 rounded-lg text-muted-500 hover:bg-muted-100" aria-label="Close">
+            <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">{children}</div>
-        {footer && <div className="px-4 sm:px-6 py-3 border-t border-muted-200 mobile-nav-safe">{footer}</div>}
+        <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5">{children}</div>
+        {footer && <div className="px-5 sm:px-6 py-4 border-t border-muted-200 mobile-nav-safe">{footer}</div>}
       </div>
     </div>
   );
@@ -163,7 +166,7 @@ export const Segmented = <T extends string>({
   options: { value: T; label: string; icon?: LucideIcon }[];
   onChange: (value: T) => void;
 }) => (
-  <div className="inline-flex p-0.5 bg-muted-100 rounded-lg" role="tablist">
+  <div className="inline-flex p-[3px] bg-[#f1f0f5] rounded-[11px]" role="tablist">
     {options.map((o) => (
       <button
         key={o.value}
@@ -171,8 +174,8 @@ export const Segmented = <T extends string>({
         role="tab"
         aria-selected={value === o.value}
         onClick={() => onChange(o.value)}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
-          value === o.value ? 'bg-white text-primary-700 font-semibold shadow-sm' : 'text-muted-600 hover:text-muted-900'
+        className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-[9px] transition-colors ${
+          value === o.value ? 'bg-white text-primary-700 shadow-[0_2px_7px_rgba(0,0,0,0.07)]' : 'text-muted-500 hover:text-muted-900'
         }`}
       >
         {o.icon && <o.icon className="w-4 h-4" strokeWidth={1.75} aria-hidden />}

@@ -3,9 +3,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, MailCheck } from 'lucide-react';
+import { ArrowLeft, MailCheck } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../app/AuthProvider';
+import AuthLayout, { AuthError, AuthSubmit } from '../../components/organisms/AuthLayout';
 
 const LENGTH = 6;
 const RESEND_SECONDS = 60;
@@ -84,72 +85,51 @@ const VerifyEmail: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted-50 p-4">
-      <div className="bg-white border border-muted-200 rounded-2xl shadow-card p-8 w-full max-w-md">
-        <div className="w-14 h-14 mx-auto mb-5 rounded-full bg-primary-50 flex items-center justify-center">
-          <MailCheck className="w-7 h-7 text-primary-700" strokeWidth={1.75} />
+    <AuthLayout
+      icon={MailCheck}
+      eyebrow="One last step"
+      title="Verify your email"
+      subtitle={<>We sent a 6-digit code to <b className="text-muted-900">{email}</b>. It expires in 10 minutes.</>}
+    >
+      <form onSubmit={(e) => { e.preventDefault(); if (digits.every((d) => d)) submit(digits.join('')); }}>
+        <div className="grid grid-cols-6 gap-2" role="group" aria-label="Verification code">
+          {digits.map((digit, i) => (
+            <input
+              key={i}
+              ref={(el) => { inputs.current[i] = el; }}
+              value={digit}
+              onChange={(e) => setAt(i, e.target.value)}
+              onKeyDown={(e) => onKeyDown(i, e)}
+              onFocus={(e) => e.target.select()}
+              inputMode="numeric"
+              autoComplete={i === 0 ? 'one-time-code' : 'off'}
+              maxLength={LENGTH}
+              disabled={busy}
+              aria-label={`Digit ${i + 1}`}
+              className="w-full h-14 text-center text-[21px] font-bold rounded-xl border border-muted-200 bg-white text-primary-700 outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-100 disabled:opacity-60"
+            />
+          ))}
         </div>
-        <h1 className="text-2xl font-semibold text-muted-900 text-center">Check your email</h1>
-        <p className="mt-2 text-center text-muted-600">
-          We sent a 6-digit code to <span className="font-medium text-muted-900">{email}</span>. It expires in 10 minutes.
-        </p>
 
-        <form
-          className="mt-7"
-          onSubmit={(e) => { e.preventDefault(); if (digits.every((d) => d)) submit(digits.join('')); }}
-        >
-          <div className="flex justify-center gap-2 sm:gap-3" role="group" aria-label="Verification code">
-            {digits.map((digit, i) => (
-              <input
-                key={i}
-                ref={(el) => { inputs.current[i] = el; }}
-                value={digit}
-                onChange={(e) => setAt(i, e.target.value)}
-                onKeyDown={(e) => onKeyDown(i, e)}
-                onFocus={(e) => e.target.select()}
-                inputMode="numeric"
-                autoComplete={i === 0 ? 'one-time-code' : 'off'}
-                maxLength={LENGTH}
-                disabled={busy}
-                aria-label={`Digit ${i + 1}`}
-                className="w-11 h-12 sm:w-12 sm:h-14 text-center text-xl font-semibold rounded-lg border border-muted-300 bg-white text-muted-900 focus:outline-none focus:border-primary-600 focus:ring-2 focus:ring-primary-100 disabled:opacity-60"
-              />
-            ))}
-          </div>
+        <div className="mt-5"><AuthError message={error} /></div>
 
-          {error && (
-            <div className="mt-5 p-3 bg-accent-50 border border-accent-200 rounded-lg flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-accent-600 flex-shrink-0" />
-              <p className="text-sm text-accent-700">{error}</p>
-            </div>
-          )}
+        <AuthSubmit disabled={busy || !digits.every((d) => d)}>
+          {busy ? 'Checking…' : 'Verify email'}
+        </AuthSubmit>
+      </form>
 
-          <button
-            type="submit"
-            disabled={busy || !digits.every((d) => d)}
-            className="mt-6 w-full py-3 rounded-lg bg-primary-700 hover:bg-primary-800 text-white font-medium transition-colors disabled:opacity-50"
-          >
-            {busy ? 'Checking…' : 'Verify'}
-          </button>
-        </form>
-
-        <div className="mt-5 text-center text-sm text-muted-600">
-          Didn’t get it? Check spam, or{' '}
-          {wait > 0 ? (
-            <span className="text-muted-500">send a new code in {wait}s</span>
-          ) : (
-            <button type="button" onClick={resend} className="font-medium text-primary-700 hover:underline">
-              send a new code
-            </button>
-          )}
-        </div>
-        <div className="mt-6 text-center">
-          <Link to="/login" className="inline-flex items-center gap-1.5 text-sm text-muted-600 hover:text-primary-700">
-            <ArrowLeft className="w-4 h-4" /> Back to sign in
-          </Link>
-        </div>
-      </div>
-    </div>
+      <p className="mt-6 text-center text-sm text-muted-500">
+        Didn’t get it? Check spam, or{' '}
+        {wait > 0 ? (
+          <span>send a new code in <b className="text-primary-700">{wait}s</b></span>
+        ) : (
+          <button type="button" onClick={resend} className="font-bold text-primary-700 hover:underline">send a new code</button>
+        )}
+      </p>
+      <Link to="/login" className="mt-5 flex items-center justify-center gap-1.5 text-sm font-bold text-primary-700 hover:underline">
+        <ArrowLeft className="w-4 h-4" /> Back to log in
+      </Link>
+    </AuthLayout>
   );
 };
 

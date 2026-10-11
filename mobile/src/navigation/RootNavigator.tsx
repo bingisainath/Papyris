@@ -39,7 +39,7 @@ const Tab = createBottomTabNavigator<TabParams>();
 
 const headerStyle = {
   headerTintColor: colors.primary700,
-  headerTitleStyle: { color: colors.muted900, fontWeight: '600' as const },
+  headerTitleStyle: { color: colors.muted900, fontWeight: '700' as const },
   headerStyle: { backgroundColor: colors.white },
   headerShadowVisible: true,
   contentStyle: { backgroundColor: colors.background },
@@ -59,8 +59,10 @@ const Tabs: React.FC = () => {
         tabBarStyle: {
           backgroundColor: colors.white,
           borderTopColor: colors.muted200,
+          minHeight: 64,
+          paddingTop: 6,
         },
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
       }}
     >
       <Tab.Screen

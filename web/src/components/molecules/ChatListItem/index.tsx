@@ -55,17 +55,11 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
       onClick={onClick}
       className={`
         relative group
-        flex items-center gap-3 p-4
-        bg-white/80 backdrop-blur-sm
-        rounded-2xl
-        border-2
-        ${isActive 
-          ? 'border-primary-600 bg-primary-50 shadow-card' 
-          : 'border-transparent hover:border-primary-200 hover:bg-white'
-        }
-        transition-all duration-300
+        flex items-center gap-3 px-3 py-3
+        rounded-[14px]
+        ${isActive ? 'bg-primary-50' : 'hover:bg-primary-50/60'}
+        transition-colors
         cursor-pointer
-        ${isActive ? '' : ' hover:shadow-soft'}
         ${className}
       `}
     >
@@ -75,7 +69,6 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
         alt={name}
         size="lg"
         online={isOnline}
-        showRing={isActive}
       />
 
       {/* Content */}
@@ -89,7 +82,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
             <Typography
               variant="body1"
               weight="semibold"
-              className={`truncate ${isActive ? 'text-primary-700' : 'text-muted-900'}`}
+              className={`truncate font-bold ${isActive ? 'text-primary-800' : 'text-muted-900'}`}
             >
               {name}
             </Typography>
@@ -171,7 +164,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
 
       {/* Active indicator line */}
       {isActive && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-12 bg-primary-600 rounded-r-full" />
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 bg-primary-700 rounded-r-full" />
       )}
     </div>
   );

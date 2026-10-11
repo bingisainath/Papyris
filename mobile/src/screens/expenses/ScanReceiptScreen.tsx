@@ -18,7 +18,7 @@ import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import { memberName, useChatMoney } from '../../hooks/useMembers';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
-import { ChevronDown, Pencil, Plus } from 'lucide-react-native';
+import { AlertTriangle, CheckCircle2, ChevronDown, Pencil, Plus, Sparkles } from 'lucide-react-native';
 import { AdjustmentDraft, AdjustmentEditor, DISCOUNT_KINDS, ItemDraft, ItemEditor, kindLabel } from '../../components/expenses/ReceiptEditors';
 import { showAlert } from '../../components/common/Dialog';
 
@@ -243,6 +243,24 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
     || (unassigned.size ? 'Choose who the highlighted items are for' : null)
     || (difference ? `The items add up to ${formatMinor(linesTotal, currency)}, but the receipt total is ${formatMinor(totals!.printed_total_minor, currency)}. Fix a price, a discount or the receipt total.` : null);
 
+  // What the summary card and the people row show
+  const discounts = receipt.adjustments.filter((a) => a.enabled && DISCOUNT_KINDS.includes(a.kind) && a.amount_minor < 0);
+  const savedMinor = -discounts.reduce((sum, a) => sum + a.amount_minor, 0);
+  const personal = draft.items.filter((it) => !it.flags.includes('voided') && it.assignments.length === 1 && members.length > 1);
+  const unsure = receipt.items.filter((i) => i.confidence !== null && i.confidence !== undefined && i.confidence < 0.6).length;
+  const inExpense = (userId: string) => draft.items.some((it) => it.assignments.some((a) => a.user_id === userId));
+  const toggleEverywhere = (userId: string) => {
+    const remove = inExpense(userId);
+    change((d) => ({
+      ...d,
+      items: d.items.map((it) => {
+        const has = it.assignments.some((a) => a.user_id === userId);
+        if (remove) return has ? { ...it, assignments: it.assignments.filter((a) => a.user_id !== userId) } : it;
+        return has ? it : { ...it, assignments: [...it.assignments, { user_id: userId, value: '1' }] };
+      }),
+    }));
+  };
+
   return (
     <View style={styles.flex}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -270,6 +288,40 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
         {receipt.warnings.filter((w) => !w.startsWith('The lines add up')).length > 0 && (
           <Banner tone="info" text={receipt.warnings.filter((w) => !w.startsWith('The lines add up')).join('\n')} />
         )}
+
+        <View style={styles.aiCard} accessibilityLabel="Receipt summary">
+          <View style={styles.aiTitleRow}>
+            <Sparkles size={16} color={colors.primary800} />
+            <Text style={styles.aiTitle}>{draft.items.length} item{draft.items.length === 1 ? '' : 's'} read{receipt.store_name ? ` from ${receipt.store_name}` : ''}</Text>
+          </View>
+          {discounts.length > 0 && <Text style={styles.aiLine}>{discounts.length} discount{discounts.length === 1 ? '' : 's'} applied, saving {formatMinor(savedMinor, currency)}.</Text>}
+          {personal.length > 0 && (
+            <Text style={styles.aiLine}>
+              Just for one person: {personal.slice(0, 3).map((it) => `${it.name} (${nameOf(it.assignments[0].user_id)})`).join(', ')}{personal.length > 3 ? ` and ${personal.length - 3} more` : ''}.
+            </Text>
+          )}
+          {unsure > 0 && <Text style={styles.aiLine}>{unsure} line{unsure === 1 ? ' was' : 's were'} hard to read; check the highlighted ones.</Text>}
+          {discounts.length === 0 && personal.length === 0 && unsure === 0 && <Text style={styles.aiLine}>Everything read cleanly. Choose who each item is for below.</Text>}
+          {discounts.length > 0 && (
+            <View style={styles.aiTags}>
+              {discounts.map((a) => <Text key={a.id} style={styles.aiTag}>{a.label} −{formatMinor(-a.amount_minor, currency)}</Text>)}
+            </View>
+          )}
+        </View>
+
+        <Text style={styles.peopleTitle}>PEOPLE IN THIS EXPENSE</Text>
+        <View style={styles.inExpense}>
+          {members.map((m) => {
+            const on = inExpense(m.id);
+            return (
+              <Pressable key={m.id} onPress={() => toggleEverywhere(m.id)} style={[styles.person, !on && { opacity: 0.4 }]}
+                accessibilityState={{ selected: on }} accessibilityLabel={`${nameOf(m.id)} in this expense`}>
+                <View style={[styles.personRing, on && styles.personRingOn]}><Avatar uri={m.avatar} name={memberName(m)} size={40} /></View>
+                <Text style={styles.personName} numberOfLines={1}>{nameOf(m.id).split(' ')[0]}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
         <View style={styles.quick}>
           <Pressable onPress={() => change((d) => ({ ...d, items: d.items.map((it) => ({ ...it, split_mode: 'equal', assignments: members.map((m) => ({ user_id: m.id, value: '1' })) })) }))} style={styles.quickButton}>
@@ -387,6 +439,29 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
         </View>
         <Text style={styles.hintText}>Several payers? Save, then edit the expense.</Text>
 
+        {totals && (
+          <View style={[styles.check, difference ? styles.checkWrong : styles.checkOk]} accessibilityLabel="Total check">
+            <View style={styles.itemTop}>
+              <View>
+                <Text style={styles.checkLabel}>Calculated from the lines</Text>
+                <Text style={styles.checkAmount}>{formatMinor(linesTotal, currency)}</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.checkLabel}>Receipt total</Text>
+                <Text style={styles.checkAmount}>{totals.printed_total_minor === null ? 'Not entered' : formatMinor(totals.printed_total_minor, currency)}</Text>
+              </View>
+            </View>
+            <View style={styles.checkStatus}>
+              {difference ? <AlertTriangle size={16} color={colors.danger600} /> : <CheckCircle2 size={16} color={colors.success700} />}
+              <Text style={[styles.checkText, { color: difference ? colors.danger600 : colors.success700 }]}>
+                {difference
+                  ? `Off by ${formatMinor(Math.abs(difference), currency)}. Check a price, a discount or the receipt total.`
+                  : totals.printed_total_minor === null ? 'Enter the receipt total above to double-check.' : 'Matches the receipt total'}
+              </Text>
+            </View>
+          </View>
+        )}
+
         <View style={styles.summary}>
           <View style={styles.itemTop}>
             <Text style={styles.section}>Each person pays</Text>
@@ -477,7 +552,7 @@ const styles = StyleSheet.create({
   quick: { flexDirection: 'row', gap: space(2), marginBottom: space(3) },
   quickButton: { paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.full, backgroundColor: colors.muted100 },
   quickText: { fontSize: 13, color: colors.muted700 },
-  item: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted200, paddingHorizontal: space(3), paddingVertical: space(2.5), marginBottom: space(1.5) },
+  item: { backgroundColor: colors.white, borderRadius: 14, borderWidth: 1, borderColor: colors.muted200, paddingHorizontal: space(3), paddingVertical: space(2.5), marginBottom: space(1.5) },
   itemMissing: { borderColor: colors.danger500, backgroundColor: colors.danger50 },
   itemTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space(2) },
   itemName: { fontSize: 15, fontWeight: '600', color: colors.muted900 },
@@ -502,6 +577,25 @@ const styles = StyleSheet.create({
   hintText: { fontSize: 12, color: colors.muted500 },
   addButton: { flexDirection: 'row', alignItems: 'center', gap: space(1.5), alignSelf: 'flex-start', paddingVertical: space(2), paddingHorizontal: space(1) },
   addText: { fontSize: 14, fontWeight: '600', color: colors.primary700 },
+  aiCard: { padding: space(4), borderRadius: 16, backgroundColor: colors.primary50, borderWidth: 1, borderColor: colors.primary100, marginBottom: space(4), gap: space(1.5) },
+  aiTitleRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
+  aiTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.primary800 },
+  aiLine: { fontSize: 14, lineHeight: 20, color: colors.muted900 },
+  aiTags: { flexDirection: 'row', flexWrap: 'wrap', gap: space(1.5), marginTop: space(1) },
+  aiTag: { paddingHorizontal: space(2), paddingVertical: space(1), borderRadius: 8, backgroundColor: colors.white, color: colors.success700, fontSize: 12, fontWeight: '700', overflow: 'hidden' },
+  peopleTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: colors.muted500, marginBottom: space(2) },
+  inExpense: { flexDirection: 'row', flexWrap: 'wrap', gap: space(3), marginBottom: space(4) },
+  person: { alignItems: 'center', width: 56, gap: 4 },
+  personRing: { borderRadius: 24, padding: 2, borderWidth: 2, borderColor: 'transparent' },
+  personRingOn: { borderColor: colors.primary500 },
+  personName: { fontSize: 11, color: colors.muted600 },
+  check: { marginTop: space(4), padding: space(4), borderRadius: 16, borderWidth: 1, gap: space(3) },
+  checkOk: { backgroundColor: colors.success50, borderColor: '#bbf7d0' },
+  checkWrong: { backgroundColor: colors.danger50, borderColor: '#ecc6cc' },
+  checkLabel: { fontSize: 12, color: colors.muted500 },
+  checkAmount: { marginTop: 2, fontSize: 18, fontWeight: '700', color: colors.muted900 },
+  checkStatus: { flexDirection: 'row', alignItems: 'flex-start', gap: space(2) },
+  checkText: { flex: 1, fontSize: 14, fontWeight: '600' },
   summary: { marginTop: space(4), padding: space(4), borderRadius: radius.lg, backgroundColor: colors.white, gap: space(2) },
   summaryName: { fontSize: 15, color: colors.muted700 },
   summaryAmount: { fontSize: 15, fontWeight: '600', color: colors.muted900 },

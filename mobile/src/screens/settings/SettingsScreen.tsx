@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, LogOut, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
+import { Bell, ChevronRight, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/common/Avatar';
@@ -51,12 +51,14 @@ const SettingsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={{ paddingBottom: space(8) }}>
+        <Text style={styles.eyebrow}>YOUR ACCOUNT</Text>
         <Text style={styles.title}>Settings</Text>
         <Pressable onPress={() => navigation.navigate('Profile')} style={({ pressed }) => [styles.profile, pressed && { backgroundColor: colors.muted50 }]}>
-          <Avatar uri={user.avatar} name={user.name || user.username} size={60} />
+          <Avatar uri={user.avatar} name={user.name || user.username} size={64} />
           <View style={{ flex: 1 }}>
             <Text style={styles.name}>{user.name || user.username}</Text>
-            <Text style={styles.sub} numberOfLines={1}>{user.bio || `@${user.username}`}</Text>
+            <Text style={styles.sub} numberOfLines={1}>@{user.username}</Text>
+            {!!user.bio && <Text style={styles.bio} numberOfLines={2}>{user.bio}</Text>}
           </View>
           <ChevronRight size={18} color={colors.muted400} />
         </Pressable>
@@ -80,6 +82,7 @@ const SettingsScreen: React.FC = () => {
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.section}>
           <View style={styles.row}>
+            <View style={[styles.rowIcon, { backgroundColor: colors.muted100 }]}><Mail size={19} color={colors.muted600} /></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.label}>Email</Text>
               <Text style={styles.value}>{user.email}</Text>
@@ -111,7 +114,7 @@ const SettingsScreen: React.FC = () => {
             }}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted50 }]}
           >
-            <LogOut size={20} color={colors.danger600} />
+            <View style={[styles.rowIcon, { backgroundColor: colors.danger50 }]}><LogOut size={19} color={colors.danger600} /></View>
             <Text style={styles.logoutText}>Log out</Text>
           </Pressable>
         </View>
@@ -122,7 +125,7 @@ const SettingsScreen: React.FC = () => {
 
 const Row: React.FC<{ icon: LucideIcon; label: string; hint?: string; value?: string; onPress: () => void }> = ({ icon: Icon, label, hint, value, onPress }) => (
   <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted50 }]}>
-    <Icon size={20} color={colors.primary700} />
+    <View style={styles.rowIcon}><Icon size={19} color={colors.primary700} /></View>
     <View style={{ flex: 1 }}>
       <Text style={styles.rowText}>{label}</Text>
       {hint && <Text style={styles.hint}>{hint}</Text>}
@@ -134,14 +137,17 @@ const Row: React.FC<{ icon: LucideIcon; label: string; hint?: string; value?: st
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
-  title: { paddingHorizontal: space(4), paddingTop: space(2), paddingBottom: space(3), fontSize: 26, fontWeight: '700', color: colors.muted900 },
-  profile: { flexDirection: 'row', alignItems: 'center', gap: space(4), padding: space(4), backgroundColor: colors.white },
-  name: { fontSize: 18, fontWeight: '600', color: colors.muted900 },
-  sub: { fontSize: 14, color: colors.muted500, marginTop: 2 },
-  section: { marginTop: space(3), backgroundColor: colors.white },
-  sectionTitle: { paddingHorizontal: space(4), paddingTop: space(5), fontSize: 12, fontWeight: '700', color: colors.muted500, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: -space(1) },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space(4), paddingHorizontal: space(4), paddingVertical: space(3.5) },
-  rowText: { fontSize: 16, color: colors.muted900 },
+  eyebrow: { paddingHorizontal: space(4), paddingTop: space(4), fontSize: 11, fontWeight: '700', letterSpacing: 1.3, color: colors.primary500 },
+  title: { paddingHorizontal: space(4), marginTop: 2, paddingBottom: space(4), fontSize: 28, fontWeight: '700', letterSpacing: -0.5, color: colors.muted900 },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: space(4), marginHorizontal: space(4), padding: space(4), borderRadius: 17, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white },
+  name: { fontSize: 19, fontWeight: '700', color: colors.muted900 },
+  sub: { fontSize: 13, color: colors.muted500, marginTop: 2 },
+  bio: { fontSize: 13, color: colors.muted700, marginTop: 4 },
+  section: { marginTop: space(3), marginHorizontal: space(4), borderRadius: 17, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white, overflow: 'hidden' },
+  sectionTitle: { paddingHorizontal: space(5), paddingTop: space(5), fontSize: 11, fontWeight: '700', color: colors.muted500, textTransform: 'uppercase', letterSpacing: 1, marginBottom: -space(1) },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingHorizontal: space(4), paddingVertical: space(3) },
+  rowIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary50, alignItems: 'center', justifyContent: 'center' },
+  rowText: { fontSize: 16, fontWeight: '600', color: colors.muted900 },
   rowValue: { fontSize: 14, color: colors.muted500 },
   hint: { fontSize: 12, color: colors.muted500, marginTop: 1 },
   label: { fontSize: 12, color: colors.muted500 },

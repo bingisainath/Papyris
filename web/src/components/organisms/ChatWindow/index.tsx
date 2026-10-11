@@ -437,9 +437,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             );
 
   return (
-    <div className="relative flex flex-col h-full min-w-0 bg-white">
+    <div className="relative flex flex-col h-full min-w-0 bg-[#f6f6f8]">
       {/* Header */}
-      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-6 py-3 sm:py-4 border-b border-muted-200 bg-white/80 backdrop-blur-sm">
+      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-6 min-h-[72px] py-3 border-b border-muted-200 bg-white">
         {/* Back button (mobile) */}
         {onBack && (
           <button
@@ -469,7 +469,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
         {/* Info */}
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowInfo(true)}>
-          <h2 className="flex items-center gap-1.5 text-lg font-semibold text-muted-900 min-w-0">
+          <h2 className="flex items-center gap-1.5 font-display text-[17px] font-bold text-muted-900 min-w-0">
             <span className="truncate">{conversationName}</span>
             {encryption.state === 'encrypted' && (
               <span title="End-to-end encrypted: only the people in this chat can read its messages" aria-label="End-to-end encrypted">
@@ -480,11 +480,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
           {/* Status */}
           {isTyping ? (
-            <p className="text-sm text-primary-600 font-medium">
+            <p className="text-xs text-success-700 font-medium">
               {isGroup ? typingText : 'Typing...'}
             </p>
           ) : (
-            <p className="text-sm text-muted-500">
+            <p className="text-xs text-muted-500">
               {isGroup
                 ? `${memberCount || 0} member${memberCount === 1 ? '' : 's'}`
                 : isOnline ? 'Online' : 'Offline'}
@@ -626,7 +626,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       )}
 
       {/* Message Input */}
-      <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-3 mobile-nav-safe">
+      <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-2.5 mobile-nav-safe">
         <MessageInput
           onSend={handleSendMessage}
           onSendVoice={handleSendVoice}

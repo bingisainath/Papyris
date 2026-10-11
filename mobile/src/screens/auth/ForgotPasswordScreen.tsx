@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { authApi } from '../../api/auth';
 import { errorMessage } from '../../api/client';
+import { UserRound } from 'lucide-react-native';
 import { Banner, Button, TextField } from '../../components/common/ui';
 import { colors, space } from '../../theme';
 import AuthLayout from './AuthLayout';
@@ -31,13 +32,13 @@ const ForgotPasswordScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'Fo
   };
 
   return (
-    <AuthLayout title="Forgot password?" subtitle="Enter your username or email and we'll send you a reset link.">
+    <AuthLayout eyebrow="Account recovery" title="Forgot password?" subtitle="Enter your username or email and we'll send you a reset link.">
       {error && <Banner text={error} />}
       {sent ? (
         <Banner tone="success" text={`If an account exists for ${identifier.trim()}, a reset link is on its way. It expires in 1 hour.`} />
       ) : (
         <>
-          <TextField label="Username or email" value={identifier} onChangeText={setIdentifier} autoCapitalize="none"
+          <TextField label="Username or email" icon={UserRound} placeholder="Username or email" value={identifier} onChangeText={setIdentifier} autoCapitalize="none"
             keyboardType="email-address" returnKeyType="send" onSubmitEditing={submit} />
           <Button title="Send reset link" onPress={submit} loading={busy} disabled={!identifier.trim()} />
         </>

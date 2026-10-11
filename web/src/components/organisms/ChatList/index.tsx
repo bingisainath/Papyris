@@ -139,13 +139,14 @@ const ChatList: React.FC<ChatListProps> = ({
 
 
   return (
-    <div className={`flex flex-col h-full bg-white/80 backdrop-blur-sm ${className}`}>
+    <div className={`flex flex-col h-full bg-white ${className}`}>
       {/* Header */}
-      <div className="px-4 py-4 border-b border-muted-200">
-        <div className="flex items-center justify-between mb-4">
-          <Typography variant="h4" weight="bold" className="text-muted-900">
-            Chats
-          </Typography>
+      <div className="px-5 pt-6 pb-3">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary-500">Your space</p>
+            <h1 className="mt-0.5 font-display text-[25px] font-semibold text-muted-900">Chats</h1>
+          </div>
           <div className="flex items-center gap-2">
             {onNewChat && (
               <Button
@@ -183,42 +184,33 @@ const ChatList: React.FC<ChatListProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setFilter('all')}
-            className={`
-              px-3 py-1.5 rounded-lg text-sm font-medium transition-all
-              ${filter === 'all'
-                ? 'bg-primary-600 text-white shadow-sm'
-                : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
-              }
-            `}
+            aria-pressed={filter === 'all'}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+              filter === 'all' ? 'bg-primary-100 text-primary-700 border-transparent' : 'bg-white text-muted-500 border-muted-200 hover:text-muted-800'
+            }`}
           >
             All ({stats.total})
           </button>
           <button
             onClick={() => setFilter('direct')}
-            className={`
-              px-3 py-1.5 rounded-lg text-sm font-medium transition-all
-              ${filter === 'direct'
-                ? 'bg-primary-600 text-white shadow-sm'
-                : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
-              }
-            `}
+            aria-pressed={filter === 'direct'}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+              filter === 'direct' ? 'bg-primary-100 text-primary-700 border-transparent' : 'bg-white text-muted-500 border-muted-200 hover:text-muted-800'
+            }`}
           >
             Direct ({stats.direct})
           </button>
           <button
             onClick={() => setFilter('groups')}
-            className={`
-              px-3 py-1.5 rounded-lg text-sm font-medium transition-all
-              ${filter === 'groups'
-                ? 'bg-primary-600 text-white shadow-sm'
-                : 'bg-muted-100 text-muted-600 hover:bg-muted-200'
-              }
-            `}
+            aria-pressed={filter === 'groups'}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+              filter === 'groups' ? 'bg-primary-100 text-primary-700 border-transparent' : 'bg-white text-muted-500 border-muted-200 hover:text-muted-800'
+            }`}
           >
             Groups ({stats.groups})
           </button>
           {stats.unread > 0 && (
-            <div className="ml-auto px-2 py-1 bg-accent-100 text-accent-600 rounded-full text-xs font-semibold">
+            <div className="ml-auto px-2 py-1 bg-primary-700 text-white rounded-full text-[11px] font-bold">
               {stats.unread} unread
             </div>
           )}
@@ -226,7 +218,7 @@ const ChatList: React.FC<ChatListProps> = ({
       </div>
 
       {/* Conversation list */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5">
         {!searchQuery.trim() && showArchived && (
           <button type="button" onClick={() => setShowArchived(false)} className="flex items-center gap-2 px-2 py-1 text-sm font-semibold text-primary-700 hover:underline">
             <ArrowLeft className="w-4 h-4" /> Archived chats

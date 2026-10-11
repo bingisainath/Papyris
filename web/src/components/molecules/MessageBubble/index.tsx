@@ -179,21 +179,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             ${visual ? 'p-[3px]' : 'px-4 py-2.5'}
             rounded-2xl
             ${isSent
-              ? 'bg-primary-700 text-white rounded-br-sm shadow-card'
+              ? 'bg-primary-700 text-white rounded-br-sm shadow-[0_4px_12px_rgba(84,63,125,0.18)]'
               : visual
-                ? 'bg-white border border-muted-200 text-muted-900 rounded-bl-sm shadow-soft'
-                : `bg-white border-2 border-muted-100 text-muted-900 rounded-bl-sm shadow-soft ${
-                    isGroup ? 'border-l-4' : ''
-                  }`
+                ? 'bg-white text-muted-900 rounded-bl-sm shadow-[0_2px_8px_rgba(25,18,39,0.06)]'
+                : 'bg-white text-muted-900 rounded-bl-sm shadow-[0_2px_8px_rgba(25,18,39,0.06)]'
             }
             transition-all duration-200
             animate-scale-in
           `}
-          style={
-            !isSent && isGroup && !visual
-              ? { borderLeftColor: senderColor }
-              : undefined
-          }
         >
           {isDeleted ? (
             <p className={`text-sm italic flex items-center gap-1.5 ${isSent ? 'text-white/80' : 'text-muted-500'}`}>

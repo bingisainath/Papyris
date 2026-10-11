@@ -23,6 +23,8 @@ import type { AppStackParams } from '../../navigation/types';
 import CategoryIcon from '../../components/expenses/CategoryIcon';
 import { useExpenseChanges } from '../../hooks/useMembers';
 import { showAlert } from '../../components/common/Dialog';
+import Gradient, { CARD_GRADIENT } from '../../components/common/Gradient';
+import { useChat } from '../../store/chat';
 
 type Tab = 'you' | 'balances' | 'summary' | 'history';
 type Settle = { from: string; to: string; currency: string; amount: string };
@@ -103,6 +105,11 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
     });
   }, [navigation, conversationId, hasExpenses, downloading, download]);
 
+  const chat = useChat((st) => st.conversations.find((c) => c.id === conversationId));
+  useLayoutEffect(() => {
+    if (chat?.name) navigation.setOptions({ title: chat.name });
+  }, [navigation, chat?.name]);
+
   const users: Users = summary?.users || balances?.users || {};
   const name = (id: string) => (id === me.id ? 'You' : users[id]?.name || users[id]?.username || 'Someone');
 
@@ -125,12 +132,29 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
   if (!balances || !summary) return <View style={styles.center}><ActivityIndicator color={colors.primary700} /></View>;
   const props = { summary, balances, me: me.id, name, users, onSettle: setSettle, conversationId };
 
+  // "Settle up": straight to the payment when there's one; otherwise the You tab lists them
+  const myDebts = balances.currencies.flatMap((c) =>
+    c.debts.filter((d) => d.from_user === me.id || d.to_user === me.id).map((d) => ({ ...d, currency: c.currency })));
+  const settleUp = () => {
+    if (myDebts.length === 1) {
+      const d = myDebts[0];
+      setSettle({ from: d.from_user, to: d.to_user, currency: d.currency, amount: toMajorString(d.amount_minor, d.currency) });
+    } else {
+      setTab('you');
+    }
+  };
+
   return (
     <View style={styles.container}>
+      {hasExpenses && (
+        <PositionCard summary={summary} me={me.id} isGroup={!!chat?.isGroup}
+          onAdd={() => navigation.navigate('AddExpense', { conversationId })} onSettle={myDebts.length ? settleUp : undefined} />
+      )}
       <View style={styles.tabs} accessibilityRole="tablist">
         {TABS.map((t) => (
           <Pressable key={t.value} onPress={() => setTab(t.value)} style={[styles.tab, tab === t.value && styles.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: tab === t.value }}>
             <Text style={[styles.tabText, tab === t.value && styles.tabTextOn]}>{t.label}</Text>
+            {tab === t.value && <View style={styles.tabLine} />}
           </Pressable>
         ))}
       </View>
@@ -160,6 +184,53 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
           )}
         </Pressable>
       </Modal>
+    </View>
+  );
+};
+
+/** The purple card on top: where you stand in this chat, with the two things you'll do next. */
+const PositionCard: React.FC<{ summary: ExpenseSummary; me: string; isGroup: boolean; onAdd: () => void; onSettle?: () => void }> = ({
+  summary, isGroup, onAdd, onSettle,
+}) => {
+  // Lead with the currency where you're most out of balance
+  const main = [...summary.currencies].sort((a, b) => Math.abs(b.me.net_minor) - Math.abs(a.me.net_minor))[0];
+  const net = main.me.net_minor;
+  const stats = [
+    { label: `${main.currency} balance`, value: `${net > 0 ? '+' : net < 0 ? '−' : ''}${formatMinor(Math.abs(net), main.currency)}` },
+    { label: 'You paid', value: formatMinor(main.me.paid_minor, main.currency) },
+    { label: 'Your share', value: formatMinor(main.me.share_minor, main.currency) },
+  ];
+  return (
+    <View style={styles.position} accessibilityLabel="Your position">
+      <Gradient from={CARD_GRADIENT.from} to={CARD_GRADIENT.to} />
+      <Text style={styles.positionLabel}>YOUR POSITION</Text>
+      <Text style={styles.positionTitle}>
+        {net === 0 ? `You're settled up${isGroup ? ' in this group' : ''}` : (
+          <>
+            {net > 0 ? 'You are owed ' : 'You owe '}
+            <Text style={[styles.positionAmount, net < 0 && { color: '#ffc9d1' }]}>{formatMinor(Math.abs(net), main.currency)}</Text>
+          </>
+        )}
+      </Text>
+      <View style={styles.posStats}>
+        {stats.map((st) => (
+          <View key={st.label} style={styles.posStat}>
+            <Text style={styles.posStatLabel} numberOfLines={1}>{st.label}</Text>
+            <Text style={styles.posStatValue} numberOfLines={1}>{st.value}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={styles.positionActions}>
+        <Pressable onPress={onAdd} style={({ pressed }) => [styles.positionButton, styles.positionAdd, pressed && { opacity: 0.85 }]} accessibilityRole="button">
+          <Plus size={17} color={colors.white} />
+          <Text style={styles.positionButtonText}>Add expense</Text>
+        </Pressable>
+        {onSettle && (
+          <Pressable onPress={onSettle} style={({ pressed }) => [styles.positionButton, styles.positionSettle, pressed && { opacity: 0.85 }]} accessibilityRole="button">
+            <Text style={styles.positionButtonText}>Settle up</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 };
@@ -475,18 +546,32 @@ const styles = StyleSheet.create({
   historyContent: { paddingBottom: space(10) },
   flex: { flex: 1 },
   flexGap: { gap: 4 },
-  tabs: { flexDirection: 'row', margin: space(4), marginBottom: 0, padding: 3, borderRadius: radius.md, backgroundColor: colors.muted100 },
-  tab: { flex: 1, paddingVertical: space(2), borderRadius: radius.sm, alignItems: 'center' },
-  tabOn: { backgroundColor: colors.white },
-  tabText: { fontSize: 14, color: colors.muted600 },
+  tabs: { flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: space(4), marginTop: space(2), borderBottomWidth: 1, borderBottomColor: colors.muted200 },
+  tab: { paddingVertical: space(3), paddingHorizontal: space(1.5), alignItems: 'center' },
+  tabOn: {},
+  tabText: { fontSize: 14, fontWeight: '600', color: colors.muted500 },
   tabTextOn: { color: colors.primary700, fontWeight: '700' },
-  card: { padding: space(4), borderRadius: radius.lg, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.muted200, gap: space(2.5) },
+  tabLine: { position: 'absolute', left: 0, right: 0, bottom: -1, height: 2, backgroundColor: colors.primary700 },
+  position: { margin: space(4), marginBottom: space(2), padding: space(5), borderRadius: 18, overflow: 'hidden', backgroundColor: colors.primary700 },
+  positionLabel: { fontSize: 11, letterSpacing: 1.3, color: colors.primary100 },
+  positionTitle: { marginTop: space(2), fontSize: 18, fontWeight: '600', color: colors.white },
+  positionAmount: { fontSize: 26, fontWeight: '800' },
+  posStats: { flexDirection: 'row', gap: space(2), marginTop: space(4) },
+  posStat: { flex: 1, minWidth: 0, paddingHorizontal: space(3), paddingVertical: space(2.5), borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)' },
+  posStatLabel: { fontSize: 11, color: colors.primary100 },
+  posStatValue: { marginTop: 2, fontSize: 14, fontWeight: '700', color: colors.white },
+  positionActions: { flexDirection: 'row', gap: space(2.5), marginTop: space(4) },
+  positionButton: { flex: 1, minHeight: 44, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space(2) },
+  positionAdd: { backgroundColor: 'rgba(47,34,70,0.6)' },
+  positionSettle: { backgroundColor: 'rgba(255,255,255,0.15)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
+  positionButtonText: { color: colors.white, fontSize: 14, fontWeight: '700' },
+  card: { padding: space(4), borderRadius: 17, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.muted200, gap: space(2.5) },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   cardTitle: { fontSize: 13, fontWeight: '600', color: colors.muted500 },
   currency: { fontSize: 13, color: colors.muted500 },
   net: { fontSize: 16, fontWeight: '700' },
   stats: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
-  stat: { flexBasis: '47%', flexGrow: 1, padding: space(3), borderRadius: radius.md, backgroundColor: colors.muted50 },
+  stat: { flexBasis: '47%', flexGrow: 1, padding: space(3), borderRadius: 12, backgroundColor: colors.primary50 },
   statLabel: { fontSize: 12, color: colors.muted500 },
   statValue: { fontSize: 16, fontWeight: '700', color: colors.muted900, marginTop: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space(2.5) },

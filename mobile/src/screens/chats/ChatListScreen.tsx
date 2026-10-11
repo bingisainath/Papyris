@@ -119,7 +119,10 @@ const ChatListScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Chats</Text>
+        <View>
+          <Text style={styles.eyebrow}>YOUR SPACE</Text>
+          <Text style={styles.title}>Chats</Text>
+        </View>
         <View style={styles.headerActions}>
           <Pressable onPress={() => navigation.navigate('NewGroup')} hitSlop={8} style={styles.iconButton} accessibilityLabel="New group">
             <GroupAddIcon size={24} color={colors.primary700} />
@@ -197,23 +200,24 @@ const styles = StyleSheet.create({
   hit: { paddingHorizontal: space(4), paddingVertical: space(2.5), gap: 2 },
   hitChat: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.muted900 },
   hitTextRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space(4), paddingTop: space(2) },
-  title: { fontSize: 26, fontWeight: '700', color: colors.muted900 },
-  headerActions: { flexDirection: 'row', gap: space(1) },
-  iconButton: { padding: space(2), borderRadius: radius.md },
-  search: { flexDirection: 'row', alignItems: 'center', gap: space(2), marginHorizontal: space(4), marginTop: space(3), paddingHorizontal: space(3), borderRadius: radius.md, backgroundColor: colors.muted100 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space(4), paddingTop: space(4) },
+  eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3, color: colors.primary500 },
+  title: { marginTop: 2, fontSize: 28, fontWeight: '700', letterSpacing: -0.5, color: colors.muted900 },
+  headerActions: { flexDirection: 'row', gap: space(2) },
+  iconButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.muted200, alignItems: 'center', justifyContent: 'center' },
+  search: { flexDirection: 'row', alignItems: 'center', gap: space(2), marginHorizontal: space(4), marginTop: space(4), paddingHorizontal: space(3), borderRadius: 12, backgroundColor: colors.background },
   searchInput: { flex: 1, height: 42, fontSize: 15, color: colors.muted900 },
   filters: { flexDirection: 'row', gap: space(2), paddingHorizontal: space(4), paddingVertical: space(3) },
-  chip: { paddingHorizontal: space(3.5), paddingVertical: space(1.5), borderRadius: radius.full, backgroundColor: colors.muted100 },
-  chipOn: { backgroundColor: colors.primary700 },
-  chipText: { fontSize: 13, color: colors.muted700, fontWeight: '500' },
-  chipTextOn: { color: colors.white },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingHorizontal: space(4), paddingVertical: space(3) },
-  pressed: { backgroundColor: colors.muted50 },
+  chip: { paddingHorizontal: space(3.5), paddingVertical: space(1.5), borderRadius: radius.full, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white },
+  chipOn: { backgroundColor: colors.primary100, borderColor: colors.primary100 },
+  chipText: { fontSize: 13, color: colors.muted500, fontWeight: '600' },
+  chipTextOn: { color: colors.primary700 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginHorizontal: space(2), paddingHorizontal: space(2.5), paddingVertical: space(3), borderRadius: 14 },
+  pressed: { backgroundColor: colors.primary50 },
   rowBody: { flex: 1, minWidth: 0, gap: 3 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space(2) },
   nameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space(1.5) },
-  name: { flexShrink: 1, fontSize: 16, color: colors.muted900, fontWeight: '500' },
+  name: { flexShrink: 1, fontSize: 16, color: colors.muted900, fontWeight: '600' },
   bold: { fontWeight: '700' },
   time: { fontSize: 12, color: colors.muted400 },
   preview: { flex: 1, fontSize: 14, color: colors.muted500 },
