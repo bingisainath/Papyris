@@ -3,9 +3,9 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, Coins, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
+import { Bell, ChevronRight, Coins, Download, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
-import { authApi } from '../../api/auth';
+import { authApi, saveMyData } from '../../api/auth';
 import { errorMessage } from '../../api/client';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -114,6 +114,11 @@ const SettingsScreen: React.FC = () => {
               <Text style={styles.value}>{user.email}</Text>
             </View>
           </View>
+          <Divider />
+          <Row icon={Download} label="Download my data" hint="Profile, chats, expenses and receipts as a file"
+            onPress={() => saveMyData().then((name) => showAlert('Saved to Downloads', name)).catch((e) => showAlert("Couldn't download", errorMessage(e)))} />
+          <Divider />
+          <Row icon={Trash2} label="Delete account" hint="Signs you out everywhere; can't be undone" onPress={() => navigation.navigate('DeleteAccount')} />
           <Divider />
           <Pressable
             onPress={async () => {

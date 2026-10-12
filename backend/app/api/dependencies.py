@@ -66,6 +66,9 @@ async def get_current_user(
     if user is None:
         logger.warning("Valid token for missing user %s", user_id)
         raise credentials_exception
+    # A deleted account signs out like a logged-out session (apps sign out on 401)
+    if user.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This account was deleted", headers={"WWW-Authenticate": "Bearer"})
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     # Logged out (here or from another device): the sign-in's tokens no longer work

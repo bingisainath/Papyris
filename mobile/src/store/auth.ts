@@ -30,6 +30,8 @@ interface AuthState {
   refreshUser: () => Promise<void>;
   setUser: (user: User) => void;
   logout: () => Promise<void>;
+  /** The account was deleted (here or on another device): sign out and wipe this phone. */
+  accountDeleted: () => Promise<void>;
 }
 
 export const useAuth = create<AuthState>((set) => {
@@ -56,6 +58,11 @@ export const useAuth = create<AuthState>((set) => {
     }
     socket.stop();
     set({ user: null, status: 'signedOut' });
+  });
+
+  // The account was deleted from one of its devices: every device signs out and wipes itself
+  socket.on((e) => {
+    if (e.type === 'account_deleted') tokens.clear().then(loggedOutElsewhere).catch(() => undefined);
   });
 
   // Online when it happens: the server says which device was logged out
@@ -138,6 +145,10 @@ export const useAuth = create<AuthState>((set) => {
     },
 
     setUser: (user) => set({ user }),
+    accountDeleted: async () => {
+      await tokens.clear();
+      await loggedOutElsewhere();
+    },
 
     logout: async () => {
       await disablePush(); // while still signed in, so the server accepts it

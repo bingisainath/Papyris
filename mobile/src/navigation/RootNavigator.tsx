@@ -32,6 +32,7 @@ import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
 import E2EGate from '../screens/auth/E2EGate';
 import SessionsScreen from '../screens/settings/SessionsScreen';
 import EncryptionScreen from '../screens/settings/EncryptionScreen';
+import DeleteAccountScreen from '../screens/settings/DeleteAccountScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
 const AppStack = createNativeStackNavigator<AppStackParams>();
@@ -206,6 +207,11 @@ const RootNavigator: React.FC = () => {
             name="Sessions"
             component={SessionsScreen}
             options={{ title: 'Sessions' }}
+          />
+          <AppStack.Screen
+            name="DeleteAccount"
+            component={DeleteAccountScreen}
+            options={{ title: 'Delete account' }}
           />
           <AppStack.Screen
             name="Encryption"

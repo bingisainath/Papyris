@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserLogin, UserResponse, UserUpdate
+from app.schemas.user import DeleteAccountRequest, UserCreate, UserLogin, UserResponse, UserUpdate
 from app.services import media_storage
 from sqlalchemy import select, func
 from app.schemas.auth import Token, RefreshTokenRequest, ForgotPasswordRequest, VerifyResetTokenRequest, ResetPasswordRequest
@@ -17,6 +17,13 @@ from app.services import sessions
 from app.services.email_service import email_service
 from app.config.settings import settings
 from app.api.dependencies import get_current_user
+from app.core import rate_limit as rl
+from app.core.security import verify_password
+from app.services import account
+from app.services.message_service import MessageService
+from app.websocket.routes import publish_users
+from fastapi.responses import JSONResponse
+from datetime import date
 from app.models.user import User
 from app.schemas.auth import (
     VerifyEmailRequest, ResendCodeRequest,
@@ -30,8 +37,9 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 # REGISTRATION
 # ============================================
 @router.post("/register", response_model=APIResponse[UserResponse], status_code=201)
-async def register(payload: UserCreate, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def register(payload: UserCreate, request: Request, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """Register a new user and email them a 6-digit code to verify their address"""
+    await rl.enforce((rl.REGISTER_PER_IP, rl.client_ip(request)))
     user = await AuthService.register_user(db, payload)
     code = AuthService.new_email_code(user)
     await db.commit()
@@ -47,6 +55,7 @@ async def register(payload: UserCreate, background: BackgroundTasks, db: AsyncSe
 @router.post("/verify-email", response_model=APIResponse[Token])
 async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Check the emailed code; on success the person is signed in"""
+    await rl.enforce((rl.VERIFY_EMAIL_PER_IP, rl.client_ip(request)))
     user = await AuthService.verify_email_code(db, payload.identifier, payload.code)
     logger.info("Email verified for user %s", user.id)
     session_id = await sessions.start(db, user.id, request.headers.get("user-agent"))
@@ -55,8 +64,9 @@ async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncS
 
 
 @router.post("/resend-code", response_model=APIResponse[dict])
-async def resend_code(payload: ResendCodeRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def resend_code(payload: ResendCodeRequest, request: Request, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """Email a new code. Same answer whether or not the account exists."""
+    await rl.enforce((rl.RESEND_CODE_PER_IP, rl.client_ip(request)))
     user = await AuthService.get_user_by_identifier(db, payload.identifier)
     if user is not None and not user.email_verified:
         wait = AuthService.resend_wait_seconds(user)
@@ -77,6 +87,7 @@ async def login(payload: UserLogin, request: Request, db: AsyncSession = Depends
     
     The frontend sends 'identifier' which can be either username or email
     """
+    await rl.enforce((rl.LOGIN_PER_IP, rl.client_ip(request)), (rl.LOGIN_PER_ACCOUNT, payload.identifier))
     token = await AuthService.login_user(db, payload.identifier, payload.password, request.headers.get("user-agent"))
     return APIResponse(
         success=True,
@@ -169,11 +180,58 @@ async def update_me(
     )
 
 # ============================================
+# YOUR DATA: download it, or delete the account
+# ============================================
+@router.get("/me/export")
+async def export_my_data(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Everything the server holds about you, as a JSON file (GDPR / DPDP data access)"""
+    await rl.enforce((rl.DATA_EXPORTS_PER_USER, str(current_user.id)))
+    data = await account.export_data(db, current_user)
+    filename = f"papyris-data-{current_user.username}-{date.today().isoformat()}.json"
+    return JSONResponse(content=data, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.post("/me/delete", response_model=APIResponse[dict])
+async def delete_my_account(
+    payload: DeleteAccountRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete your account: sign-ins, devices, keys, backups, settings, photos and what your
+    messages said are removed. Shared expenses and payments stay, shown as "Deleted user", so
+    other people's balances don't change. Every signed-in device is signed out.
+    """
+    await rl.enforce((rl.DELETE_ACCOUNT_PER_USER, str(current_user.id)))
+    if payload.confirm.strip().upper() != "DELETE":
+        raise HTTPException(status_code=400, detail="Type DELETE to confirm")
+    if not verify_password(payload.password, current_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Wrong password")
+
+    user_id = str(current_user.id)
+    result = await account.delete_account(db, current_user)
+    account.remove_files(await account.unused_files(db, result["files"]))
+
+    # Every device of this account signs out and wipes its keys; groups see a note
+    await publish_users([user_id], {"type": "account_deleted"})
+    for conversation_id, member_ids in result["left_groups"]:
+        try:
+            note = await MessageService.post_system_message(
+                db, conversation_id, current_user, f"{result['old_name']} deleted their account")
+            await publish_users(member_ids, note)
+            await publish_users(member_ids, {"type": "conversation_updated", "conversationId": str(conversation_id)})
+        except Exception:
+            logger.exception("Couldn't tell group %s about a deleted account", conversation_id)
+    return APIResponse(success=True, message="Your account has been deleted", data={"deleted": True})
+
+
+# ============================================
 # ✅ NEW: FORGOT PASSWORD
 # ============================================
 @router.post("/forgot-password", response_model=APIResponse[dict])
 async def forgot_password(
     payload: ForgotPasswordRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
@@ -182,6 +240,7 @@ async def forgot_password(
     
     Security: Always returns success to prevent user enumeration
     """
+    await rl.enforce((rl.FORGOT_PER_IP, rl.client_ip(request)), (rl.FORGOT_PER_ACCOUNT, payload.identifier))
     try:
         success, user = await AuthService.request_password_reset(db, payload.identifier)
         
@@ -226,6 +285,7 @@ async def forgot_password(
 @router.post("/verify-reset-token", response_model=APIResponse[dict])
 async def verify_reset_token(
     payload: VerifyResetTokenRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -233,6 +293,7 @@ async def verify_reset_token(
     
     Called when user clicks reset link to check if they can proceed
     """
+    await rl.enforce((rl.RESET_PER_IP, rl.client_ip(request)))
     try:
         user = await AuthService.verify_reset_token(db, payload.token)
         
@@ -261,6 +322,7 @@ async def verify_reset_token(
 @router.post("/reset-password", response_model=APIResponse[dict])
 async def reset_password(
     payload: ResetPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -268,6 +330,7 @@ async def reset_password(
     
     Token is single-use and will be cleared after successful reset
     """
+    await rl.enforce((rl.RESET_PER_IP, rl.client_ip(request)))
     try:
         user = await AuthService.reset_password(db, payload.token, payload.new_password)
         

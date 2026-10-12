@@ -15,6 +15,9 @@ os.chdir(BACKEND)
 import uvicorn  # noqa: E402
 
 from app.config.settings import settings  # noqa: E402
+
+# Browser tests sign in many times from one address: no rate limits on this test server
+settings.RATE_LIMITS_ENABLED = False
 from app.main import app  # noqa: E402
 from app.services.receipt_ai import pipeline  # noqa: E402
 from app.services.receipt_ai.base import ExtractionResult  # noqa: E402

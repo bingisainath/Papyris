@@ -32,7 +32,7 @@ import {
 import type { Message, ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
 import { v2Runtime } from '../../crypto/v2-platform/runtime';
-import { LOGGED_OUT_ELSEWHERE_EVENT } from '../../utils/authRefresh';
+import { ACCOUNT_DELETED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT } from '../../utils/authRefresh';
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
 import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
@@ -718,6 +718,11 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     v2Runtime()?.then((r) => {
       if (r.state.deviceId === data.deviceId) window.dispatchEvent(new Event(LOGGED_OUT_ELSEWHERE_EVENT));
     }).catch(() => undefined);
+  });
+
+  // The account was deleted from one of its devices: every device signs out and wipes itself
+  wsService.on('account_deleted', () => {
+    window.dispatchEvent(new Event(ACCOUNT_DELETED_EVENT));
   });
 
   // Someone in a chat reminded us that we owe them

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
 from app.config.settings import settings
+from app.core import rate_limit as rl
 from app.db.session import get_db
 from app.models.expense import Expense
 from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem
@@ -58,6 +59,7 @@ async def create_receipt(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await rl.enforce((rl.RECEIPT_SCANS_PER_USER, str(current_user.id)))
     await svc.load_access(db, conversation_id, current_user)
     if len(body.image_urls) > settings.RECEIPT_MAX_IMAGES:
         raise HTTPException(status_code=400, detail=f"Up to {settings.RECEIPT_MAX_IMAGES} photos per receipt")
@@ -236,6 +238,7 @@ async def retry_receipt(
     db: AsyncSession = Depends(get_db),
 ):
     """Read the photos again (replaces any edits). Only the uploader, since it uses their scans."""
+    await rl.enforce((rl.RECEIPT_SCANS_PER_USER, str(current_user.id)))
     receipt, _ = await _load(db, receipt_id, current_user)
     if receipt.uploaded_by != current_user.id:
         raise HTTPException(status_code=403, detail="Only the person who uploaded it can scan it again")

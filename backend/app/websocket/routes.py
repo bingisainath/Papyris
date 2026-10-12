@@ -21,6 +21,7 @@ from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
 from app.services import e2e_mailbox
+from app.core import rate_limit
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
@@ -182,6 +183,14 @@ async def ws_chat(ws: WebSocket):
                 await ws.send_json({"type": "left", "roomId": room_id})
                 logger.debug("User %s left room %s", user_id_str, room_id)
                 continue
+
+            # Too many messages in a few seconds (a script or a stuck client): refuse this one;
+            # the app marks it as not sent and the person can retry
+            if event_type in ("message", "message_v2") and room_id:
+                if await rate_limit.check(rate_limit.MESSAGES_PER_USER, user_id_str):
+                    await ws.send_json({"type": "error", "message": rate_limit.MESSAGES_PER_USER.message,
+                                        "clientId": data.get("clientId"), "roomId": room_id})
+                    continue
 
             # SEND MESSAGE (text and/or media)
             if event_type == "message" and room_id:

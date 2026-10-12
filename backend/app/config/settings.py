@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds
     WS_MAX_CONNECTIONS_PER_USER: int = 5
     
+    # Limits on logins, sign-ups, uploads, messages... (app/core/rate_limit.py), counted in Redis
+    RATE_LIMITS_ENABLED: bool = True
+
     # Message worker's name in the Redis consumer group. Empty = "worker-<hostname>".
     # Give each worker a different name when running several on one machine.
     WORKER_NAME: str = ""

@@ -13,6 +13,9 @@ from app.models.user import User
 from app.schemas.user import UserCreate
 from app.schemas.auth import Token
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+
+# Checked against when the account doesn't exist, so both failures take about as long
+_DUMMY_HASH = hash_password("not-a-real-password")
 from app.services import sessions
 from app.config.settings import settings
 
@@ -104,17 +107,15 @@ class AuthService:
         """
         user = await AuthService.get_user_by_identifier(db, identifier)
 
+        # The same answer for an unknown account and a wrong password, so login can't be used
+        # to find out which emails or usernames have accounts
+        wrong = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Wrong username, email or password")
         if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Username or email does not exist",
-            )
+            verify_password(password, _DUMMY_HASH)  # same time either way
+            raise wrong
 
         if not verify_password(password, user.hashed_password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
-            )
+            raise wrong
 
         if not user.is_active:
             raise HTTPException(

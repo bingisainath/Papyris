@@ -68,6 +68,12 @@ class PaymentHandles(BaseModel):
         return out or None
 
 
+class DeleteAccountRequest(BaseModel):
+    """Deleting needs the password and the word DELETE typed out, so it never happens by accident."""
+    password: str = Field(..., min_length=1, max_length=128)
+    confirm: str = Field(..., max_length=20)
+
+
 class UserUpdate(BaseModel):
     """Profile fields a user can change. Omitted fields are left as they are."""
     name: Optional[str] = Field(None, max_length=100)

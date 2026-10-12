@@ -9,6 +9,8 @@ import { tokenStore } from './token';
 export const SESSION_EXPIRED_EVENT = 'papyris:session-expired';
 /** Another of your devices logged this browser out (Settings → Sessions). */
 export const LOGGED_OUT_ELSEWHERE_EVENT = 'papyris:logged-out-elsewhere';
+/** This account was deleted (here or on another device): sign out and wipe this browser. */
+export const ACCOUNT_DELETED_EVENT = 'papyris:account-deleted';
 
 let inFlight: Promise<string | null> | null = null;
 

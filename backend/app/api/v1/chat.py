@@ -16,6 +16,7 @@ from app.models.conversation_member import ConversationMember
 
 from app.models.message import Message
 from app.api.dependencies import get_current_user
+from app.core import rate_limit as rl
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
@@ -354,6 +355,7 @@ async def create_conversation(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new conversation (DM or group)"""
+    await rl.enforce((rl.NEW_CHATS_PER_USER, str(current_user.id)))
     try:
         # Validate kind
         if request.kind not in ['dm', 'group']:
@@ -501,6 +503,8 @@ async def get_users(
     - Without `search`: people you already share a conversation with.
     Emails are never returned, so this can't be used to collect them.
     """
+    if search:
+        await rl.enforce((rl.USER_SEARCH_PER_USER, str(current_user.id)))
     try:
         query = (search or "").strip()
         stmt = select(User).where(User.id != current_user.id, User.is_active.is_(True))

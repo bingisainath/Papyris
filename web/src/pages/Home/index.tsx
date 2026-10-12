@@ -41,6 +41,7 @@ import { DisplayCurrencySettings, ReceiptScanningSettings, StoreDiscountSettings
 import SessionsSettings from '../../components/organisms/SessionsSettings';
 import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
+import AccountDataSettings from '../../components/organisms/AccountDataSettings';
 import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
 import type { LogoutRisk } from '../../components/organisms/LogoutWarning';
 
@@ -608,6 +609,8 @@ const SettingsPage: React.FC<{
           <ReceiptScanningSettings />
 
           <StoreDiscountSettings />
+
+          <AccountDataSettings />
 
           <div className="card p-4 sm:p-6">
             <div className="flex items-center justify-between gap-4">

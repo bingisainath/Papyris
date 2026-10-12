@@ -28,4 +28,5 @@ export type AppStackParams = {
   StoreDiscounts: undefined;
   Encryption: undefined;
   Sessions: undefined;
+  DeleteAccount: undefined;
 };

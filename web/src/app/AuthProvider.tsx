@@ -17,7 +17,7 @@ import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
 import { e2eSession } from "../crypto/session";
 import { stopV2 } from "../crypto/v2-platform/runtime";
-import { LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
+import { ACCOUNT_DELETED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
@@ -117,7 +117,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       toast.info("This browser was logged out from another of your devices.");
     };
     window.addEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
+    const onDeleted = () => {
+      tokenStore.clear();
+      logout();
+      toast.info("Your Papyris account was deleted.");
+    };
+    window.addEventListener(ACCOUNT_DELETED_EVENT, onDeleted);
     return () => {
+      window.removeEventListener(ACCOUNT_DELETED_EVENT, onDeleted);
       window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
       window.removeEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
     };
