@@ -74,6 +74,8 @@ interface Conversation {
   isArchived?: boolean; // archived by you: in the Archived list, not the main one
   isGroup?: boolean;
   members?: string[];
+  otherUserId?: string | null; // direct chats: the other person
+  isBlocked?: boolean; // direct chats: you blocked the other person
 }
 
 interface ChatState {
@@ -303,6 +305,13 @@ const chatSlice = createSlice({
       }
     },
 
+    /** You blocked or unblocked someone (here or on another of your devices). */
+    setBlocked: (state, action: PayloadAction<{ userId: string; blocked: boolean }>) => {
+      state.conversations.forEach(c => {
+        if (c.otherUserId === action.payload.userId) c.isBlocked = action.payload.blocked;
+      });
+    },
+
     /** Every member has the conversation on a device up to deliveredUpTo: one tick becomes two. */
     markMessagesDelivered: (state, action: PayloadAction<{ conversationId: string; deliveredUpTo: string }>) => {
       const { conversationId, deliveredUpTo } = action.payload;
@@ -513,6 +522,7 @@ export const {
   setReactions,
   markMessagesRead,
   markMessagesDelivered,
+  setBlocked,
   syncOnlineStatus,
   replaceOptimisticMessage,
   addMessage,

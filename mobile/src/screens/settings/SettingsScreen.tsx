@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, Coins, Download, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
+import { Ban, Bell, ChevronRight, Coins, Download, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
 import { authApi, saveMyData } from '../../api/auth';
 import { errorMessage } from '../../api/client';
@@ -88,6 +88,8 @@ const SettingsScreen: React.FC = () => {
           <Row icon={ShieldCheck} label="Linked devices" hint="Link a phone or browser · encryption and backup" onPress={() => navigation.navigate('Encryption')} />
           <Divider />
           <Row icon={MonitorSmartphone} label="Sessions" hint="Devices signed in to your account" onPress={() => navigation.navigate('Sessions')} />
+          <Divider />
+          <Row icon={Ban} label="Blocked people" hint="People who can't message you" onPress={() => navigation.navigate('BlockedPeople')} />
           <Divider />
           <Row icon={Bell} label="Notifications" onPress={notifications}
             value={push === null ? '' : push === 'on' ? 'On' : push === 'off' ? 'Off' : 'Not set up'} />

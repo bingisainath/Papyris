@@ -22,6 +22,7 @@ from app.services.message_service import MessageService
 from app.services import media_storage
 from app.services import e2e_mailbox
 from app.core import rate_limit
+from app.services import safety
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
@@ -190,6 +191,15 @@ async def ws_chat(ws: WebSocket):
                 if await rate_limit.check(rate_limit.MESSAGES_PER_USER, user_id_str):
                     await ws.send_json({"type": "error", "message": rate_limit.MESSAGES_PER_USER.message,
                                         "clientId": data.get("clientId"), "roomId": room_id})
+                    continue
+                # A block stops direct messages both ways
+                try:
+                    async with async_session_maker() as db:
+                        refusal = await safety.direct_message_refusal(db, uuid.UUID(room_id), user_id)
+                except ValueError:
+                    refusal = None
+                if refusal:
+                    await ws.send_json({"type": "error", "message": refusal, "clientId": data.get("clientId"), "roomId": room_id})
                     continue
 
             # SEND MESSAGE (text and/or media)

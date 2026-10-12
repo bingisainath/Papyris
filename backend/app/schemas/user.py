@@ -36,6 +36,7 @@ class UserResponse(BaseModel):
     avatar: Optional[str] = None
     payment_handles: Optional[dict] = None
     display_currency: Optional[str] = None
+    is_app_admin: bool = False  # reviews reports, manages AI models
     is_active: bool
     email_verified: bool = True
     created_at: datetime

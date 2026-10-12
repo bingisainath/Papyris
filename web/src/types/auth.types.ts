@@ -41,6 +41,7 @@ export interface UserResponse {
     email_verified?: boolean;
     payment_handles?: PaymentHandles | null;
     display_currency?: string | null; // expense totals are also shown in this currency
+    is_app_admin?: boolean;
   };
 }
 

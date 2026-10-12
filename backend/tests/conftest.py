@@ -78,8 +78,9 @@ def events(monkeypatch):
     import app.api.v1.groups as groups_api
     import app.api.v1.messages as messages_api
     import app.api.v1.receipts as receipts_api
+    import app.api.v1.safety as safety_api
     import app.websocket.routes as ws_routes
-    for module in (auth_api, chat_api, e2e_keys_api, e2e_v2_api, expenses_api, groups_api, messages_api, receipts_api, ws_routes):
+    for module in (auth_api, chat_api, e2e_keys_api, e2e_v2_api, expenses_api, groups_api, messages_api, receipts_api, safety_api, ws_routes):
         monkeypatch.setattr(module, "publish_users", fake_publish_users)
     return captured
 

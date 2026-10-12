@@ -17,6 +17,7 @@ from app.models.conversation_member import ConversationMember
 from app.models.message import Message
 from app.api.dependencies import get_current_user
 from app.core import rate_limit as rl
+from app.services import safety
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
@@ -121,6 +122,9 @@ async def get_conversations(
             ):
                 newly_delivered.append((conv.id, latest.created_at))
 
+        # People I've blocked: their direct chat shows "You blocked this person" instead of a composer
+        my_blocks = await safety.blocked_by(db, current_user.id)
+
         response_data = []
         for conv, my_membership in rows:
             other_user = None
@@ -145,6 +149,8 @@ async def get_conversations(
                 "pinnedAt": my_membership.pinned_at.isoformat() if my_membership.pinned_at else None,
                 "mutedUntil": muted_until_view(my_membership),
                 "isArchived": my_membership.archived_at is not None,
+                "isBlocked": bool(other_user and other_user.id in my_blocks),
+                "otherUserId": str(other_user.id) if other_user else None,
                 "isTyping": False,
             })
 
@@ -398,6 +404,8 @@ async def create_conversation(
                     "data": {"id": str(existing_conv_id)},
                     "message": "Conversation already exists"
                 }
+            if await safety.is_blocked_either_way(db, current_user.id, other_user_id):
+                raise HTTPException(status_code=403, detail="You can't start a chat with this person")
 
         # Create new conversation
         if request.kind == 'group':
@@ -430,6 +438,9 @@ async def create_conversation(
         participant_uuids = list(dict.fromkeys(
             UUID(pid) for pid in request.participant_ids if UUID(pid) != current_user.id
         ))
+        if request.kind == 'group' and await safety.who_blocked(db, current_user.id, participant_uuids):
+            await db.rollback()
+            raise HTTPException(status_code=403, detail="Some of these people can't be added to a group by you")
         for participant_uuid in participant_uuids:
             member = ConversationMember(
                 conversation_id=new_conv.id,

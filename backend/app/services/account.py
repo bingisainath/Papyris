@@ -31,6 +31,7 @@ from app.models.message import Message
 from app.models.message_reaction import MessageReaction
 from app.models.message_receipt import MessageReceipt
 from app.models.receipt import Receipt, StoreDiscountRule
+from app.models.safety import UserBlock
 from app.models.user import User
 from app.services import expense_service, media_storage
 
@@ -190,6 +191,7 @@ async def delete_account(db: AsyncSession, user: User) -> dict:
     ):
         await db.execute(delete(model).where(column == uid))
     await db.execute(delete(E2EEnvelope).where(or_(E2EEnvelope.sender_user_id == uid, E2EEnvelope.recipient_user_id == uid)))
+    await db.execute(delete(UserBlock).where(or_(UserBlock.blocker_id == uid, UserBlock.blocked_id == uid)))
 
     # The row stays for shared expenses; nothing personal is left in it. The email is freed so
     # the person can sign up again with it.

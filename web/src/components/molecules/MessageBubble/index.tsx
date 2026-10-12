@@ -2,7 +2,7 @@
 import React, { useRef, useState } from 'react';
 import { Avatar } from '../../atoms';
 import Icon from '../../atoms/Icon';
-import { Download, Forward, Lock, Play, RotateCw, ShieldAlert, X } from 'lucide-react';
+import { Download, Flag, Forward, Lock, Play, RotateCw, ShieldAlert, X } from 'lucide-react';
 import VoiceNotePlayer from '../VoiceNotePlayer';
 import { formatMessageTime } from '../../../utils/dateFormat';
 import { formatFileSize, mediaBoxStyle } from '../../../utils/media';
@@ -49,6 +49,7 @@ interface MessageBubbleProps {
   onCancelUpload?: () => void;
   onRetryUpload?: () => void;
   onForward?: () => void;
+  onReport?: () => void; // someone else's message
   onDownload?: () => void;
   isGroup?: boolean;
   isDeleted?: boolean;
@@ -95,6 +96,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   onCancelUpload,
   onRetryUpload,
   onForward,
+  onReport,
   onDownload,
   isGroup = false,
   isDeleted = false,
@@ -135,7 +137,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   // Pending/failed messages don't exist on the server yet, so they can't be acted on
   const canAct = !isDeleted && !id.startsWith('temp-');
-  const hasActions = canAct && !!(onReply || onReact || onEdit || onDelete || onForward || onDownload);
+  const hasActions = canAct && !!(onReply || onReact || onEdit || onDelete || onForward || onDownload || onReport);
 
   // Mouse users get the action bar on hover; touch users toggle it with a tap.
   // (Touch also fires emulated mouse events, so filter by pointer type.)
@@ -467,6 +469,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 title="Edit"
               >
                 <Icon name="edit" size={16} className="text-muted-500" />
+              </button>
+            )}
+            {!isSent && onReport && (
+              <button
+                type="button"
+                onClick={() => { onReport(); setShowActions(false); }}
+                className="p-1.5 hover:bg-accent-50 rounded-full transition-colors"
+                title="Report"
+                aria-label="Report"
+              >
+                <Flag className="w-4 h-4 text-muted-500" />
               </button>
             )}
             {isSent && onDelete && (

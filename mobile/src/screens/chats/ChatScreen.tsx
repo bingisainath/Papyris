@@ -4,7 +4,7 @@ import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, Te
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Search, ShieldAlert, Trash2, X } from 'lucide-react-native';
+import { Ban, Copy, CornerUpLeft, Download, Flag, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Search, ShieldAlert, Trash2, X } from 'lucide-react-native';
 import ChatSearch from './ChatSearch';
 import { useKeyChanges, useTrustActions } from '../../crypto/v2-platform/trust';
 import { useChatEncryption } from '../../crypto/useChatEncryption';
@@ -18,6 +18,7 @@ import MediaViewer, { ViewerItem } from '../../components/chat/MediaViewer';
 import { saveToPhone } from '../../utils/save';
 import { chatApi, Message, ReplyPreview } from '../../api/chat';
 import { errorMessage } from '../../api/client';
+import { safetyApi } from '../../api/safety';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
 import { mediaPayloadOf, typingNames, useChat } from '../../store/chat';
@@ -354,6 +355,19 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
           </View>
         )}
 
+        {conversation?.isBlocked && conversation.otherUserId ? (
+          <View style={styles.blocked}>
+            <Ban size={18} color={colors.muted500} />
+            <Text style={styles.blockedText}>You blocked {conversation.name}. You can't message each other.</Text>
+            <Pressable onPress={() => {
+              const userId = conversation.otherUserId!;
+              safetyApi.unblock(userId).then(() => useChat.getState().setBlocked(userId, false))
+                .catch((e) => showAlert("Couldn't unblock", errorMessage(e)));
+            }} hitSlop={8} accessibilityLabel={`Unblock ${conversation.name}`}>
+              <Text style={styles.blockedAction}>Unblock</Text>
+            </Pressable>
+          </View>
+        ) : (
         <Composer
           text={text}
           onChangeText={onChangeText}
@@ -365,6 +379,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
           }}
           onSendVoice={(a) => { sendMedia(conversationId, a, { id: me.id, username: me.username }, replyTo); setReplyTo(null); }}
         />
+        )}
       </View>
 
       {/* Long-press menu */}
@@ -389,6 +404,16 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
               {!!selected.mediaUrl && <SheetAction icon={Download} label="Save to phone" onPress={() => { const m = selected; setSelected(null); save(m); }} />}
               {selected.senderId === me.id && !!selected.text && (
                 <SheetAction icon={Pencil} label="Edit" onPress={() => { setReplyTo(null); setEditing(selected); setText(selected.text); setSelected(null); }} />
+              )}
+              {selected.senderId !== me.id && (
+                <SheetAction icon={Flag} label="Report" danger onPress={() => {
+                  const m = selected;
+                  setSelected(null);
+                  navigation.navigate('Report', {
+                    title: 'Report this message', userId: m.senderId, userName: m.senderName, conversationId,
+                    messageId: m.id, messageText: m.text || undefined,
+                  });
+                }} />
               )}
               {selected.senderId === me.id && (
                 <SheetAction icon={Trash2} label="Delete for everyone" danger onPress={() => { const m = selected; setSelected(null); remove(m); }} />
@@ -451,6 +476,10 @@ const styles = StyleSheet.create({
   keyChangeActions: { flexDirection: 'row', gap: space(5), marginTop: space(1.5) },
   keyChangeLink: { fontSize: 13, fontWeight: '700', color: colors.primary700 },
   banner: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginHorizontal: space(3), marginBottom: space(2), padding: space(2.5), borderLeftWidth: 4, borderLeftColor: colors.primary600, backgroundColor: colors.primary50, borderRadius: radius.md },
+  blocked: { flexDirection: 'row', alignItems: 'center', gap: space(2.5), paddingHorizontal: space(4), paddingVertical: space(3.5),
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.muted200, backgroundColor: colors.white },
+  blockedText: { flex: 1, fontSize: 13, color: colors.muted600 },
+  blockedAction: { fontSize: 14, fontWeight: '700', color: colors.primary700 },
   bannerTitle: { fontSize: 12, fontWeight: '700', color: colors.primary700 },
   bannerText: { fontSize: 14, color: colors.muted600 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', justifyContent: 'flex-end' },

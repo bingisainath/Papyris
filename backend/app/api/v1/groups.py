@@ -21,6 +21,7 @@ from app.models.user import User
 from app.services import media_storage
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
+from app.services import safety
 from app.schemas.groups import (
     UpdateGroupRequest, AddMembersRequest, UpdateMemberRequest, PinRequest, MuteRequest, ArchiveRequest,
 )
@@ -263,6 +264,8 @@ async def add_members(
     users = list((await db.execute(select(User).where(User.id.in_(new_ids)))).scalars().all()) if new_ids else []
     if not users:
         raise HTTPException(status_code=400, detail="Those users are already in the group")
+    if await safety.who_blocked(db, current_user.id, [u.id for u in users]):
+        raise HTTPException(status_code=403, detail="Some of these people can't be added to a group by you")
 
     for user in users:
         db.add(ConversationMember(conversation_id=conversation_id, user_id=user.id, role=MemberRole.MEMBER))

@@ -42,6 +42,8 @@ interface ChatState {
   retryUpload: (clientId: string) => void;
   forward: (message: Message, conversationIds: string[]) => Promise<{ sent: number; skipped: number }>;
   setPinned: (conversationId: string, pinned: boolean) => void;
+  /** You blocked or unblocked someone (here or on another of your devices). */
+  setBlocked: (userId: string, blocked: boolean) => void;
   /** Mute / archive for you (from this phone or another of your devices). */
   setPrefs: (conversationId: string, prefs: { mutedUntil?: string | null; isArchived?: boolean }) => void;
   mute: (conversationId: string, duration: MuteDuration | null) => Promise<void>;
@@ -233,6 +235,8 @@ export const useChat = create<ChatState>((set, get) => ({
     return { sent, skipped };
   },
 
+  setBlocked: (userId, blocked) =>
+    set((s) => ({ conversations: s.conversations.map((c) => (c.otherUserId === userId ? { ...c, isBlocked: blocked } : c)) })),
   setPinned: (conversationId, pinned) =>
     set((s) => ({
       conversations: s.conversations.map((c) =>
@@ -663,6 +667,9 @@ socket.on((e) => {
           ...('isArchived' in e ? { isArchived: e.isArchived } : {}),
         });
       }
+      break;
+    case 'block_changed':
+      if (e.userId) state.setBlocked(e.userId, !!e.blocked);
       break;
     case 'conversation_pinned':
       if (e.conversationId) state.setPinned(e.conversationId, !!e.pinned);

@@ -33,6 +33,8 @@ import E2EGate from '../screens/auth/E2EGate';
 import SessionsScreen from '../screens/settings/SessionsScreen';
 import EncryptionScreen from '../screens/settings/EncryptionScreen';
 import DeleteAccountScreen from '../screens/settings/DeleteAccountScreen';
+import BlockedPeopleScreen from '../screens/settings/BlockedPeopleScreen';
+import ReportScreen from '../screens/settings/ReportScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
 const AppStack = createNativeStackNavigator<AppStackParams>();
@@ -212,6 +214,16 @@ const RootNavigator: React.FC = () => {
             name="DeleteAccount"
             component={DeleteAccountScreen}
             options={{ title: 'Delete account' }}
+          />
+          <AppStack.Screen
+            name="BlockedPeople"
+            component={BlockedPeopleScreen}
+            options={{ title: 'Blocked people' }}
+          />
+          <AppStack.Screen
+            name="Report"
+            component={ReportScreen}
+            options={{ title: 'Report' }}
           />
           <AppStack.Screen
             name="Encryption"

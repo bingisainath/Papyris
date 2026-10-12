@@ -23,6 +23,7 @@ import {
   setConversationPrefs,
   markMessagesRead,
   markMessagesDelivered,
+  setBlocked,
   syncOnlineStatus,
   setActiveConversation,
   updateUserOnlineStatus,
@@ -718,6 +719,11 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     v2Runtime()?.then((r) => {
       if (r.state.deviceId === data.deviceId) window.dispatchEvent(new Event(LOGGED_OUT_ELSEWHERE_EVENT));
     }).catch(() => undefined);
+  });
+
+  // You blocked or unblocked someone (maybe on another device)
+  wsService.on('block_changed', (data) => {
+    if (data.userId) dispatch(setBlocked({ userId: data.userId, blocked: !!data.blocked }));
   });
 
   // The account was deleted from one of its devices: every device signs out and wipes itself
