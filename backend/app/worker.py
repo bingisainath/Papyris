@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import socket
 import uuid
 from datetime import datetime, timezone
 
@@ -21,11 +22,22 @@ from app.services import media_storage, push
 
 logger = logging.getLogger("app.worker")
 
+# Entries a worker took but hasn't acknowledged for this long are handed to another worker (or
+# retried by the same one): it crashed mid-save, or the save failed.
+STALE_AFTER_MS = 60_000
+RECLAIM_EVERY_SECONDS = 60
+# After this many tries an entry goes to the dead-letter stream instead of being retried forever
+MAX_DELIVERIES = 5
+# Consumer names with nothing pending that haven't been seen for a day are removed
+FORGET_CONSUMERS_AFTER_MS = 24 * 3600 * 1000
+
 
 class MessageWorker:
     def __init__(self):
         self.streams = RedisStreams()
-        self.consumer_name = f"worker-{uuid.uuid4().hex[:8]}"
+        # A stable name: after a restart the worker picks up what it was given before it stopped.
+        # Run several workers on one machine with WORKER_NAME=worker-1, worker-2, ...
+        self.consumer_name = settings.WORKER_NAME or f"worker-{socket.gethostname()}"
         self.running = False
 
     async def start(self):
@@ -33,6 +45,7 @@ class MessageWorker:
         logger.info("Starting message worker %s", self.consumer_name)
         await self.streams.init_stream()
         self.running = True
+        await self.recover()
         
         try:
             await self.consume_loop()
@@ -48,31 +61,65 @@ class MessageWorker:
         await self.streams.close()
 
     async def consume_loop(self):
-        """Main consumption loop"""
-        logger.info("Listening for messages")
-        
+        """Main consumption loop: new entries, plus a sweep for stuck ones every minute"""
+        logger.info("Listening for messages as %s", self.consumer_name)
+        loop = asyncio.get_running_loop()
+        next_reclaim = loop.time() + RECLAIM_EVERY_SECONDS
+
         while self.running:
             try:
+                if loop.time() >= next_reclaim:
+                    await self.reclaim_stale()
+                    next_reclaim = loop.time() + RECLAIM_EVERY_SECONDS
+
                 results = await self.streams.read_messages(
                     consumer_name=self.consumer_name,
                     count=10,
                     block=5000
                 )
-                
-                if not results:
-                    continue
-                
-                for stream_name, messages in results:
+                for _stream, messages in results or []:
                     for msg_id, fields in messages:
-                        try:
-                            # ✅ FIX: msg_id is already a string, no .decode() needed
-                            await self.process_message(msg_id, fields)
-                        except Exception:
-                            logger.exception("Failed to process stream entry %s (will retry)", msg_id)
-                        
+                        await self.handle(msg_id, fields)
+
             except Exception:
                 logger.exception("Error in consume loop")
                 await asyncio.sleep(1)
+
+    async def recover(self):
+        """At start: finish what this worker was given before it stopped, then take over stuck entries"""
+        try:
+            own = await self.streams.read_own_pending(self.consumer_name)
+            if own:
+                logger.warning("Resuming %d unacknowledged message(s) from before the restart", len(own))
+            for msg_id, fields in own:
+                await self.handle(msg_id, fields)
+            await self.reclaim_stale()
+            removed = await self.streams.forget_idle_consumers(keep=self.consumer_name, idle_ms=FORGET_CONSUMERS_AFTER_MS)
+            if removed:
+                logger.info("Removed %d old worker name(s) with nothing pending", removed)
+        except Exception:
+            logger.exception("Recovering unacknowledged messages failed; the minute sweep will try again")
+
+    async def reclaim_stale(self):
+        """Take over entries left unacknowledged for a minute (by any worker) and process them again"""
+        stale = await self.streams.claim_stale(self.consumer_name, STALE_AFTER_MS)
+        if stale:
+            logger.warning("Retrying %d message(s) left unacknowledged for over %ds", len(stale), STALE_AFTER_MS // 1000)
+        for msg_id, fields in stale:
+            await self.handle(msg_id, fields)
+
+    async def handle(self, msg_id: str, fields: dict):
+        """Process one entry. On failure it stays pending and is retried by the sweep, up to MAX_DELIVERIES."""
+        try:
+            await self.process_message(msg_id, fields)
+        except Exception as error:
+            attempts = await self.streams.delivery_count(msg_id)
+            if attempts >= MAX_DELIVERIES:
+                logger.exception("Giving up on stream entry %s after %d tries; moved to the dead-letter stream", msg_id, attempts)
+                await self.streams.dead_letter(msg_id, fields, f"{type(error).__name__}: {error}")
+            else:
+                logger.exception("Failed to save stream entry %s (try %d of %d); retrying in about a minute",
+                                 msg_id, attempts, MAX_DELIVERIES)
 
     async def notify(self, db, message: Message, data: dict, recipient_ids: list) -> None:
         """Push "Alice: see you at 8" (DM) or "Flat 4B / Alice: ..." (group) to the other members' phones."""
