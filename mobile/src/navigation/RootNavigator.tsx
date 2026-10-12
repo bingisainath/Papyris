@@ -4,9 +4,10 @@ import { ActivityIndicator, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MessagesSquare, Settings, Wallet } from 'lucide-react-native';
-import OfflineBanner from '../components/OfflineBanner';
+import OfflineBanner from '../components/common/OfflineBanner';
 import { useAuth } from '../store/auth';
 import { useChat } from '../store/chat';
+import { isMuted } from '../api/chat';
 import { colors } from '../theme';
 import type { AppStackParams, AuthStackParams, TabParams } from './types';
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -16,6 +17,7 @@ import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import ChatListScreen from '../screens/chats/ChatListScreen';
 import ChatScreen from '../screens/chats/ChatScreen';
 import ChatInfoScreen from '../screens/chats/ChatInfoScreen';
+import SharedMediaScreen from '../screens/chats/SharedMediaScreen';
 import NewChatScreen from '../screens/chats/NewChatScreen';
 import NewGroupScreen from '../screens/chats/NewGroupScreen';
 import ExpensesHomeScreen from '../screens/expenses/ExpensesHomeScreen';
@@ -25,6 +27,11 @@ import ScanReceiptScreen from '../screens/expenses/ScanReceiptScreen';
 import ExpenseDetailScreen from '../screens/expenses/ExpenseDetailScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import ProfileScreen from '../screens/settings/ProfileScreen';
+import ReceiptScanningScreen from '../screens/settings/ReceiptScanningScreen';
+import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
+import E2EGate from '../screens/auth/E2EGate';
+import SessionsScreen from '../screens/settings/SessionsScreen';
+import EncryptionScreen from '../screens/settings/EncryptionScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
 const AppStack = createNativeStackNavigator<AppStackParams>();
@@ -32,7 +39,7 @@ const Tab = createBottomTabNavigator<TabParams>();
 
 const headerStyle = {
   headerTintColor: colors.primary700,
-  headerTitleStyle: { color: colors.muted900, fontWeight: '600' as const },
+  headerTitleStyle: { color: colors.muted900, fontWeight: '700' as const },
   headerStyle: { backgroundColor: colors.white },
   headerShadowVisible: true,
   contentStyle: { backgroundColor: colors.background },
@@ -40,7 +47,8 @@ const headerStyle = {
 
 const Tabs: React.FC = () => {
   const unread = useChat(s =>
-    s.conversations.reduce((sum, c) => sum + (c.unreadCount > 0 ? 1 : 0), 0),
+    // Muted and archived chats don't count (like WhatsApp)
+    s.conversations.reduce((sum, c) => sum + (c.unreadCount > 0 && !c.isArchived && !isMuted(c) ? 1 : 0), 0),
   );
   return (
     <Tab.Navigator
@@ -51,8 +59,10 @@ const Tabs: React.FC = () => {
         tabBarStyle: {
           backgroundColor: colors.white,
           borderTopColor: colors.muted200,
+          minHeight: 64,
+          paddingTop: 6,
         },
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '500' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
       }}
     >
       <Tab.Screen
@@ -124,61 +134,88 @@ const RootNavigator: React.FC = () => {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <AppStack.Navigator screenOptions={headerStyle}>
-        <AppStack.Screen
-          name="Tabs"
-          component={Tabs}
-          options={{ headerShown: false }}
-        />
-        <AppStack.Screen
-          name="Chat"
-          component={ChatScreen}
-          options={{ title: '' }}
-        />
-        <AppStack.Screen
-          name="ChatInfo"
-          component={ChatInfoScreen}
-          options={{ title: 'Info' }}
-        />
-        <AppStack.Screen
-          name="NewChat"
-          component={NewChatScreen}
-          options={{ title: 'New chat' }}
-        />
-        <AppStack.Screen
-          name="NewGroup"
-          component={NewGroupScreen}
-          options={{ title: 'New group' }}
-        />
-        <AppStack.Screen
-          name="ChatExpenses"
-          component={ChatExpensesScreen}
-          options={{ title: 'Balances & expenses' }}
-        />
-        <AppStack.Screen
-          name="AddExpense"
-          component={AddExpenseScreen}
-          options={{ title: 'Add expense', presentation: 'modal' }}
-        />
-        <AppStack.Screen
-          name="ScanReceipt"
-          component={ScanReceiptScreen}
-          options={{ title: 'Scan receipt' }}
-        />
-        <AppStack.Screen
-          name="ExpenseDetail"
-          component={ExpenseDetailScreen}
-          options={{ title: 'Expense' }}
-        />
-        <AppStack.Screen
-          name="Profile"
-          component={ProfileScreen}
-          options={{ title: 'Profile' }}
-        />
-      </AppStack.Navigator>
-      <OfflineBanner />
-    </View>
+    <E2EGate>
+      <View style={{ flex: 1 }}>
+        <AppStack.Navigator screenOptions={headerStyle}>
+          <AppStack.Screen
+            name="Tabs"
+            component={Tabs}
+            options={{ headerShown: false }}
+          />
+          <AppStack.Screen
+            name="Chat"
+            component={ChatScreen}
+            options={{ title: '' }}
+          />
+          <AppStack.Screen
+            name="ChatInfo"
+            component={ChatInfoScreen}
+            options={{ title: 'Info' }}
+          />
+          <AppStack.Screen
+            name="SharedMedia"
+            component={SharedMediaScreen}
+            options={{ title: 'Media, links and docs' }}
+          />
+          <AppStack.Screen
+            name="NewChat"
+            component={NewChatScreen}
+            options={{ title: 'New chat' }}
+          />
+          <AppStack.Screen
+            name="NewGroup"
+            component={NewGroupScreen}
+            options={{ title: 'New group' }}
+          />
+          <AppStack.Screen
+            name="ChatExpenses"
+            component={ChatExpensesScreen}
+            options={{ title: 'Balances & expenses' }}
+          />
+          <AppStack.Screen
+            name="AddExpense"
+            component={AddExpenseScreen}
+            options={{ title: 'Add expense', presentation: 'modal' }}
+          />
+          <AppStack.Screen
+            name="ScanReceipt"
+            component={ScanReceiptScreen}
+            options={{ title: 'Scan receipt' }}
+          />
+          <AppStack.Screen
+            name="ExpenseDetail"
+            component={ExpenseDetailScreen}
+            options={{ title: 'Expense' }}
+          />
+          <AppStack.Screen
+            name="Profile"
+            component={ProfileScreen}
+            options={{ title: 'Profile' }}
+          />
+          <AppStack.Screen
+            name="ReceiptScanning"
+            component={ReceiptScanningScreen}
+            options={{ title: 'Receipt scanning' }}
+          />
+          <AppStack.Screen
+            name="StoreDiscounts"
+            component={StoreDiscountsScreen}
+            options={{ title: 'Store discounts' }}
+          />
+          <AppStack.Screen
+            name="Sessions"
+            component={SessionsScreen}
+            options={{ title: 'Sessions' }}
+          />
+          <AppStack.Screen
+            name="Encryption"
+            component={EncryptionScreen}
+            options={{ title: 'Linked devices' }}
+          />
+        </AppStack.Navigator>
+        <OfflineBanner />
+      </View>
+    </E2EGate>
   );
 };
 

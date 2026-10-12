@@ -8,8 +8,10 @@ group can tap who each item is for.
 |------|-------|
 | `backend/` | FastAPI, SQLAlchemy (async), PostgreSQL, Redis (pub/sub + streams), Alembic |
 | `web/` | React 19, TypeScript, Redux Toolkit, Tailwind |
-| `infra/docker/` | Docker Compose for Postgres and Redis |
-| `mobile/` | React Native scaffold (not started) |
+| `mobile/` | React Native 0.82 (Android; the iOS project hasn't been built yet) |
+| `infra/docker/` | Docker Compose for Postgres and Redis; the backend image |
+| `e2e/` | Browser tests (Playwright) |
+| `docs/` | Design, security and feature documents |
 
 ## How it fits together
 
@@ -26,6 +28,52 @@ group can tap who each item is for.
   AI model (Claude by default) in a background task; the AI only transcribes the receipt, and
   `app/services/split_engine.py` does all the maths. Balances are always recalculated from the
   expenses and payments, never stored.
+
+## Where code goes
+
+**Backend** (`backend/app/`)
+
+| Folder | Holds |
+|---|---|
+| `api/v1/` | Routes only: read the request, check access, call a service, shape the response |
+| `api/dependencies.py` | Shared route dependencies (`get_current_user`) |
+| `schemas/` | Request and response bodies (Pydantic), one file per route module |
+| `services/` | Business logic and integrations (money maths, media, push, email, AI) |
+| `models/` | Database tables (SQLAlchemy); change them with an Alembic migration |
+| `websocket/` | Live connection, Redis pub/sub and the message stream |
+| `core/`, `config/`, `db/` | Security helpers, errors and logging; settings; database session |
+| `worker.py` | Background worker (saves messages, sends push notifications) |
+
+`backend/scripts/` has the admin commands (`create_tables`, `create_test_user`, `make_admin`,
+`encrypt_media`); `backend/tests/` has one test file per area.
+
+**Web** (`web/src/`)
+
+| Folder | Holds |
+|---|---|
+| `components/atoms`, `molecules`, `organisms` | Shared UI, smallest to largest (atomic design) |
+| `components/expenses/` | The expenses feature's components, kept together |
+| `pages/` | One folder per route |
+| `services/` | Every call to the API (through the client in `utils/axios.ts`) |
+| `redux/` | Store, slices and thunks (`actions/`) |
+| `crypto/` | End-to-end encryption (`v2/` is shared with mobile, see below) |
+| `app/`, `routes/`, `hooks/`, `utils/`, `types/`, `config/` | App shell, router, hooks, helpers, types, settings |
+
+**Mobile** (`mobile/src/`)
+
+| Folder | Holds |
+|---|---|
+| `screens/<area>/` | One file per screen: `auth`, `chats`, `expenses`, `settings` |
+| `components/common`, `chat`, `expenses`, `settings` | Reusable pieces, by where they're used |
+| `navigation/` | Navigators and route types |
+| `api/` | API client, tokens and one file per area |
+| `store/` | App state (Zustand) |
+| `websocket/` | Live connection |
+| `crypto/`, `services/`, `hooks/`, `utils/`, `notifications/` | Encryption, app services, hooks, helpers, push |
+
+Tests sit next to the code they test (`name.test.ts`). The encryption files in
+`crypto/` (`e2e.ts`, `messages.ts`, `linking.ts`, `backup.ts` and `v2/`) must be identical in web and
+mobile: `npm run check:e2e` in either app checks this.
 
 ## Running locally
 
@@ -112,6 +160,50 @@ python scripts/encrypt_media.py --dry-run   # count
 python scripts/encrypt_media.py             # encrypt (safe to run again)
 ```
 
+### End-to-end encryption
+
+Messages, photos, videos, voice notes and documents are end-to-end encrypted in chats where every
+member has set up encryption. The server stores and forwards them but can't read them.
+
+- **Keys.** Nothing is asked at sign-up. The first device creates an X25519 key (encryption) and
+  an Ed25519 key (signing) and only publishes the public halves. Private keys never reach the
+  server. They stay on the device (Keychain/Keystore on phones, IndexedDB in browsers) until logout.
+- **Linking another device (like WhatsApp Web).** A new phone or browser shows a QR code and a
+  16-character code. On a signed-in device, go to Settings → End-to-end encryption → **Link a
+  device**, then scan the QR (phone camera) or type the code. That device sends the keys encrypted
+  for a one-off key of the new device, so the server only relays them.
+  - The QR carries that one-off key, so the server can't swap it.
+  - A typed code is checked against the key's fingerprint (80 bits).
+  - Requests expire after 10 minutes and only work within one account.
+- **Messages.** Each message is encrypted once with a fresh key (XChaCha20-Poly1305). That key is
+  sealed separately for every member, the sender included. The sender also signs the message, so
+  the server can't alter it, move it to another chat or forge a sender. Edits and forwards are new
+  encrypted copies.
+- **Files.** Files are encrypted on the device in 64 KiB chunks with their own random key, which
+  travels inside the encrypted message. The server keeps opaque `.enc` files and can't compress
+  them or make previews, so the apps resize photos, strip photo metadata and make video posters
+  themselves.
+- **Not encrypted.**
+  - Expenses and receipt scans: the server calculates balances and reads receipts.
+  - Group names, descriptions and photos, and profiles.
+  - Who talks to whom and when.
+  - Messages sent before encryption existed.
+  - Chats with someone who hasn't set up encryption: the chat says so, and it switches over once
+    everyone has.
+- **Notifications.** Push notifications say "New message" (or "Photo", etc.), never the text.
+- **No other device to hand.** "Start fresh" creates new keys. Older encrypted messages can't be
+  read with them, and contacts' apps notice the new key.
+- **Encrypted backup (optional).** Settings → Encrypted backup shows a 64-digit recovery key once.
+  The backup holds the encryption keys (and, with v2, the chat history). It's encrypted on the
+  device with a fresh key each time, sealed with a key derived from the recovery key, and replaced
+  daily by devices that have the key. With every device gone, the link screen offers "Restore from
+  your backup". The server can't open it, and logging out of the last device warns first.
+- **Security code.** Chat info → "Verify security code" shows 60 digits. Two people who see the
+  same code know the server didn't swap their keys.
+- **Code.** The core (`src/crypto/e2e.ts`) and the message logic (`src/crypto/messages.ts`) are
+  shared word for word by the web and phone apps. Check with `npm run check:e2e` in either app.
+  The libraries are @noble/curves, @noble/ciphers and @noble/hashes.
+
 ### Receipt scanning (optional)
 
 Without a key everything else works, including manual expenses. To read receipts with AI, add
@@ -173,8 +265,11 @@ cd backend && source venv/bin/activate && python ../e2e/fake_ai_server.py   # te
 cd web && npm start                                                         # terminal 2
 python e2e/expenses_e2e.py /tmp/papyris-shots                               # terminal 3
 python e2e/media_e2e.py /tmp/papyris-shots                                  # photos, videos, voice notes
+python e2e/encryption_e2e.py /tmp/papyris-shots                             # end-to-end encryption
 ```
 
-The media test also needs the worker (`python -m app.worker`) running.
+The media and encryption tests also need the worker (`python -m app.worker`) running. `encryption_e2e.py` resets the QA
+users' keys at the start (it also needs `pip install psycopg2-binary` and the database at
+`PAPYRIS_DB`). The other tests start fresh when a browser is asked to link.
 
 Each run creates an "E2E Flat …" group; delete them afterwards if you like.

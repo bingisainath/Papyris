@@ -42,6 +42,17 @@ export interface Message {
   isDeleted?: boolean;
   editedAt?: string | null;
   expenseId?: string | null; // system message shown as an expense card
+  // End-to-end encryption (src/crypto): 'encrypted' = decrypted fine, 'unreadable' = not for this device
+  e2e?: 'encrypted' | 'unreadable' | 'pending'; // pending: v2 content not decrypted on this device (yet)
+  e2eVersion?: 2;
+  localId?: string; // v2: the sender's message id (key in the device's local database)
+  mediaV2?: { sha256: string; size: number }; // v2 files (PMV2 format)
+  thumbV2?: { sha256: string; size: number };
+  e2eUnverified?: boolean; // signed with a key that isn't the sender's
+  senderSignKey?: string;
+  mediaKey?: string; // the encrypted file's key (base64)
+  mediaMime?: string;
+  thumbKey?: string; // key of the encrypted video poster
 }
 
 const byTimestamp = (a: Message, b: Message) =>
@@ -53,11 +64,14 @@ interface Conversation {
   avatar?: string;
   lastMessage?: string;
   lastMessageTime?: string;
+  lastMessageSenderId?: string | null;
   unreadCount?: number;
   isOnline?: boolean;
   isTyping?: boolean;
   isPinned?: boolean;
   pinnedAt?: string | null;
+  mutedUntil?: string | null; // muted for you until then (no notifications)
+  isArchived?: boolean; // archived by you: in the Archived list, not the main one
   isGroup?: boolean;
   members?: string[];
 }
@@ -260,6 +274,19 @@ const chatSlice = createSlice({
       if (message) message.reactions = reactions;
     },
 
+    /** Mute / archive (and the unpin archiving does), from this browser or another of your devices. */
+    setConversationPrefs: (state, action: PayloadAction<{ conversationId: string; mutedUntil?: string | null; isArchived?: boolean; isPinned?: boolean }>) => {
+      const { conversationId, ...prefs } = action.payload;
+      const conversation = state.conversations.find(c => c.id === conversationId);
+      if (!conversation) return;
+      if (prefs.mutedUntil !== undefined) conversation.mutedUntil = prefs.mutedUntil;
+      if (prefs.isArchived !== undefined) conversation.isArchived = prefs.isArchived;
+      if (prefs.isPinned === false) {
+        conversation.isPinned = false;
+        conversation.pinnedAt = null;
+      }
+    },
+
     setPinned: (state, action: PayloadAction<{ conversationId: string; pinnedAt: string | null }>) => {
       const conversation = state.conversations.find(c => c.id === action.payload.conversationId);
       if (conversation) {
@@ -274,6 +301,17 @@ const chatSlice = createSlice({
       if (list) {
         state.messages[conversationId] = list.filter(m => m.id !== messageId);
       }
+    },
+
+    /** Every member has the conversation on a device up to deliveredUpTo: one tick becomes two. */
+    markMessagesDelivered: (state, action: PayloadAction<{ conversationId: string; deliveredUpTo: string }>) => {
+      const { conversationId, deliveredUpTo } = action.payload;
+      const limit = new Date(deliveredUpTo).getTime();
+      (state.messages[conversationId] || []).forEach(m => {
+        if (m.status === 'sent' && new Date(m.timestamp).getTime() <= limit) {
+          m.status = 'delivered';
+        }
+      });
     },
 
     /** Everyone in the conversation has read up to readUpTo: update sent/delivered ticks. */
@@ -470,9 +508,11 @@ export const {
   upsertMessage,
   removeMessage,
   setPinned,
+  setConversationPrefs,
   applyMessageUpdate,
   setReactions,
   markMessagesRead,
+  markMessagesDelivered,
   syncOnlineStatus,
   replaceOptimisticMessage,
   addMessage,

@@ -1,14 +1,16 @@
 // src/screens/settings/ProfileScreen.tsx
 // Profile edited like the web app: each field saves on its own.
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, Text } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { AtSign, Camera, Info, Pencil, User as UserIcon } from 'lucide-react-native';
-import Avatar from '../../components/Avatar';
+import { AtSign, Camera, Info, User as UserIcon, Wallet, CreditCard, IndianRupee } from 'lucide-react-native';
+import Avatar from '../../components/common/Avatar';
+import EditableField from '../../components/common/EditableField';
 import { authApi } from '../../api/auth';
 import { api, errorMessage } from '../../api/client';
 import { useAuth } from '../../store/auth';
-import { colors, radius, space } from '../../theme';
+import { colors, space } from '../../theme';
+import { showAlert } from '../../components/common/Dialog';
 
 const ProfileScreen: React.FC = () => {
   const { user, setUser } = useAuth();
@@ -23,12 +25,12 @@ const ProfileScreen: React.FC = () => {
       ...(user.avatar ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: () => run(() => save({ avatar: '' })) }] : []),
       { text: 'Cancel', style: 'cancel' as const },
     ];
-    Alert.alert('Profile photo', undefined, options);
+    showAlert('Profile photo', undefined, options);
   };
 
   const run = async (action: () => Promise<unknown>) => {
     setBusyPhoto(true);
-    try { await action(); } catch (e) { Alert.alert("Couldn't update the photo", errorMessage(e)); } finally { setBusyPhoto(false); }
+    try { await action(); } catch (e) { showAlert("Couldn't update the photo", errorMessage(e)); } finally { setBusyPhoto(false); }
   };
 
   const pickPhoto = async () => {
@@ -51,75 +53,38 @@ const ProfileScreen: React.FC = () => {
           <View style={styles.camera}>{busyPhoto ? <ActivityIndicator size="small" color={colors.white} /> : <Camera size={18} color={colors.white} />}</View>
         </Pressable>
       </View>
-      <Field icon={UserIcon} label="Name" value={user.name || ''} placeholder="Add your name" max={100}
+      <EditableField icon={UserIcon} label="Name" value={user.name || ''} placeholder="Add your name" max={100}
         validate={(v) => (v.trim().length < 2 ? 'Enter at least 2 characters' : null)} onSave={(name) => save({ name })} />
-      <Field icon={Info} label="About" value={user.bio || ''} placeholder="Hey there! I'm using Papyris." max={140} onSave={(bio) => save({ bio })} />
-      <Field icon={AtSign} label="Username" value={user.username} max={30} prefix="@"
+      <EditableField icon={Info} label="About" value={user.bio || ''} placeholder="Hey there! I'm using Papyris." max={140} onSave={(bio) => save({ bio })} />
+      <EditableField icon={AtSign} label="Username" value={user.username} max={30} prefix="@"
         normalize={(v) => v.trim().toLowerCase()}
         validate={(v) => (/^[a-z0-9._]{3,30}$/.test(v) ? null : 'Use 3-30 lowercase letters, numbers, dots or underscores')}
         onSave={(username) => save({ username })} />
+
+      {/* Optional: people in your chats who owe you get a Pay button for these */}
+      <Text style={styles.section}>Payment details</Text>
+      <Text style={styles.sectionHint}>Optional. People in your chats who owe you see a Pay button for these. Papyris never moves money.</Text>
+      <EditableField icon={Wallet} label="Revolut username" value={user.payment_handles?.revolut || ''} placeholder="your-name" max={40} prefix="revolut.me/"
+        normalize={(v) => v.trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?revolut\.me\//i, '')}
+        validate={(v) => (!v || /^[A-Za-z0-9._-]{2,40}$/.test(v) ? null : 'Letters, numbers, dots, dashes or underscores')}
+        onSave={(revolut) => save({ payment_handles: { revolut } })} />
+      <EditableField icon={CreditCard} label="PayPal.me username" value={user.payment_handles?.paypal || ''} placeholder="YourName" max={40} prefix="paypal.me/"
+        normalize={(v) => v.trim().replace(/^https?:\/\/(www\.)?paypal\.me\//i, '')}
+        validate={(v) => (!v || /^[A-Za-z0-9]{1,40}$/.test(v) ? null : 'Letters and numbers only')}
+        onSave={(paypal) => save({ payment_handles: { paypal } })} />
+      <EditableField icon={IndianRupee} label="UPI ID" value={user.payment_handles?.upi || ''} placeholder="name@bank" max={100}
+        normalize={(v) => v.trim()}
+        validate={(v) => (!v || /^[A-Za-z0-9._-]{2,64}@[A-Za-z0-9]{2,32}$/.test(v) ? null : 'Looks like name@bank')}
+        onSave={(upi) => save({ payment_handles: { upi } })} />
     </ScrollView>
   );
 };
 
-const Field: React.FC<{
-  icon: React.ComponentType<{ size?: number; color?: string }>; label: string; value: string; placeholder?: string; max: number; prefix?: string;
-  normalize?: (v: string) => string; validate?: (v: string) => string | null; onSave: (v: string) => Promise<void>;
-}> = ({ icon: Icon, label, value, placeholder, max, prefix, normalize, validate, onSave }) => {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const submit = async () => {
-    const next = normalize ? normalize(draft) : draft.trim();
-    if (next === value) { setEditing(false); return; }
-    const problem = validate?.(next);
-    if (problem) { setError(problem); return; }
-    setSaving(true);
-    try { await onSave(next); setEditing(false); setError(null); } catch (e) { setError(errorMessage(e)); } finally { setSaving(false); }
-  };
-
-  return (
-    <View style={styles.field}>
-      <Icon size={20} color={colors.primary700} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.label}>{label}</Text>
-        {editing ? (
-          <>
-            <TextInput value={draft} onChangeText={(t) => { setDraft(t); setError(null); }} autoFocus maxLength={max} placeholder={placeholder}
-              autoCapitalize={prefix ? 'none' : 'sentences'} style={[styles.input, !!error && { borderColor: colors.danger500 }]} onSubmitEditing={submit} />
-            {error && <Text style={styles.error}>{error}</Text>}
-            <View style={styles.buttons}>
-              <Pressable onPress={submit} disabled={saving} style={styles.saveButton}><Text style={styles.saveText}>{saving ? 'Saving…' : 'Save'}</Text></Pressable>
-              <Pressable onPress={() => { setEditing(false); setDraft(value); setError(null); }}><Text style={styles.cancel}>Cancel</Text></Pressable>
-            </View>
-          </>
-        ) : (
-          <Text style={[styles.value, !value && { color: colors.muted400 }]}>{value ? `${prefix || ''}${value}` : placeholder}</Text>
-        )}
-      </View>
-      {!editing && (
-        <Pressable onPress={() => { setDraft(value); setEditing(true); }} hitSlop={10} accessibilityLabel={`Edit ${label.toLowerCase()}`}>
-          <Pencil size={18} color={colors.primary700} />
-        </Pressable>
-      )}
-    </View>
-  );
-};
-
 const styles = StyleSheet.create({
+  section: { paddingHorizontal: space(4), paddingTop: space(6), fontSize: 12, fontWeight: '700', color: colors.muted500, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionHint: { paddingHorizontal: space(4), paddingTop: space(1), paddingBottom: space(2), fontSize: 12, color: colors.muted500 },
   hero: { alignItems: 'center', paddingVertical: space(8), backgroundColor: colors.muted50 },
   camera: { position: 'absolute', right: 0, bottom: 0, width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary700, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.muted50 },
-  field: { flexDirection: 'row', alignItems: 'flex-start', gap: space(4), padding: space(4), backgroundColor: colors.white, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.muted200 },
-  label: { fontSize: 12, color: colors.muted500 },
-  value: { fontSize: 15, color: colors.muted900, marginTop: 2 },
-  input: { marginTop: space(1), height: 44, borderWidth: 1, borderColor: colors.primary500, borderRadius: radius.md, paddingHorizontal: space(3), fontSize: 15, color: colors.muted900 },
-  error: { marginTop: space(1), fontSize: 12, color: colors.danger600 },
-  buttons: { flexDirection: 'row', alignItems: 'center', gap: space(4), marginTop: space(2) },
-  saveButton: { paddingHorizontal: space(4), paddingVertical: space(2), borderRadius: radius.md, backgroundColor: colors.primary700 },
-  saveText: { color: colors.white, fontWeight: '600' },
-  cancel: { color: colors.muted600 },
 });
 
 export default ProfileScreen;

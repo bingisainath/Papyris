@@ -45,6 +45,7 @@ ALLOWED_TYPES: dict[str, tuple[str, str]] = {
 }
 
 EXTENSION_MIME = {ext: mime for mime, (_, ext) in ALLOWED_TYPES.items()}
+# (".enc" end-to-end encrypted uploads are served as application/octet-stream)
 
 MEDIA_TYPES = {"image", "video", "audio", "file"}
 
@@ -56,7 +57,12 @@ def upload_root() -> Path:
     return root if root.is_absolute() else BACKEND_ROOT / root
 
 
+MAX_BACKUP_SIZE = 500 * 1024 * 1024  # encrypted chat backups (end-to-end encrypted, one per account)
+
+
 def max_size_for(media_type: str) -> int:
+    if media_type == "backup":
+        return MAX_BACKUP_SIZE
     return settings.MAX_VIDEO_UPLOAD_SIZE if media_type == "video" else settings.MAX_UPLOAD_SIZE
 
 
@@ -164,8 +170,22 @@ def content_matches(mime: str, head: bytes) -> bool:
     return False
 
 
+ENCRYPTED_PREFIX = "e2e1:"  # end-to-end encrypted message text (web/src/crypto/e2e.ts)
+V2_MARKER = "e2e2:"  # v2 message: the content went to each device's mailbox; the row only orders the timeline
+ENCRYPTED_EXTENSION = ".enc"  # end-to-end encrypted upload: opaque bytes
+
+
+def is_encrypted(text: str | None) -> bool:
+    return bool(text) and (text.startswith(ENCRYPTED_PREFIX) or text.startswith(V2_MARKER))
+
+
 def preview_text(message_type: str | None, text: str | None, filename: str | None = None) -> str:
-    """Conversation-list preview for a message."""
+    """
+    Preview for a message (push notifications). Encrypted messages can't be read here: they get a
+    label by type only ("Photo", "New message"), and the apps decrypt the real preview themselves.
+    """
+    if is_encrypted(text):
+        return {"image": "Photo", "video": "Video", "audio": "Voice message", "file": "Document"}.get(message_type or "", "New message")
     if text:
         return text
     if message_type == "image":

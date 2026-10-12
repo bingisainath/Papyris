@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Build from the backend folder: docker build -f ../infra/docker/backend.Dockerfile .
+# The same image runs the worker with: python -m app.worker
+FROM python:3.12-slim
 
 WORKDIR /app
 

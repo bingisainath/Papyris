@@ -1,4 +1,4 @@
-import { formatMinor, parseMajor, toMajorString } from './money';
+import { convertMinor, formatMinor, parseMajor, toMajorString } from './money';
 
 describe('parseMajor', () => {
   it.each([
@@ -36,4 +36,19 @@ describe('toMajorString', () => {
 it('formats with the currency', () => {
   expect(formatMinor(1642, 'EUR')).toMatch(/16\.42/);
   expect(formatMinor(500, 'JPY')).toMatch(/500/);
+});
+
+
+describe('convertMinor', () => {
+  // rates: units of each currency per 1 of the target (USD here)
+  const rates = { USD: 1, EUR: 0.5, JPY: 150 };
+  it('converts through the rate, respecting each currency\'s decimals', () => {
+    expect(convertMinor(1000, 'EUR', 'USD', rates)).toBe(2000); // €10.00 → $20.00
+    expect(convertMinor(1500, 'JPY', 'USD', rates)).toBe(1000); // ¥1500 → $10.00
+    expect(convertMinor(1234, 'USD', 'USD', null)).toBe(1234);
+  });
+  it('gives null without a rate', () => {
+    expect(convertMinor(100, 'GBP', 'USD', rates)).toBeNull();
+    expect(convertMinor(100, 'EUR', 'USD', null)).toBeNull();
+  });
 });

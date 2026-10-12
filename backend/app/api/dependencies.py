@@ -11,6 +11,7 @@ from jose import JWTError, jwt
 
 from app.db.session import get_db
 from app.models.user import User
+from app.services import sessions
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -67,16 +68,8 @@ async def get_current_user(
         raise credentials_exception
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    # Logged out (here or from another device): the sign-in's tokens no longer work
+    if not await sessions.is_active(db, payload.get("sid"), user.id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=sessions.LOGGED_OUT, headers={"WWW-Authenticate": "Bearer"})
     return user
 
-
-# Optional: Dependency for admin-only routes
-async def get_current_admin_user(
-    current_user: User = Depends(get_current_user)
-) -> User:
-    """
-    Dependency for admin-only routes
-    """
-    # You can add an 'is_admin' field to your User model
-    # For now, just return the user
-    return current_user

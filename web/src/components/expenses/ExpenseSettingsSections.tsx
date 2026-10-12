@@ -7,12 +7,62 @@ import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
 import type { AdminAI, AISettings, AIModelOption, StoreDiscount } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
-import { Switch } from './shared';
+import { Switch, useDisplayCurrency } from './shared';
+import { useAuth } from '../../app/AuthProvider';
+import type { CurrencyInfo } from '../../utils/money';
 
 const PROVIDERS: { id: 'anthropic' | 'openai'; name: string; hint: string; url: string }[] = [
   { id: 'anthropic', name: 'Claude (Anthropic)', hint: 'sk-ant-…', url: 'https://console.anthropic.com/settings/keys' },
   { id: 'openai', name: 'OpenAI', hint: 'sk-…', url: 'https://platform.openai.com/api-keys' },
 ];
+
+/** "Show totals in": expense amounts in other currencies also appear converted to this one (≈). */
+export const DisplayCurrencySettings: React.FC = () => {
+  const { user, updateProfile } = useAuth();
+  const { updated } = useDisplayCurrency();
+  const [codes, setCodes] = useState<CurrencyInfo[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { expenseService.currencies().then(setCodes).catch(() => undefined); }, []);
+
+  const choose = async (code: string) => {
+    setBusy(true);
+    try {
+      await updateProfile({ display_currency: code });
+      toast.success(code ? `Totals will also show in ${code}` : 'Showing original currencies only');
+    } catch (error) {
+      toast.error(parseApiError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-muted-900">Show totals in</h2>
+          <p className="text-sm text-muted-500">
+            Amounts in other currencies also show converted, e.g. €20.00 ≈ $22.40. Balances and payments stay in the
+            currency each expense was added in.
+          </p>
+          {user?.display_currency && updated && (
+            <p className="mt-1 text-xs text-muted-400">Rates from ExchangeRate-API, updated {new Date(updated).toLocaleString()}.</p>
+          )}
+        </div>
+        <select
+          value={user?.display_currency || ''}
+          onChange={(e) => choose(e.target.value)}
+          disabled={busy}
+          aria-label="Show totals in"
+          className="flex-shrink-0 h-10 px-3 rounded-[11px] border border-muted-200 bg-white text-sm disabled:opacity-60"
+        >
+          <option value="">Off (original currencies)</option>
+          {codes.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+};
 
 export const ReceiptScanningSettings: React.FC = () => {
   const [settings, setSettings] = useState<AISettings | null>(null);

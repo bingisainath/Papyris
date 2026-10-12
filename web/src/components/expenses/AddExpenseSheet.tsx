@@ -2,11 +2,12 @@
 // "Add expense" from a chat: scan a receipt or enter it by hand. Also used to edit.
 
 import React, { useState } from 'react';
-import { PenLine, ScanLine } from 'lucide-react';
+import { PenLine, Sparkles } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { Expense } from '../../services/expense.service';
 import ManualExpenseForm from './ManualExpenseForm';
 import ReceiptScan from './ReceiptScan';
-import { Segmented, Sheet, useChatMoney } from './shared';
+import { Sheet, useChatMoney } from './shared';
 
 interface Props {
   conversationId: string;
@@ -18,6 +19,11 @@ interface Props {
   onSaved?: (expense: Expense) => void;
 }
 
+const ENTRY_OPTIONS: { value: 'scan' | 'manual'; label: string; hint: string; icon: LucideIcon }[] = [
+  { value: 'scan', label: 'Scan receipt', hint: 'Split item by item with AI', icon: Sparkles },
+  { value: 'manual', label: 'Enter manually', hint: 'Type the amount and split', icon: PenLine },
+];
+
 const AddExpenseSheet: React.FC<Props> = ({ conversationId, currentUserId, expense, receiptId, initialTab, onClose, onSaved }) => {
   const [tab, setTab] = useState<'scan' | 'manual'>(receiptId ? 'scan' : expense ? 'manual' : initialTab || 'scan');
   const { members, settings } = useChatMoney(conversationId);
@@ -28,14 +34,29 @@ const AddExpenseSheet: React.FC<Props> = ({ conversationId, currentUserId, expen
   };
 
   return (
-    <Sheet title={expense ? 'Edit expense' : receiptId ? 'Receipt' : 'Add expense'} onClose={onClose} wide={tab === 'scan'}>
+    <Sheet title={expense ? 'Edit expense' : receiptId ? 'Review receipt' : 'Add an expense'} eyebrow={expense ? undefined : tab === 'scan' ? 'AI receipt scan' : 'New expense'} onClose={onClose} wide={tab === 'scan'}>
       {!expense && !receiptId && (
-        <div className="flex justify-center mb-4">
-          <Segmented
-            value={tab}
-            onChange={setTab}
-            options={[{ value: 'scan', label: 'Scan receipt', icon: ScanLine }, { value: 'manual', label: 'Enter manually', icon: PenLine }]}
-          />
+        <div className="grid grid-cols-2 gap-2.5 mb-5" role="tablist" aria-label="How to add it">
+          {ENTRY_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              role="tab"
+              aria-selected={tab === o.value}
+              onClick={() => setTab(o.value)}
+              className={`flex items-center gap-3 p-3.5 rounded-[14px] border text-left transition-colors ${
+                tab === o.value ? 'border-primary-400 bg-primary-50' : 'border-muted-200 bg-white hover:bg-muted-50'
+              }`}
+            >
+              <span className={`w-9 h-9 flex-shrink-0 rounded-[10px] grid place-items-center ${tab === o.value ? 'bg-primary-700 text-white' : 'bg-primary-50 text-primary-700'}`}>
+                <o.icon size={18} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-muted-900">{o.label}</span>
+                <span className="block text-xs text-muted-500 truncate">{o.hint}</span>
+              </span>
+            </button>
+          ))}
         </div>
       )}
       {!members.length || !settings ? (

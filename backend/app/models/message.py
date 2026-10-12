@@ -70,6 +70,10 @@ class Message(Base):
     
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # End-to-end encrypted messages: the server can't see the text, so the sender says whether it
+    # contains a link (for the Links tab). Unused for plain messages.
+    has_link: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
     # Set on the chat card posted when an expense is added
     expense_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("expenses.id", ondelete="SET NULL"), nullable=True

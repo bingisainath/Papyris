@@ -84,3 +84,46 @@ async def test_unsupported_reaction_rejected(client, make_user, make_dm, add_mes
     msg = await add_message(await make_dm(a, b), a)
     r = await client.put(f"/api/v1/messages/{msg}/reaction", json={"emoji": "<script>"}, headers=b.headers)
     assert r.status_code == 400
+
+
+
+async def test_ticks_sent_then_delivered(client, make_user, make_dm, add_message, events):
+    a, b = await make_user(), await make_user()
+    dm = await make_dm(a, b)
+    await add_message(dm, a, "hi bob")
+    assert (await _history(client, a, dm))["data"][-1]["status"] == "sent"  # not on Bob's devices yet
+
+    # Bob's app loads its chat list: the message reached his phone
+    assert (await client.get("/api/v1/conversations", headers=b.headers)).status_code == 200
+    assert (await _history(client, a, dm))["data"][-1]["status"] == "delivered"
+
+    # Loading the list again changes nothing and announces nothing new
+    before = len([p for _, p in events if p["type"] == "delivered"])
+    await client.get("/api/v1/conversations", headers=b.headers)
+    assert len([p for _, p in events if p["type"] == "delivered"]) == before
+
+
+async def test_delivered_receipt_over_websocket(client, make_user, make_dm, add_message):
+    import uuid as _uuid
+    import app.websocket.routes as ws_routes
+    a, b, outsider = await make_user(), await make_user(), await make_user()
+    dm = await make_dm(a, b)
+    msg = await add_message(dm, a, "ping")
+
+    # Someone outside the chat can't mark it
+    await ws_routes._handle_delivered(_uuid.UUID(outsider.id), dm, msg)
+    assert (await _history(client, a, dm))["data"][-1]["status"] == "sent"
+
+    await ws_routes._handle_delivered(_uuid.UUID(b.id), dm, msg)
+    assert (await _history(client, a, dm))["data"][-1]["status"] == "delivered"
+
+
+async def test_delivered_event_tells_members(client, make_user, make_dm, add_message, events):
+    a, b = await make_user(), await make_user()
+    dm = await make_dm(a, b)
+    await add_message(dm, b, "from bob")
+    await _history(client, a, dm)  # Alice has Bob's message: her pointer is set
+    await add_message(dm, a, "reply")
+    await client.get("/api/v1/conversations", headers=b.headers)
+    event = next(p for _, p in reversed(events) if p["type"] == "delivered" and p["roomId"] == dm)
+    assert event["deliveredUpTo"]

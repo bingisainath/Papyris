@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
+import { AlertTriangle, CheckCircle2, Plus, Sparkles, Tag, Trash2 } from 'lucide-react';
 import { CATEGORIES, expenseService } from '../../services/expense.service';
 import CategoryIcon from './CategoryIcon';
 import type { Expense, Receipt, ReceiptAdjustment, ReceiptUpdate } from '../../services/expense.service';
@@ -193,7 +194,7 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
       adjustments: [...d.adjustments, {
         kind, label: KIND_LABELS[kind], amount: '', percent: kind === 'store_discount' ? '10' : null, item_indexes: [],
         allocation: kind === 'tip' || kind === 'service_charge' || kind === 'fee' ? 'equal' : 'proportional',
-        assignee_ids: [], source: 'manual', enabled: true,
+        assignee_ids: [], source: kind === 'tip' ? 'manual' : 'printed', enabled: true,
       }],
     }));
 
@@ -214,6 +215,25 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
   const payersProblem = several && totals && paidMinor !== totals.computed_total_minor
     ? `What people paid must add up to ${formatMinor(totals.computed_total_minor, currency)}`
     : null;
+
+  // ---- what the summary card and the people row show
+  const discountsApplied = server.adjustments.filter((a) => a.enabled && DISCOUNT_KINDS.includes(a.kind) && a.amount_minor < 0);
+  const savedMinor = -discountsApplied.reduce((sum, a) => sum + a.amount_minor, 0);
+  const personalItems = draft.items
+    .map((item, n) => ({ item, n }))
+    .filter(({ item }) => !item.flags.includes('voided') && item.assignments.length === 1 && members.length > 1);
+  const unsureCount = server.items.filter((i) => i.confidence !== null && i.confidence !== undefined && i.confidence < 0.6).length;
+  const inExpense = (userId: string) => draft.items.some((it) => it.assignments.some((a) => a.user_id === userId));
+  const toggleEverywhere = (userId: string) =>
+    change((d) => ({
+      ...d,
+      items: d.items.map((it) => {
+        const has = it.assignments.some((a) => a.user_id === userId);
+        if (inExpense(userId)) return has ? { ...it, assignments: it.assignments.filter((a) => a.user_id !== userId) } : it;
+        return has ? it : { ...it, assignments: [...it.assignments, { user_id: userId, value: '1' }] };
+      }),
+    }));
+  const linesMinor = (totals?.computed_total_minor || 0) - (totals?.outside_receipt_minor || 0);
 
   const save = async () => {
     setSaving(true);
@@ -244,28 +264,31 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
     || (totals && totals.unassigned_item_indexes.length > 0
       ? `Choose who ${totals.unassigned_item_indexes.length === 1 ? 'the highlighted item is' : 'the highlighted items are'} for`
       : null)
+    || (difference
+      ? `The items add up to ${formatMinor((totals?.computed_total_minor || 0) - (totals?.outside_receipt_minor || 0), currency)}, but the receipt total is ${formatMinor(totals?.printed_total_minor, currency)}. Fix a price, a discount or the receipt total.`
+      : null)
     || payersProblem;
 
   return (
     <div className="space-y-5 pb-2">
       {/* Store, total, photos */}
-      <div className="flex gap-3">
+      <div className="flex gap-3.5">
         <div className="flex -space-x-3 flex-shrink-0">
           {server.images.map((src) => (
-            <button key={src} type="button" onClick={() => setPhoto(src)} className="w-14 h-16 rounded-lg overflow-hidden border-2 border-white shadow">
+            <button key={src} type="button" onClick={() => setPhoto(src)} title="See the photo" className="w-14 h-[68px] rounded-xl overflow-hidden border-2 border-white shadow-card">
               <img src={resolveMediaUrl(src)} alt="Receipt" className="w-full h-full object-cover" />
             </button>
           ))}
         </div>
-        <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex-1 min-w-0 space-y-2">
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={draft.store_name || 'Receipt'}
             aria-label="Description"
-            className="w-full px-2 py-1 font-semibold text-muted-900 rounded-md border border-transparent hover:border-muted-200 focus:border-primary-400 focus:outline-none"
+            className="w-full px-2 py-1 -ml-2 font-display text-lg font-semibold text-muted-900 rounded-lg border border-transparent hover:border-muted-200 focus:border-primary-400 focus:outline-none"
           />
-          <div className="flex items-center gap-2 text-sm text-muted-600">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-600">
             <CurrencySelect value={currency} onChange={(c) => change((d) => ({ ...d, currency: c }))} className="py-1" />
             <span>Receipt total</span>
             <MoneyInput
@@ -279,29 +302,58 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
         </div>
       </div>
 
-      {server.model && (
-        <p className="text-xs text-muted-400">
-          Read by {server.model}{server.key_source === 'user' ? ' with your own key' : ''}. Check anything highlighted.
+      {/* What was read, in a few lines */}
+      <section className="p-4 rounded-2xl bg-primary-50 border border-primary-100" aria-label="Receipt summary">
+        <p className="flex items-center gap-2 text-sm font-bold text-primary-800">
+          <Sparkles size={16} /> {draft.items.length} item{draft.items.length === 1 ? '' : 's'} read{draft.store_name ? ` from ${draft.store_name}` : ''}
+          {server.model && <span className="font-normal text-xs text-primary-600">· {server.model}{server.key_source === 'user' ? ', your key' : ''}</span>}
         </p>
-      )}
-
-      {(server.warnings.length > 0 || (difference !== null && difference !== 0)) && (
-        <div className="p-3 rounded-xl bg-warning-50 border border-warning-200 text-sm text-warning-800 space-y-1">
-          {difference !== null && difference !== 0 && (
-            <p className="font-medium">
-              Lines add up to {formatMinor((totals?.computed_total_minor || 0) - (totals?.outside_receipt_minor || 0), currency)}, the receipt says {formatMinor(totals?.printed_total_minor, currency)}.
-            </p>
+        <ul className="mt-2 space-y-1 text-sm text-primary-900">
+          {discountsApplied.length > 0 && (
+            <li>{discountsApplied.length} discount{discountsApplied.length === 1 ? '' : 's'} applied, saving <b><Money minor={savedMinor} currency={currency} /></b>.</li>
           )}
+          {personalItems.length > 0 && (
+            <li>
+              Just for one person: {personalItems.slice(0, 3).map(({ item }) => `${item.name} (${nameOf(item.assignments[0].user_id)})`).join(', ')}
+              {personalItems.length > 3 ? ` and ${personalItems.length - 3} more` : ''}.
+            </li>
+          )}
+          {unsureCount > 0 && <li>{unsureCount} line{unsureCount === 1 ? ' was' : 's were'} hard to read; check the highlighted ones.</li>}
+          {discountsApplied.length === 0 && personalItems.length === 0 && unsureCount === 0 && <li>Everything read cleanly. Choose who each item is for below.</li>}
+        </ul>
+        {discountsApplied.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {discountsApplied.map((a) => (
+              <span key={a.id ?? `${a.label}-${a.amount_minor}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white text-xs font-semibold text-success-700 border border-success-100">
+                <Tag size={12} /> {a.label} −<Money minor={-a.amount_minor} currency={currency} />
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {server.warnings.filter((w) => !w.startsWith('The lines add up')).length > 0 && (
+        <div className="p-3 rounded-xl bg-warning-50 border border-warning-200 text-sm text-warning-800 space-y-1">
           {server.warnings.filter((w) => !w.startsWith('The lines add up')).map((w) => <p key={w}>{w}</p>)}
         </div>
       )}
 
+      {/* Everyone in this expense: tap someone to add them to every item, or take them off */}
+      <div>
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-muted-500">People in this expense</h3>
+        <div className="flex flex-wrap gap-3">
+          {members.map((m) => (
+            <PersonToggle key={m.id} member={m} selected={inExpense(m.id)} onToggle={() => toggleEverywhere(m.id)} label={nameOf(m.id)} />
+          ))}
+        </div>
+      </div>
+
       {/* Quick assign */}
       <div className="flex items-center justify-between gap-2">
-        <h3 className="font-semibold text-muted-900">Who is each item for?</h3>
+        <h3 className="font-display font-semibold text-muted-900">Who is each item for?</h3>
         <div className="flex gap-1.5">
-          <button type="button" onClick={() => assignAll(members.map((m) => m.id))} className="px-2.5 py-1 text-xs rounded-full bg-muted-100 hover:bg-muted-200">Everyone</button>
-          <button type="button" onClick={() => assignAll([])} className="px-2.5 py-1 text-xs rounded-full bg-muted-100 hover:bg-muted-200">Clear</button>
+          <button type="button" onClick={() => assignAll(members.map((m) => m.id))} className="px-3 py-1.5 text-xs font-semibold rounded-full border border-muted-200 text-muted-600 hover:bg-muted-50">Everyone</button>
+          <button type="button" onClick={() => assignAll([])} className="px-3 py-1.5 text-xs font-semibold rounded-full border border-muted-200 text-muted-600 hover:bg-muted-50">Clear</button>
         </div>
       </div>
 
@@ -317,10 +369,10 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
           return (
             <li
               key={n}
-              className={`p-3 rounded-xl border ${unassigned.has(n) ? 'border-accent-400 bg-accent-50/40' : lowConfidence ? 'border-warning-300 bg-warning-50/40' : 'border-muted-200'} ${voided ? 'opacity-50' : ''}`}
+              className={`p-3.5 rounded-[14px] border ${unassigned.has(n) ? 'border-accent-400 bg-accent-50/40' : lowConfidence ? 'border-warning-300 bg-warning-50/40' : expanded === n ? 'border-primary-300 bg-white shadow-card' : 'border-muted-200 bg-white'} ${voided ? 'opacity-50' : ''}`}
             >
               <div className="flex items-start gap-2">
-                <button type="button" className="flex-1 min-w-0 text-left" onClick={() => setExpanded(expanded === n ? null : n)}>
+                <button type="button" className="flex-1 min-w-0 text-left" onClick={() => setExpanded(expanded === n ? null : n)} aria-expanded={expanded === n} title="Edit this line">
                   <p className={`font-medium text-muted-900 truncate ${voided ? 'line-through' : ''}`}>
                     {item.quantity !== '1' && <span className="text-muted-500">{item.quantity}{item.unit !== 'each' ? item.unit : '×'} </span>}
                     {item.name}
@@ -337,7 +389,7 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
                 </button>
                 <div className="text-right flex-shrink-0">
                   {net !== gross && <Money minor={gross} currency={currency} className="block text-xs text-muted-400 line-through" />}
-                  <Money minor={net} currency={currency} className="font-semibold text-muted-900" />
+                  <Money minor={net} currency={currency} className="font-bold text-muted-900" />
                 </div>
               </div>
 
@@ -392,8 +444,8 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
                     ))}
                   </div>
                   {serverItem?.raw_text && <p className="col-span-2 text-xs text-muted-400 font-mono truncate">Printed: {serverItem.raw_text}</p>}
-                  <button type="button" onClick={() => { removeItem(n); setExpanded(null); }} className="col-span-2 justify-self-start text-xs text-accent-600 hover:underline">
-                    Remove this line
+                  <button type="button" onClick={() => { removeItem(n); setExpanded(null); }} className="col-span-2 justify-self-start inline-flex items-center gap-1 text-xs font-semibold text-accent-600 hover:underline">
+                    <Trash2 size={13} /> Remove this line
                   </button>
                 </div>
               )}
@@ -401,11 +453,13 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
           );
         })}
       </ul>
-      <button type="button" onClick={addItem} className="text-sm text-primary-700 hover:underline">+ Add a line</button>
+      <button type="button" onClick={addItem} className="w-full h-11 rounded-[14px] border border-dashed border-primary-300 text-sm font-semibold text-primary-700 hover:bg-primary-50 inline-flex items-center justify-center gap-1.5">
+        <Plus size={16} /> Add a line
+      </button>
 
       {/* Discounts, tax, fees */}
       <section className="space-y-2">
-        <h3 className="font-semibold text-muted-900">Discounts, tax and fees</h3>
+        <h3 className="font-display font-semibold text-muted-900">Promotions, discounts, tax and fees</h3>
         {billAdjustments.length === 0 && <p className="text-sm text-muted-500">Nothing else on this receipt.</p>}
         {billAdjustments.map(({ a, idx }) => (
           <AdjustmentRow
@@ -452,10 +506,41 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
         ))}
       </div>
 
+      {/* Does what we worked out match the receipt? */}
+      {totals && (
+        <section
+          aria-label="Total check"
+          className={`p-4 rounded-2xl border ${difference ? 'bg-accent-50 border-accent-200' : 'bg-success-50 border-success-200'}`}
+        >
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-muted-500">Calculated from the lines</p>
+              <Money minor={linesMinor} currency={currency} className="text-lg font-bold text-muted-900" />
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-500">Receipt total</p>
+              {totals.printed_total_minor === null
+                ? <span className="text-sm text-muted-500">Not entered</span>
+                : <Money minor={totals.printed_total_minor} currency={currency} className="text-lg font-bold text-muted-900" />}
+            </div>
+          </div>
+          <p className={`mt-3 flex items-start gap-2 text-sm font-semibold ${difference ? 'text-accent-700' : 'text-success-700'}`}>
+            {difference
+              ? <><AlertTriangle size={17} className="flex-shrink-0" /> <span>Off by <Money minor={Math.abs(difference)} currency={currency} />. Check a price, a discount or the receipt total.</span></>
+              : totals.printed_total_minor === null
+                ? <><CheckCircle2 size={17} /> Enter the receipt total above to double-check.</>
+                : <><CheckCircle2 size={17} /> Matches the receipt total</>}
+          </p>
+          {!!totals.outside_receipt_minor && (
+            <p className="mt-1 text-xs text-muted-500">Plus <Money minor={totals.outside_receipt_minor} currency={currency} /> you added that isn’t on the receipt (e.g. a tip).</p>
+          )}
+        </section>
+      )}
+
       {/* Summary */}
-      <section className="p-3 rounded-xl bg-muted-50 space-y-1.5">
+      <section className="p-4 rounded-2xl bg-[#f6f4fa] space-y-1.5">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-muted-900">Each person pays</h3>
+          <h3 className="font-display font-semibold text-muted-900">Each person pays</h3>
           {syncing && <span className="text-xs text-muted-400">Updating…</span>}
         </div>
         {totals?.people.map((p) => (
@@ -477,7 +562,7 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
       </section>
 
       {/* Stays in view while scrolling through items */}
-      <div className="sticky bottom-0 -mx-4 sm:-mx-6 -mb-4 px-4 sm:px-6 py-3 bg-white/95 backdrop-blur border-t border-muted-200 space-y-2">
+      <div className="sticky bottom-0 -mx-5 sm:-mx-6 -mb-5 px-5 sm:px-6 py-3 bg-white/95 backdrop-blur border-t border-muted-200 space-y-2">
       {blocking && <p className="text-sm text-accent-600">{blocking}</p>}
       <div className="flex items-center gap-2">
         {!server.expense_id && (
@@ -487,7 +572,7 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
           type="button"
           onClick={save}
           disabled={saving || !!blocking}
-          className="flex-1 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold disabled:opacity-50"
+          className="flex-1 h-12 rounded-xl bg-primary-700 hover:bg-primary-800 text-white font-bold shadow-[0_5px_14px_rgba(84,63,125,0.18)] disabled:opacity-50 disabled:shadow-none"
         >
           {saving ? 'Saving…' : server.expense_id ? 'Update expense' : 'Save expense'}
           {totals && !saving && <> · {formatMinor(totals.computed_total_minor, currency)}</>}
@@ -525,7 +610,7 @@ const AdjustmentRow: React.FC<{
     : a.allocation === 'assign'
       ? `Charged to ${a.assignee_ids.map(nameOf).join(', ') || 'nobody yet'}`
       : a.item_indexes.length && a.item_indexes.length < itemCount
-        ? `On ${a.item_indexes.length} item${a.item_indexes.length === 1 ? '' : 's'}, by price`
+        ? `On ${a.item_indexes.length} item${a.item_indexes.length === 1 ? '' : 's'}${a.allocation === 'per_unit' && a.item_indexes.length > 1 ? '' : ', by price'}`
         : 'Whole bill, by price';
 
   return (
@@ -560,7 +645,25 @@ const AdjustmentRow: React.FC<{
             <option value="assign">To specific people</option>
           </select>
         )}
-        {a.source !== 'printed' && <button type="button" onClick={onRemove} className="text-accent-600 hover:underline">Remove</button>}
+        {discount && a.item_indexes.length > 1 && (
+          // A deal over several items ("any 3 for 2"): share it per item, or the same % off each
+          <select
+            value={a.allocation === 'per_unit' ? 'per_unit' : 'proportional'}
+            aria-label="How to share this deal"
+            onChange={(e) => onChange({ allocation: e.target.value as AdjustmentDraft['allocation'] })}
+            className="ml-auto px-1.5 py-0.5 rounded border border-muted-200 bg-white"
+          >
+            <option value="per_unit">Each item costs the same</option>
+            <option value="proportional">Same % off each item</option>
+          </select>
+        )}
+        {a.source !== 'store_rule' && (
+          <label className="flex items-center gap-1" title="Off for your own extras (e.g. a tip you add): they aren't compared with the receipt total">
+            <input type="checkbox" checked={a.source === 'printed'} onChange={(e) => onChange({ source: e.target.checked ? 'printed' : 'manual' })} />
+            On the receipt
+          </label>
+        )}
+        <button type="button" onClick={onRemove} className="text-accent-600 hover:underline">Remove</button>
       </div>
       {usesPercent && (
         // Same store, different rate this time (e.g. colleague discount 10%, 15% or 20%)

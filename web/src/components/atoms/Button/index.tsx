@@ -34,12 +34,12 @@ const Button: React.FC<ButtonProps> = ({
     primary: `
       bg-primary-700
       hover:bg-primary-800
-      text-white
+      text-white shadow-[0_5px_14px_rgba(84,63,125,0.18)]
     `,
     secondary: `
-      bg-white border border-muted-300
-      hover:bg-muted-50 hover:border-primary-300
-      text-muted-800
+      bg-primary-50 border border-primary-100
+      hover:bg-primary-100
+      text-primary-700
     `,
     ghost: `
       bg-transparent hover:bg-primary-50 
@@ -81,8 +81,8 @@ const Button: React.FC<ButtonProps> = ({
       disabled={isDisabled}
       className={`
         inline-flex items-center justify-center 
-        font-semibold rounded-lg 
-        transition-all duration-200
+        font-bold rounded-[11px]
+        transition-colors duration-200
         ${variants[variant]} 
         ${sizes[size]}
         ${fullWidth ? 'w-full' : ''}

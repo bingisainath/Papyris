@@ -20,6 +20,7 @@ from app.models.user import User
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
+from app.services import e2e_mailbox
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
@@ -35,6 +36,8 @@ PRESENCE_KEY = "papyris:presence"
 LEGACY_ONLINE_SET_KEY = "papyris:online_users"
 
 MAX_TEXT_LENGTH = 5000
+# An encrypted envelope carries the sealed key for every member plus base64 overhead
+MAX_ENCRYPTED_LENGTH = 200_000
 
 # How long a read receipt waits for the worker to persist the message it refers to
 READ_WAIT_ATTEMPTS = 15
@@ -121,6 +124,15 @@ async def ws_chat(ws: WebSocket):
         logger.info("WebSocket rejected: invalid or expired token")
         await ws.close(code=1008, reason="Invalid token")
         return
+    # A sign-in that was logged out (here or from another device) can't connect
+    async with async_session_maker() as db:
+        from app.services import sessions
+        from jose import jwt as _jwt
+        sid = _jwt.get_unverified_claims(token).get("sid")  # signature already checked above
+        if not await sessions.is_active(db, sid, user_id):
+            logger.info("WebSocket rejected: signed out session")
+            await ws.close(code=1008, reason="Signed out")
+            return
 
     # 2. Accept connection and track presence
     await manager.accept(ws)
@@ -187,7 +199,8 @@ async def ws_chat(ws: WebSocket):
                 media_url = data.get("mediaUrl") or None
                 media_type = data.get("mediaType") or None
 
-                if len(text) > MAX_TEXT_LENGTH:
+                encrypted = media_storage.is_encrypted(text)
+                if len(text) > (MAX_ENCRYPTED_LENGTH if encrypted else MAX_TEXT_LENGTH):
                     await reject(f"Message too long (max {MAX_TEXT_LENGTH} characters)")
                     continue
 
@@ -216,8 +229,16 @@ async def ws_chat(ws: WebSocket):
                 duration = data.get("mediaDuration")
                 media_duration = int(duration) if isinstance(duration, (int, float)) and media_type in ("audio", "video") and 0 < duration <= 36000 else None
                 media_thumbnail = data.get("mediaThumbnail") or None
-                if media_thumbnail and (media_type != "video" or not media_storage.is_stored_image_url(media_thumbnail)):
+                # (encrypted posters are opaque uploads; the server can't check they're images)
+                thumbnail_ok = bool(media_thumbnail) and (
+                    media_storage.is_stored_media_url(media_thumbnail) if encrypted else media_storage.is_stored_image_url(media_thumbnail)
+                )
+                if media_thumbnail and (media_type != "video" or not thumbnail_ok):
                     media_thumbnail = None
+                if encrypted:
+                    # Size, name and dimensions travel inside the envelope; don't store them in the clear
+                    media_size = media_filename = media_width = media_height = media_duration = None
+                has_link = encrypted and data.get("hasLink") is True
 
                 # Store plain URLs; every response signs them for the people who may see them
                 media_url = media_storage.unsigned(media_url)
@@ -282,6 +303,7 @@ async def ws_chat(ws: WebSocket):
                     "mediaWidth": media_width,
                     "mediaHeight": media_height,
                     "mediaDuration": media_duration,
+                    "hasLink": has_link,
                     "replyToId": reply_to["id"] if reply_to else None,
                     "timestamp": timestamp,
                 })
@@ -311,6 +333,86 @@ async def ws_chat(ws: WebSocket):
 
                 await publish_users(member_ids, payload)
                 logger.debug("Message %s published to %d members", msg_id, len(member_ids))
+                continue
+
+            # SEND MESSAGE, end-to-end encryption v2 (docs/encryption-design-v2.md). The content is in
+            # per-device packets the server can't read; the timeline row only records that a message
+            # of this kind was sent, and when (ordering, unread counts, replies, push "New message").
+            if event_type == "message_v2" and room_id:
+                client_id = data.get("clientId")
+
+                async def reject_v2(reason: str):
+                    await ws.send_json({"type": "error", "message": reason, "clientId": client_id, "roomId": room_id})
+
+                message_type = data.get("messageType") or "text"
+                attachments = [a for a in (data.get("attachments") or []) if isinstance(a, str)][:2]
+                from_device = data.get("fromDevice")
+                raw = data.get("envelopes")
+                if message_type not in ("text", "image", "video", "audio", "file") or not isinstance(from_device, int) or not isinstance(raw, list):
+                    await reject_v2("Invalid message")
+                    continue
+                attachments = [media_storage.unsigned(a) for a in attachments]
+                if any(not media_storage.is_stored_media_url(a) or not a.endswith(media_storage.ENCRYPTED_EXTENSION) for a in attachments):
+                    await reject_v2("Media not found. Upload the file first.")
+                    continue
+                if message_type != "text" and not attachments:
+                    await reject_v2("Media message without a file")
+                    continue
+                try:
+                    outgoing = [e2e_mailbox.Outgoing(uuid.UUID(e["to_user"]), int(e["to_device"]), e["packet"]) for e in raw if isinstance(e.get("packet"), dict)]
+                    conv_uuid = uuid.UUID(room_id)
+                except (KeyError, ValueError, TypeError, AttributeError):
+                    await reject_v2("Invalid envelopes")
+                    continue
+
+                msg_id = str(uuid.uuid4())
+                timestamp = datetime.now(timezone.utc).isoformat()
+                async with async_session_maker() as db:
+                    try:
+                        rows = await e2e_mailbox.queue(db, user_id, conv_uuid, from_device, outgoing, uuid.UUID(msg_id))
+                    except e2e_mailbox.MailboxError as e:
+                        await reject_v2(e.detail)
+                        continue
+                    reply_to = None
+                    reply_to_id = data.get("replyToId")
+                    if reply_to_id:
+                        try:
+                            original = await MessageService.get_message(db, uuid.UUID(reply_to_id), wait_seconds=2)
+                        except ValueError:
+                            original = None
+                        if original is None or str(original.conversation_id) != room_id:
+                            await reject_v2("The message you replied to was not found")
+                            continue
+                        original_sender = await db.get(User, original.sender_id)
+                        reply_to = {
+                            "id": str(original.id), "text": MessageService.preview_text(original), "senderId": str(original.sender_id),
+                            "senderName": original_sender.username if original_sender else None,
+                            "messageType": original.message_type.value, "isDeleted": original.is_deleted,
+                        }
+                    await db.commit()
+                    member_ids = await MessageService.member_ids(db, conv_uuid)
+                    sender = await db.get(User, user_id)
+
+                media_type = message_type if message_type != "text" else None
+                thumbnail = attachments[1] if media_type == "video" and len(attachments) > 1 else None
+                await streams.add_message({
+                    "messageId": msg_id, "conversationId": room_id, "senderId": user_id_str,
+                    "senderName": sender.username if sender else "Unknown",
+                    "text": media_storage.V2_MARKER, "mediaType": media_type, "mediaUrl": attachments[0] if attachments else None,
+                    "mediaThumbnail": thumbnail, "hasLink": data.get("hasLink") is True,
+                    "replyToId": reply_to["id"] if reply_to else None, "timestamp": timestamp,
+                })
+                await publish_users(member_ids, {
+                    "type": "message", "roomId": room_id, "messageId": msg_id, "clientId": client_id,
+                    "senderId": user_id_str, "senderName": sender.username if sender else "Unknown",
+                    "senderAvatar": media_storage.sign_url(sender.avatar if sender else None),
+                    "text": media_storage.V2_MARKER, "messageType": message_type, "mediaType": media_type,
+                    "mediaUrl": media_storage.sign_url(attachments[0]) if attachments else None,
+                    "mediaThumbnail": media_storage.sign_url(thumbnail), "replyTo": reply_to,
+                    "timestamp": timestamp, "status": "sent", "fromDevice": from_device,
+                })
+                for uid, event in e2e_mailbox.events(rows):
+                    await publish_users([uid], event)
                 continue
 
             # TYPING INDICATOR
@@ -349,6 +451,16 @@ async def ws_chat(ws: WebSocket):
 
                 # Runs in the background: it may wait for the worker to persist the message
                 task = asyncio.create_task(_handle_read(user_id, room_id, last_msg_id))
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
+                continue
+
+            # DELIVERY RECEIPT: a message reached this device (two grey ticks for the sender)
+            if event_type == "delivered" and room_id:
+                last_msg_id = data.get("lastMessageId")
+                if not last_msg_id or last_msg_id.startswith('temp-'):
+                    continue
+                task = asyncio.create_task(_handle_delivered(user_id, room_id, last_msg_id))
                 _background_tasks.add(task)
                 task.add_done_callback(_background_tasks.discard)
                 continue
@@ -413,6 +525,47 @@ async def _handle_read(user_id: uuid.UUID, conversation_id: str, last_message_id
         "readUpTo": read_up_to.isoformat() if read_up_to else None,
     })
     logger.debug("User %s read %s up to %s", user_id, conversation_id, last_message_id)
+
+
+async def _handle_delivered(user_id: uuid.UUID, conversation_id: str, last_message_id: str) -> None:
+    """Record that a message reached one of user_id's devices; tell members if everyone has it now"""
+    try:
+        conv_uuid = uuid.UUID(conversation_id)
+        msg_uuid = uuid.UUID(last_message_id)
+    except ValueError:
+        return
+    try:
+        for _ in range(READ_WAIT_ATTEMPTS):
+            async with async_session_maker() as db:
+                if not await _check_membership(db, user_id, conversation_id):
+                    return
+                # The worker may not have persisted a just-sent message yet
+                created_at = (await db.execute(
+                    select(Message.created_at).where(Message.id == msg_uuid, Message.conversation_id == conv_uuid)
+                )).scalar_one_or_none()
+                if created_at is None:
+                    await asyncio.sleep(READ_WAIT_SECONDS)
+                    continue
+                if await ChatService.mark_delivered(db, user_id, conv_uuid, created_at):
+                    await publish_delivered(db, conv_uuid)
+                return
+    except Exception:
+        logger.exception("Failed to mark %s as delivered", last_message_id)
+
+
+async def publish_delivered(db: AsyncSession, conversation_id: uuid.UUID) -> None:
+    """Tell every member how far the conversation has reached everyone's devices"""
+    delivered_up_to = await ChatService.delivered_up_to(db, conversation_id)
+    if delivered_up_to is None:
+        return
+    member_ids = [str(m) for m in (await db.execute(
+        select(ConversationMember.user_id).where(ConversationMember.conversation_id == conversation_id)
+    )).scalars().all()]
+    await publish_users(member_ids, {
+        "type": "delivered",
+        "roomId": str(conversation_id),
+        "deliveredUpTo": delivered_up_to.isoformat(),
+    })
 
 
 async def _mark_read(

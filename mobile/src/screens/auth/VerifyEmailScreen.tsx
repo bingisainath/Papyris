@@ -4,8 +4,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useAuth } from '../../store/auth';
-import { Banner, Button } from '../../components/ui';
-import { colors, radius, space } from '../../theme';
+import { Banner, Button } from '../../components/common/ui';
+import { colors, space } from '../../theme';
 import AuthLayout from './AuthLayout';
 import type { AuthStackParams } from '../../navigation/types';
 
@@ -54,7 +54,7 @@ const VerifyEmailScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'Verif
   };
 
   return (
-    <AuthLayout title="Check your email" subtitle={`We sent a 6-digit code to ${email}. It expires in 10 minutes.`}>
+    <AuthLayout eyebrow="One last step" title="Verify your email" subtitle={`We sent a 6-digit code to ${email}. It expires in 10 minutes.`}>
       {error && <Banner text={error} />}
       {info && !error && <Banner tone="info" text={info} />}
       <Pressable onPress={() => input.current?.focus()} style={styles.boxes} accessibilityLabel="Verification code">
@@ -99,9 +99,9 @@ const VerifyEmailScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'Verif
 
 const styles = StyleSheet.create({
   boxes: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: space(5) },
-  box: { width: 44, height: 54, borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted300, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
-  boxActive: { borderColor: colors.primary600, borderWidth: 2 },
-  digit: { fontSize: 22, fontWeight: '600', color: colors.muted900 },
+  box: { width: 46, height: 56, borderRadius: 12, borderWidth: 1, borderColor: colors.muted200, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
+  boxActive: { borderColor: colors.primary500, borderWidth: 2 },
+  digit: { fontSize: 22, fontWeight: '700', color: colors.primary700 },
   hidden: { position: 'absolute', opacity: 0, width: 1, height: 1 },
   footer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: space(5) },
   muted: { color: colors.muted600, fontSize: 14 },

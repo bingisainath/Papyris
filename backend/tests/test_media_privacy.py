@@ -132,6 +132,14 @@ async def test_video_compressed_to_720p_mp4_without_location(client, make_user, 
     info = video_size(served, tmp_path)
     assert "1280x720" in info and "location" not in info
 
+    # A poster frame is made on the server (for the phone app), with the video's shape and length
+    assert data["width"] / data["height"] == pytest.approx(16 / 9, rel=0.01)
+    assert data["duration"] == pytest.approx(2, abs=0.2)
+    assert data["thumbnailUrl"].endswith(".jpg") and "sig=" in data["thumbnailSignedUrl"]
+    poster = (await client.get(data["thumbnailSignedUrl"])).content
+    assert poster.startswith(b"\xff\xd8") and b"Exif" not in poster[:200]
+    assert (await client.get(data["thumbnailUrl"])).status_code == 403  # unsigned link refused
+
     # HD keeps the video exactly as sent
     r = await client.post("/api/v1/media/upload?quality=hd", headers=user.headers,
                           files={"file": ("clip.mov", original, "video/quicktime")})

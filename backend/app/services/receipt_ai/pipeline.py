@@ -289,7 +289,8 @@ async def apply_extraction(db: AsyncSession, receipt: Receipt, data: ReceiptExtr
             percent=_percent(extracted.percent),
             scope=scope,
             item_ids=targets,
-            allocation="proportional",
+            # A deal over several items ("any 3 for 2"): each item in it costs the same per unit
+            allocation="per_unit" if extracted.kind == "promotion" and scope == "group" else "proportional",
             assignee_ids=[],
             source="printed",
             enabled=True,
@@ -414,6 +415,7 @@ def engine_inputs(receipt: Receipt) -> tuple[list[EngineItem], list[EngineAdjust
             id=i.id,
             gross=i.gross_minor,
             split_mode=i.split_mode,
+            quantity=Decimal(i.quantity) if i.quantity else Decimal(1),
             assignments=[(a["user_id"], _quantity(a.get("value"))) for a in (i.assignments or [])],
             voided="voided" in (i.flags or []),
         )

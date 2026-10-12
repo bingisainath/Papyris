@@ -2,6 +2,22 @@
 import React, { useEffect, useState } from 'react';
 import { resolveMediaUrl } from '../../../utils/media';
 
+// Initials sit on one of these, picked from the name, so a person keeps the same colour everywhere
+const TONES = [
+  'from-[#7964a6] to-[#4b376e]', // purple
+  'from-[#cf8490] to-[#9b4e5a]', // rose
+  'from-[#e1a34b] to-[#a75a13]', // amber
+  'from-[#5c91c9] to-[#36618d]', // blue
+  'from-[#51a676] to-[#27714a]', // green
+  'from-[#8995a8] to-[#586477]', // slate
+];
+
+export function toneFor(name: string): string {
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+  return TONES[Math.abs(hash) % TONES.length];
+}
+
 interface AvatarProps {
   src?: string | null;
   alt?: string;
@@ -41,7 +57,7 @@ const Avatar: React.FC<AvatarProps> = ({
   };
 
   return (
-    <div data-avatar className={`relative inline-block flex-shrink-0 ${className}`}>
+    <div data-avatar className={`relative inline-block align-middle flex-shrink-0 ${className}`}>
       {/* Purple ring for active/selected state */}
       {showRing && (
         <div className="absolute inset-0 rounded-full bg-primary-600 p-0.5">
@@ -55,13 +71,13 @@ const Avatar: React.FC<AvatarProps> = ({
           src={photo}
           onError={() => setFailed(true)}
           alt={alt}
-          className={`${sizes[size]} rounded-full object-cover ${showRing ? 'relative z-10' : ''}`}
+          className={`${sizes[size]} block rounded-full object-cover ${showRing ? 'relative z-10' : ''}`}
         />
       ) : (
         <span
           role="img"
           aria-label={alt}
-          className={`${sizes[size]} ${textSizes[size]} rounded-full bg-primary-100 text-primary-800 font-semibold flex items-center justify-center select-none ${showRing ? 'relative z-10' : ''}`}
+          className={`${sizes[size]} ${textSizes[size]} rounded-full bg-gradient-to-br ${toneFor(alt)} text-white font-bold tracking-tight flex items-center justify-center select-none ${showRing ? 'relative z-10' : ''}`}
         >
           {initials}
         </span>

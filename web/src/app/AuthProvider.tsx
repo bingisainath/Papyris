@@ -10,17 +10,18 @@ import React, {
   useState,
 } from "react";
 import { useDispatch } from "react-redux";
-import { loginUser, registerUser, getMe, updateMe, verifyEmailCode, resendVerificationCode } from "../api/auth.api";
+import { authService, loginUser, registerUser, getMe, updateMe, verifyEmailCode, resendVerificationCode } from "../services/auth.service";
 import { AxiosError } from "axios";
-import type { ProfileUpdate } from "../api/auth.api";
+import type { ProfileUpdate } from "../services/auth.service";
 import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
-import { refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
+import { e2eSession } from "../crypto/session";
+import { stopV2 } from "../crypto/v2-platform/runtime";
+import { LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
 import type { AppDispatch } from "../redux/store";
-import { authService } from "../services/auth.service";
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data?: T };
 
@@ -43,7 +44,7 @@ type AuthContextType = {
   forgotPassword: (identifier: string) => Promise<void>;
   verifyResetToken: (token: string) => Promise<{ email: string; username: string }>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void> | void;
   clearError: () => void;
   updateProfile: (data: ProfileUpdate) => Promise<void>;
 };
@@ -72,11 +73,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [user]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     // ✅ ADD: Disconnect WebSocket before logout
     dispatch(disconnectWebSocket());
 
+    // v2: the server forgets this device and its local data is wiped (while still signed in)
+    await stopV2().catch(() => undefined);
     tokenStore.clear();
+    e2eSession.clear(); // signing in here again means linking it again
     setUser(null);
     setError(null);
   }, [dispatch]);
@@ -106,7 +110,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     };
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
-    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    // Logged out from another device: logging out here also wipes this browser's keys and messages
+    const onLoggedOut = () => {
+      tokenStore.clear();
+      logout();
+      toast.info("This browser was logged out from another of your devices.");
+    };
+    window.addEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+      window.removeEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
+    };
   }, [logout]);
 
   useEffect(() => {

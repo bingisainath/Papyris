@@ -1,30 +1,46 @@
 // src/screens/chats/ChatInfoScreen.tsx
-// Group or contact info: members, admin actions, pin, leave, and the chat's expense settings.
+// Group or contact info: members, admin actions (incl. editing the group), pin, leave, and the chat's expense settings.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ChevronRight, LogOut, Pin, PinOff, UserPlus, Wallet, X } from 'lucide-react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { Archive, ArchiveRestore, Bell, BellOff, Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Avatar from '../../components/Avatar';
-import UserSearch from '../../components/UserSearch';
-import { Divider } from '../../components/ui';
-import { chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
+import Avatar from '../../components/common/Avatar';
+import EditableField from '../../components/common/EditableField';
+import EncryptionInfo from '../../components/chat/EncryptionInfo';
+import UserSearch from '../../components/chat/UserSearch';
+import { Divider } from '../../components/common/ui';
+import { isMuted, chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
 import { expenseService, ExpenseSettings } from '../../api/expenses';
 import { api, errorMessage } from '../../api/client';
 import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
-import CurrencyPicker from '../expenses/CurrencyPicker';
+import CurrencyPicker from '../../components/expenses/CurrencyPicker';
+import { showAlert } from '../../components/common/Dialog';
 
 const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'>> = ({ route, navigation }) => {
   const { conversationId, addMembers } = route.params;
   const me = useAuth((s) => s.user)!;
   const pinned = useChat((s) => !!s.conversations.find((c) => c.id === conversationId)?.isPinned);
+  const chat = useChat((s) => s.conversations.find((c) => c.id === conversationId));
+  const muted = isMuted(chat);
+  const mutedLabel = !muted ? 'On' : new Date(chat!.mutedUntil!).getFullYear() > 2100 ? 'Muted always'
+    : `Muted until ${new Date(chat!.mutedUntil!).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  const muteMenu = () => showAlert('Notifications', muted ? mutedLabel : 'Mute this chat: no notifications, but new messages still appear here.', [
+    ...(muted ? [{ text: 'Unmute', onPress: () => run(() => useChat.getState().mute(conversationId, null)) }] : []),
+    { text: 'Mute for 8 hours', onPress: () => run(() => useChat.getState().mute(conversationId, '8h')) },
+    { text: 'Mute for 1 week', onPress: () => run(() => useChat.getState().mute(conversationId, '1w')) },
+    { text: 'Mute always', onPress: () => run(() => useChat.getState().mute(conversationId, 'always')) },
+    { text: 'Cancel', style: 'cancel' },
+  ], { cancelable: true });
   const [details, setDetails] = useState<ConversationDetails | null>(null);
   const [settings, setSettings] = useState<ExpenseSettings | null>(null);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [busyPhoto, setBusyPhoto] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -32,7 +48,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
       setDetails(d);
       setSettings(s);
     } catch (e) {
-      Alert.alert("Couldn't load info", errorMessage(e));
+      showAlert("Couldn't load info", errorMessage(e));
       navigation.goBack();
     }
   }, [conversationId, navigation]);
@@ -53,13 +69,43 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
       await load();
       useChat.getState().loadConversations().catch(() => undefined);
     } catch (e) {
-      Alert.alert('Something went wrong', errorMessage(e));
+      showAlert('Something went wrong', errorMessage(e));
     }
+  };
+
+  // Admins edit the group: each change saves on its own and posts a note in the chat (server side)
+  const saveGroup = async (body: Parameters<typeof chatApi.updateGroup>[1]) => {
+    await chatApi.updateGroup(conversationId, body);
+    await load();
+    useChat.getState().loadConversations().catch(() => undefined);
+  };
+
+  const changePhoto = () => showAlert('Group photo', undefined, [
+    { text: 'Choose photo', onPress: pickPhoto },
+    ...(details.avatar_url ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: () => photoTask(() => saveGroup({ avatar_url: '' })) }] : []),
+    { text: 'Cancel', style: 'cancel' as const },
+  ]);
+
+  const photoTask = async (action: () => Promise<unknown>) => {
+    setBusyPhoto(true);
+    try { await action(); } catch (e) { showAlert("Couldn't update the photo", errorMessage(e)); } finally { setBusyPhoto(false); }
+  };
+
+  const pickPhoto = async () => {
+    const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, maxWidth: 1024, maxHeight: 1024, quality: 0.8 });
+    const asset = result.assets?.[0];
+    if (!asset?.uri) return;
+    photoTask(async () => {
+      const form = new FormData();
+      form.append('file', { uri: asset.uri, type: asset.type || 'image/jpeg', name: asset.fileName || 'group.jpg' } as any);
+      const r = await api.post('/media/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await saveGroup({ avatar_url: r.data.data.url });
+    });
   };
 
   const memberActions = (member: MemberInfo) => {
     if (!isAdmin || member.is_me) return;
-    Alert.alert(member.name || member.username, undefined, [
+    showAlert(member.name || member.username, undefined, [
       member.role === 'admin'
         ? { text: 'Remove as admin', onPress: () => run(() => api.patch(`/conversations/${conversationId}/members/${member.id}`, { role: 'member' })) }
         : { text: 'Make group admin', onPress: () => run(() => api.patch(`/conversations/${conversationId}/members/${member.id}`, { role: 'admin' })) },
@@ -68,7 +114,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     ]);
   };
 
-  const leave = () => Alert.alert('Leave this group?', 'You will stop receiving its messages.', [
+  const leave = () => showAlert('Leave this group?', 'You will stop receiving its messages.', [
     { text: 'Cancel', style: 'cancel' },
     {
       text: 'Leave', style: 'destructive',
@@ -78,7 +124,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
           await useChat.getState().loadConversations();
           navigation.popToTop();
         } catch (e) {
-          Alert.alert("Couldn't leave", errorMessage(e));
+          showAlert("Couldn't leave", errorMessage(e));
         }
       },
     },
@@ -88,7 +134,7 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     try {
       setSettings(await expenseService.updateSettings(conversationId, patch));
     } catch (e) {
-      Alert.alert("Couldn't save", errorMessage(e));
+      showAlert("Couldn't save", errorMessage(e));
     }
   };
 
@@ -96,19 +142,50 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView>
         <View style={styles.hero}>
-          <Avatar uri={isGroup ? details.avatar_url : other?.avatar} name={title} size={88} />
+          {isGroup && isAdmin ? (
+            <Pressable onPress={changePhoto} accessibilityLabel="Change group photo">
+              <Avatar uri={details.avatar_url} name={title} size={88} />
+              <View style={styles.camera}>{busyPhoto ? <ActivityIndicator size="small" color={colors.white} /> : <Camera size={16} color={colors.white} />}</View>
+            </Pressable>
+          ) : (
+            <Avatar uri={isGroup ? details.avatar_url : other?.avatar} name={title} size={88} />
+          )}
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{isGroup ? `Group · ${details.members.length} members` : `@${other?.username}`}</Text>
-          {(isGroup ? details.description : other?.bio) ? <Text style={styles.about}>{isGroup ? details.description : other?.bio}</Text> : null}
+          {!(isGroup && isAdmin) && (isGroup ? details.description : other?.bio) ? <Text style={styles.about}>{isGroup ? details.description : other?.bio}</Text> : null}
+        </View>
+
+        {isGroup && isAdmin && (
+          <View style={styles.section}>
+            <EditableField icon={Type} label="Group name" value={details.title || ''} max={100}
+              validate={(v) => (v.trim() ? null : 'Enter a group name')} onSave={(t) => saveGroup({ title: t })} />
+            <EditableField icon={Info} label="Description" value={details.description || ''} placeholder="Add a group description" max={500} multiline
+              onSave={(d) => saveGroup({ description: d })} />
+          </View>
+        )}
+
+        <View style={styles.section}>
+          <EncryptionInfo conversationId={conversationId} otherId={isGroup ? undefined : other?.id} otherName={other?.name || other?.username} />
         </View>
 
         <View style={styles.section}>
+          <Row icon={Images} label="Media, links and docs" onPress={() => navigation.navigate('SharedMedia', { conversationId })} />
+          <Divider />
           <Row icon={Wallet} label="Balances & expenses" onPress={() => navigation.navigate('ChatExpenses', { conversationId })} />
           <Divider />
-          <Row icon={pinned ? PinOff : Pin} label={pinned ? 'Unpin chat' : 'Pin chat'} onPress={() => run(async () => {
-            await chatApi.pin(conversationId, !pinned);
-            useChat.getState().setPinned(conversationId, !pinned);
-          })} />
+          <Row icon={muted ? BellOff : Bell} label="Notifications" value={mutedLabel} onPress={muteMenu} />
+          <Divider />
+          {!chat?.isArchived && (
+            <>
+              <Row icon={pinned ? PinOff : Pin} label={pinned ? 'Unpin chat' : 'Pin chat'} onPress={() => run(async () => {
+                await chatApi.pin(conversationId, !pinned);
+                useChat.getState().setPinned(conversationId, !pinned);
+              })} />
+              <Divider />
+            </>
+          )}
+          <Row icon={chat?.isArchived ? ArchiveRestore : Archive} label={chat?.isArchived ? 'Unarchive chat' : 'Archive chat'}
+            onPress={() => run(() => useChat.getState().archive(conversationId, !chat?.isArchived))} />
         </View>
 
         {settings && (
@@ -187,18 +264,21 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   );
 };
 
-const Row: React.FC<{ icon: React.ComponentType<{ size?: number; color?: string }>; label: string; onPress: () => void; danger?: boolean }> = ({ icon: Icon, label, onPress, danger }) => (
+const Row: React.FC<{ icon: React.ComponentType<{ size?: number; color?: string }>; label: string; value?: string; onPress: () => void; danger?: boolean }> = ({ icon: Icon, label, value, onPress, danger }) => (
   <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted50 }]}>
     <Icon size={20} color={danger ? colors.danger600 : colors.primary700} />
     <Text style={[styles.rowText, danger && { color: colors.danger600 }]}>{label}</Text>
+    {!!value && <Text style={styles.rowValue} numberOfLines={1}>{value}</Text>}
     {!danger && <ChevronRight size={18} color={colors.muted400} />}
   </Pressable>
 );
 
 const styles = StyleSheet.create({
+  rowValue: { maxWidth: '50%', fontSize: 13, color: colors.muted500 },
   safe: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hero: { alignItems: 'center', paddingVertical: space(6), backgroundColor: colors.white },
+  camera: { position: 'absolute', right: -2, bottom: -2, width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary700, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.white },
   title: { marginTop: space(3), fontSize: 22, fontWeight: '700', color: colors.muted900 },
   subtitle: { marginTop: space(1), fontSize: 14, color: colors.muted500 },
   about: { marginTop: space(3), paddingHorizontal: space(8), fontSize: 14, color: colors.muted700, textAlign: 'center' },

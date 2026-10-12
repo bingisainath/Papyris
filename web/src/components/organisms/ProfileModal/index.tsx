@@ -4,7 +4,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
-import { AtSign, BadgeCheck, CalendarDays, Camera, Check, Image as ImageIcon, Info, Mail, Pencil, Trash2, User as UserIcon, X } from 'lucide-react';
+import { AtSign, BadgeCheck, CalendarDays, Camera, Check, Image as ImageIcon, Info, Mail, Pencil, Trash2, User as UserIcon, X, Wallet, CreditCard, IndianRupee } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Avatar } from '../../atoms';
 import { useAuth } from '../../../app/AuthProvider';
@@ -174,6 +174,49 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onChanged 
               validate={(v) => (USERNAME_RE.test(v) ? null : 'Use 3-30 lowercase letters, numbers, dots or underscores')}
               onSave={(username) => save({ username }, 'Username updated')}
             />
+          </div>
+
+          {/* Payment details: a "Pay" button for people who owe you opens these with the amount */}
+          <div className="mt-2 border-t border-muted-200">
+            <p className="px-6 pt-4 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-500">Payment details</p>
+            <p className="px-6 pb-2 text-xs text-muted-500">Optional. People in your chats who owe you see a Pay button for these. Papyris never moves money.</p>
+            <div className="divide-y divide-muted-100">
+              <EditableField
+                icon={Wallet}
+                label="Revolut username"
+                help="From revolut.me/your-name"
+                value={user.payment_handles?.revolut || ''}
+                placeholder="your-name"
+                prefix="revolut.me/"
+                maxLength={40}
+                normalize={(v) => v.trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?revolut\.me\//i, '')}
+                validate={(v) => (!v || /^[A-Za-z0-9._-]{2,40}$/.test(v) ? null : 'Letters, numbers, dots, dashes or underscores')}
+                onSave={(revolut) => save({ payment_handles: { revolut } }, 'Revolut saved')}
+              />
+              <EditableField
+                icon={CreditCard}
+                label="PayPal.me username"
+                help="From paypal.me/your-name"
+                value={user.payment_handles?.paypal || ''}
+                placeholder="YourName"
+                prefix="paypal.me/"
+                maxLength={40}
+                normalize={(v) => v.trim().replace(/^https?:\/\/(www\.)?paypal\.me\//i, '')}
+                validate={(v) => (!v || /^[A-Za-z0-9]{1,40}$/.test(v) ? null : 'Letters and numbers only')}
+                onSave={(paypal) => save({ payment_handles: { paypal } }, 'PayPal saved')}
+              />
+              <EditableField
+                icon={IndianRupee}
+                label="UPI ID"
+                help="For payments in rupees, like name@okbank"
+                value={user.payment_handles?.upi || ''}
+                placeholder="name@bank"
+                maxLength={100}
+                normalize={(v) => v.trim()}
+                validate={(v) => (!v || /^[A-Za-z0-9._-]{2,64}@[A-Za-z0-9]{2,32}$/.test(v) ? null : 'Looks like name@bank')}
+                onSave={(upi) => save({ payment_handles: { upi } }, 'UPI ID saved')}
+              />
+            </div>
           </div>
 
           {/* Account details (not editable here) */}

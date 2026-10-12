@@ -5,12 +5,11 @@ Conversation details and group management: rename, photo, description,
 add/remove members, roles and leaving.
 """
 
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,26 +21,21 @@ from app.models.user import User
 from app.services import media_storage
 from app.services.message_service import MessageService
 from app.websocket.routes import publish_users
+from app.schemas.groups import (
+    UpdateGroupRequest, AddMembersRequest, UpdateMemberRequest, PinRequest, MuteRequest, ArchiveRequest,
+)
 
 router = APIRouter(prefix="/conversations", tags=["Groups"])
 
 
-class UpdateGroupRequest(BaseModel):
-    title: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    avatar_url: Optional[str] = Field(None, description="Uploaded image URL, or empty string to remove")
+MUTE_FOR = {"8h": timedelta(hours=8), "1w": timedelta(weeks=1), "always": timedelta(days=365 * 100)}
 
 
-class AddMembersRequest(BaseModel):
-    user_ids: List[UUID] = Field(..., min_length=1, max_length=100)
-
-
-class UpdateMemberRequest(BaseModel):
-    role: MemberRole
-
-
-class PinRequest(BaseModel):
-    pinned: bool
+def muted_until_view(me: ConversationMember) -> Optional[str]:
+    """When the mute ends (None if not muted or it has run out)."""
+    if me.muted_until is None or me.muted_until <= datetime.now(timezone.utc):
+        return None
+    return me.muted_until.isoformat()
 
 
 MAX_PINNED_CONVERSATIONS = 3
@@ -167,6 +161,42 @@ async def pin_conversation(
     # Only this user's devices: pins are personal
     await publish_users([str(current_user.id)], event)
     return {"success": True, "message": "Pinned" if event["pinned"] else "Unpinned", "data": event}
+
+
+@router.put("/{conversation_id}/mute")
+async def mute_conversation(
+    conversation_id: UUID,
+    payload: MuteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mute a chat for yourself (no notifications) for 8 hours, a week or always; null unmutes."""
+    _conversation, me = await _load(db, conversation_id, current_user)
+    me.muted_until = datetime.now(timezone.utc) + MUTE_FOR[payload.duration] if payload.duration else None
+    me.muted = me.muted_until is not None
+    await db.commit()
+    event = {"type": "conversation_prefs", "conversationId": str(conversation_id), "mutedUntil": muted_until_view(me)}
+    await publish_users([str(current_user.id)], event)  # your other devices
+    return {"success": True, "message": "Muted" if me.muted_until else "Unmuted", "data": event}
+
+
+@router.put("/{conversation_id}/archive")
+async def archive_conversation(
+    conversation_id: UUID,
+    payload: ArchiveRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Archive a chat for yourself (it leaves your main list), or bring it back."""
+    _conversation, me = await _load(db, conversation_id, current_user)
+    me.archived_at = datetime.now(timezone.utc) if payload.archived else None
+    if payload.archived:
+        me.pinned_at = None  # an archived chat can't stay pinned (like WhatsApp)
+    await db.commit()
+    event = {"type": "conversation_prefs", "conversationId": str(conversation_id), "isArchived": payload.archived,
+             **({"isPinned": False} if payload.archived else {})}
+    await publish_users([str(current_user.id)], event)
+    return {"success": True, "message": "Archived" if payload.archived else "Unarchived", "data": event}
 
 
 @router.patch("/{conversation_id}")

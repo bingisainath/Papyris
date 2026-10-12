@@ -2,11 +2,11 @@
 // Add or edit an expense by hand (same rules as web/src/components/expenses/ManualExpenseForm.tsx),
 // with a shortcut to scan a receipt instead.
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScanLine } from 'lucide-react-native';
-import Avatar from '../../components/Avatar';
-import { Banner, Button } from '../../components/ui';
+import Avatar from '../../components/common/Avatar';
+import { Banner, Button } from '../../components/common/ui';
 import { CATEGORIES, Expense, ExpenseInput, expenseService } from '../../api/expenses';
 import { errorMessage } from '../../api/client';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
@@ -14,9 +14,10 @@ import { useAuth } from '../../store/auth';
 import { formatMinor, parseMajor, toMajorString } from '../../utils/money';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
-import CategoryIcon from './CategoryIcon';
-import CurrencyPicker from './CurrencyPicker';
-import { memberName, useChatMoney } from './useMembers';
+import CategoryIcon from '../../components/expenses/CategoryIcon';
+import CurrencyPicker from '../../components/expenses/CurrencyPicker';
+import { memberName, useChatMoney } from '../../hooks/useMembers';
+import { showAlert } from '../../components/common/Dialog';
 
 type Mode = 'equal' | 'exact' | 'percent' | 'shares';
 type PayerDraft = { user_id: string; amount: string };
@@ -57,7 +58,7 @@ const AddExpenseScreen: React.FC<NativeStackScreenProps<AppStackParams, 'AddExpe
       if (e.payers.length > 1) setPayers(e.payers.map((p) => ({ user_id: p.user_id, amount: toMajorString(p.amount_minor, e.currency) })));
       else if (e.payers[0]) setSinglePayer(e.payers[0].user_id);
       setReady(true);
-    }).catch((err) => { Alert.alert("Couldn't load the expense", errorMessage(err)); navigation.goBack(); });
+    }).catch((err) => { showAlert("Couldn't load the expense", errorMessage(err)); navigation.goBack(); });
   }, [expenseId, navigation]);
 
   // New expense: everyone in, chat's currency
@@ -95,15 +96,19 @@ const AddExpenseScreen: React.FC<NativeStackScreenProps<AppStackParams, 'AddExpe
     if (!itemized && !selected.length) return 'Choose who it’s split between';
     if (!itemized && mode === 'exact' && preview) {
       const sum = Object.values(preview).reduce((a, b) => a + b, 0);
-      if (sum !== totalMinor) return `Amounts add up to ${formatMinor(sum, currency)}, not ${formatMinor(totalMinor, currency)}`;
+      if (sum < totalMinor) return `${formatMinor(totalMinor - sum, currency)} left to split (of ${formatMinor(totalMinor, currency)})`;
+      if (sum > totalMinor) return `${formatMinor(sum - totalMinor, currency)} too much: the amounts come to ${formatMinor(sum, currency)}, the total is ${formatMinor(totalMinor, currency)}`;
     }
     if (!itemized && mode === 'percent') {
       const sum = selected.reduce((a, id) => a + (Number((values[id] || '').replace(',', '.')) || 0), 0);
-      if (Math.abs(sum - 100) > 1e-9) return `Percentages add up to ${sum}%, not 100%`;
+      const left = Math.round((100 - sum) * 100) / 100;
+      if (left > 1e-9) return `${left}% left to split`;
+      if (left < -1e-9) return `${-left}% too much: the percentages come to ${sum}%`;
     }
     if (payers) {
       const paid = payers.reduce((a, p) => a + (parseMajor(p.amount, currency) || 0), 0);
-      if (paid !== totalMinor) return 'What people paid must add up to the total';
+      if (paid < totalMinor) return `${formatMinor(totalMinor - paid, currency)} of the total still needs a payer`;
+      if (paid > totalMinor) return `What people paid is ${formatMinor(paid - totalMinor, currency)} more than the total`;
     }
     return null;
   })();

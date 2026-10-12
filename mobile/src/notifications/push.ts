@@ -12,6 +12,7 @@ import {
   getInitialNotification,
   getMessaging,
   getToken,
+  hasPermission,
   onNotificationOpenedApp,
   onTokenRefresh,
   requestPermission,
@@ -52,6 +53,24 @@ export async function enablePush(): Promise<void> {
     });
   } catch {
     // No network or Play Services: try again next sign-in / app start
+  }
+}
+
+/**
+ * For Settings: 'unavailable' when this build has no Firebase config, otherwise whether the phone
+ * allows Papyris notifications ('off' = turned off in the phone's settings or never allowed).
+ */
+export async function pushStatus(): Promise<'unavailable' | 'on' | 'off'> {
+  if (!configured()) return 'unavailable';
+  try {
+    if (Platform.OS === 'android') {
+      if (Number(Platform.Version) < 33) return 'on';
+      return (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)) ? 'on' : 'off';
+    }
+    const status = await hasPermission(getMessaging());
+    return status === AuthorizationStatus.AUTHORIZED || status === AuthorizationStatus.PROVISIONAL ? 'on' : 'off';
+  } catch {
+    return 'off';
   }
 }
 

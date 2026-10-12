@@ -13,12 +13,10 @@ import logging
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Literal, Optional
 
 import anthropic
 import openai
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,12 +29,13 @@ from app.models.user import User
 from app.services import secrets
 from app.services.receipt_ai import pipeline
 from app.services.receipt_ai.claude import is_workspace_error
+from app.schemas.ai_settings import (
+    Provider, PreferenceRequest, KeyRequest, StoreDiscountRequest, ModelRequest, ScanLimitRequest,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["AI settings"])
-
-Provider = Literal["anthropic", "openai"]
 
 
 def _ok(data, message: str = "OK") -> dict:
@@ -92,15 +91,6 @@ async def _settings_payload(db: AsyncSession, user: User) -> dict:
         },
         "is_app_admin": bool(user.is_app_admin),
     }
-
-
-class PreferenceRequest(BaseModel):
-    # None = use the app default
-    preferred_model_id: Optional[int] = None
-
-
-class KeyRequest(BaseModel):
-    api_key: str = Field(..., min_length=20, max_length=300)
 
 
 _KEY_FORMATS = {"anthropic": re.compile(r"^sk-ant-[A-Za-z0-9_\-]+$"), "openai": re.compile(r"^sk-[A-Za-z0-9_\-]+$")}
@@ -184,13 +174,6 @@ async def remove_own_key(
 
 
 # ------------------------------------------------------------------ store discounts
-
-class StoreDiscountRequest(BaseModel):
-    store_name: str = Field(..., min_length=1, max_length=80)
-    percent: Decimal = Field(..., gt=0, le=100)
-    excluded_categories: list[str] = Field(default_factory=list, max_length=20)
-    stacks_with_reduced: bool = False
-    active: bool = True
 
 
 def _serialize_rule(rule: StoreDiscountRule) -> dict:
@@ -279,22 +262,6 @@ async def delete_store_discount(
 def _require_app_admin(user: User) -> None:
     if not user.is_app_admin:
         raise HTTPException(status_code=403, detail="Only app admins can do this")
-
-
-class ModelRequest(BaseModel):
-    model_config = ConfigDict(protected_namespaces=())
-
-    provider: Provider
-    model_id: str = Field(..., min_length=3, max_length=80, pattern=r"^[A-Za-z0-9._:\-]+$")
-    label: str = Field(..., min_length=1, max_length=80)
-    description: str = Field("", max_length=200)
-    enabled: bool = True
-    is_default: bool = False
-    sort_order: int = 0
-
-
-class ScanLimitRequest(BaseModel):
-    receipt_scans_per_month: int = Field(..., ge=0, le=100000)
 
 
 async def _admin_payload(db: AsyncSession) -> dict:

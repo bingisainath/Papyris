@@ -147,6 +147,7 @@ class MessageWorker:
                     media_width=data.get('mediaWidth'),
                     media_height=data.get('mediaHeight'),
                     media_duration=data.get('mediaDuration'),
+                    has_link=bool(data.get('hasLink')),
                     reply_to_id=uuid.UUID(data['replyToId']) if data.get('replyToId') else None,
                     created_at=created_at,
                 )
@@ -194,7 +195,8 @@ class MessageWorker:
 
                 # Phones get a notification; a failure here never affects the saved message
                 try:
-                    await self.notify(db, message, data, [m.user_id for m in members])
+                    now = datetime.now(timezone.utc)
+                    await self.notify(db, message, data, [m.user_id for m in members if not (m.muted_until and m.muted_until > now)])
                 except Exception:
                     logger.exception("Push notification for %s failed", message_id)
                 

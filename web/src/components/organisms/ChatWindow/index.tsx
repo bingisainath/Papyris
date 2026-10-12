@@ -23,7 +23,14 @@ import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { useSearchParams } from 'react-router-dom';
-import { UserPlus } from 'lucide-react';
+import { Lock, LockOpen, Search, ShieldAlert, UserPlus } from 'lucide-react';
+import ChatSearch from './ChatSearch';
+import { downloadDecrypted } from '../../../crypto/media';
+import { sealFor } from '../../../crypto/messages';
+import { useChatEncryption } from '../../../crypto/useChatEncryption';
+import { editV2 } from '../../../crypto/v2-platform/chat';
+import { useKeyChanges, useTrustActions } from '../../../crypto/v2-platform/trust';
+import { mediaPayloadOf } from '../../../redux/actions/websocketActions';
 import AddExpenseSheet from '../../expenses/AddExpenseSheet';
 import ExpenseCard from '../../expenses/ExpenseCard';
 import ExpenseDetail from '../../expenses/ExpenseDetail';
@@ -58,6 +65,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 }) => {
   const dispatch = useDispatch<AppDispatch>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const encryption = useChatEncryption(conversationId);
+  const conversationMembers = useSelector((state: RootState) => state.chat.conversations.find(c => c.id === conversationId)?.members) || EMPTY;
+  const keyChanges = useKeyChanges(conversationMembers);
+  const trustActions = useTrustActions();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastRenderedMessageId = useRef<string | undefined>(undefined);
   const scrollHeightBeforePrepend = useRef<number | null>(null);
@@ -72,6 +83,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // Expenses: ?receipt=<id> opens a receipt to review, ?expense=<id> opens an expense
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searching, setSearching] = useState(false);
   const [addingExpense, setAddingExpense] = useState(false);
   const openReceiptId = searchParams.get('receipt');
   const openExpenseId = searchParams.get('expense');
@@ -195,7 +207,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         return;
       }
       try {
-        const result = await chatService.editMessage(original.id, text);
+        if (original.e2eVersion === 2) {
+          // v2: the edit is a new encrypted packet to the same devices; the server row doesn't change
+          await editV2({ conversationId, isGroup: !!isGroup, members: conversationMembers }, original, text);
+          dispatch(applyMessageUpdate({ conversationId, messageId: original.id, text, editedAt: new Date().toISOString() }));
+          return;
+        }
+        // Encrypted chat (v1): the edit is a new envelope (keeping the attached file's key)
+        const sealed = await sealFor(conversationId, { t: text, m: mediaPayloadOf(original) });
+        const result = await chatService.editMessage(original.id, sealed?.text ?? text, sealed?.hasLink);
         dispatch(applyMessageUpdate({
           conversationId,
           messageId: original.id,
@@ -232,7 +252,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const handleDownload = (message: Message) => {
     if (!message.mediaUrl) return;
-    downloadMedia(message.mediaUrl, message.mediaFilename || 'download')
+    (message.mediaKey
+      ? downloadDecrypted(message.mediaUrl, message.mediaKey, message.mediaMime, message.mediaFilename || 'download', message.mediaV2)
+      : downloadMedia(message.mediaUrl, message.mediaFilename || 'download'))
       .catch(() => toast.error("Couldn't download it. Try again"));
   };
 
@@ -281,6 +303,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       .map(m => ({
         id: m.id,
         url: resolveMediaUrl(m.mediaUrl)!,
+        mediaKey: m.mediaKey,
+        mediaMime: m.mediaMime,
+        mediaV2: m.mediaV2,
         filename: m.mediaFilename,
         senderName: m.senderId === currentUserId ? 'You' : m.senderName,
         timestamp: m.timestamp,
@@ -300,12 +325,37 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     dispatch(fetchMessages(conversationId));
   }, [dispatch, conversationId]);
 
+  // Opened from a search result (?msg=<id>): load older pages until the message is there, then show it
+  const searchTarget = searchParams.get('msg');
+  const hasMoreRef = useRef(hasMoreMessages);
+  hasMoreRef.current = hasMoreMessages;
+  useEffect(() => {
+    if (!searchTarget) return;
+    let cancelled = false;
+    const found = () => !!scrollContainerRef.current?.querySelector(`[data-message-id="${searchTarget}"]`);
+    const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    (async () => {
+      await wait(400); // first page
+      for (let page = 0; page < 40 && !cancelled && !found(); page++) {
+        if (!hasMoreRef.current) break;
+        await dispatch(fetchOlderMessages(conversationId));
+        await wait(150);
+      }
+      if (cancelled) return;
+      jumpToMessage(searchTarget, "Couldn't find that message in this chat any more.");
+      const next = new URLSearchParams(searchParams);
+      next.delete('msg');
+      setSearchParams(next, { replace: true });
+    })();
+    return () => { cancelled = true; };
+  }, [searchTarget, conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Scroll to (and briefly highlight) the message a reply quotes
-  const jumpToMessage = (messageId: string) => {
+  const jumpToMessage = (messageId: string, notFound = 'Load older messages to see the original.') => {
     const container = scrollContainerRef.current;
     const target = container?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
     if (!container || !target) {
-      toast.info('Load older messages to see the original.');
+      toast.info(notFound);
       return;
     }
     const offset = target.getBoundingClientRect().top - container.getBoundingClientRect().top;
@@ -356,6 +406,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 mediaThumbnail={resolveMediaUrl(message.mediaThumbnail)}
                 mediaWidth={message.mediaWidth}
                 mediaHeight={message.mediaHeight}
+                mediaKey={message.mediaKey}
+                mediaMime={message.mediaMime}
+                thumbKey={message.thumbKey}
+                e2e={message.e2e}
+                mediaV2={message.mediaV2}
+                thumbV2={message.thumbV2}
+                e2eUnverified={message.e2eUnverified}
                 uploadProgress={message.uploadProgress}
                 isGroup={isGroup}
                 isDeleted={message.isDeleted}
@@ -380,9 +437,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             );
 
   return (
-    <div className="relative flex flex-col h-full min-w-0 bg-white">
+    <div className="relative flex flex-col h-full min-w-0 bg-[#f6f6f8]">
       {/* Header */}
-      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-6 py-3 sm:py-4 border-b border-muted-200 bg-white/80 backdrop-blur-sm">
+      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-6 min-h-[72px] py-3 border-b border-muted-200 bg-white">
         {/* Back button (mobile) */}
         {onBack && (
           <button
@@ -412,17 +469,22 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
         {/* Info */}
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowInfo(true)}>
-          <h2 className="text-lg font-semibold text-muted-900 truncate">
-            {conversationName}
+          <h2 className="flex items-center gap-1.5 font-display text-[17px] font-bold text-muted-900 min-w-0">
+            <span className="truncate">{conversationName}</span>
+            {encryption.state === 'encrypted' && (
+              <span title="End-to-end encrypted: only the people in this chat can read its messages" aria-label="End-to-end encrypted">
+                <Lock className="w-3.5 h-3.5 text-muted-400 flex-shrink-0" />
+              </span>
+            )}
           </h2>
 
           {/* Status */}
           {isTyping ? (
-            <p className="text-sm text-primary-600 font-medium">
+            <p className="text-xs text-success-700 font-medium">
               {isGroup ? typingText : 'Typing...'}
             </p>
           ) : (
-            <p className="text-sm text-muted-500">
+            <p className="text-xs text-muted-500">
               {isGroup
                 ? `${memberCount || 0} member${memberCount === 1 ? '' : 's'}`
                 : isOnline ? 'Online' : 'Offline'}
@@ -449,6 +511,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             </button>
           )}
           <button
+            onClick={() => setSearching((v) => !v)}
+            className={`p-2 rounded-lg transition-colors ${searching ? 'bg-primary-50 text-primary-700' : 'hover:bg-muted-100 text-muted-600'}`}
+            title="Search in this chat"
+            aria-label="Search in this chat"
+            aria-expanded={searching}
+          >
+            <Search className="w-5 h-5" />
+          </button>
+          <button
             onClick={() => setShowInfo(true)}
             className="p-2 hover:bg-muted-100 rounded-lg transition-colors"
             title={isGroup ? 'Group info' : 'Contact info'}
@@ -460,6 +531,50 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           </button>
         </div>
       </div>
+
+      {searching && (
+        <ChatSearch
+          conversationId={conversationId}
+          currentUserId={currentUserId}
+          onPick={(id) => {
+            const next = new URLSearchParams(searchParams);
+            next.set('msg', id);
+            setSearchParams(next, { replace: true });
+          }}
+          onClose={() => setSearching(false)}
+        />
+      )}
+
+      {/* Someone's security code changed (they started fresh): say so once; verified contacts must be accepted */}
+      {keyChanges.map((t) => {
+        const name = isGroup ? (messages.find((m) => m.senderId === t.user)?.senderName || 'A member') : conversationName;
+        return (
+          <div key={t.user} className={`flex items-start gap-2 px-4 sm:px-6 py-2 text-xs border-b ${t.needsAccept ? 'bg-accent-50 text-accent-800 border-accent-100' : 'bg-primary-50 text-primary-900 border-primary-100'}`} role="status">
+            <ShieldAlert className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span className="flex-1">
+              {t.needsAccept
+                ? `${name}'s security code changed. You'd verified them, so messages to them wait until you check the new code or accept it.`
+                : `${name}'s security code changed, probably because they started fresh on a new device.`}
+            </span>
+            <button type="button" onClick={() => setShowInfo(true)} className="font-semibold hover:underline">Compare codes</button>
+            <button type="button" onClick={() => (t.needsAccept ? trustActions.accept(t.user) : trustActions.dismiss(t.user))} className="font-semibold hover:underline">
+              {t.needsAccept ? 'Accept' : 'OK'}
+            </button>
+          </div>
+        );
+      })}
+
+      {/* Not end-to-end encrypted yet: say why */}
+      {encryption.state === 'not-encrypted' && (
+        <div className="flex items-start gap-2 px-4 sm:px-6 py-2 text-xs bg-warning-50 text-warning-800 border-b border-warning-100">
+          <LockOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <span>
+            {isGroup
+              ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. New messages will be encrypted once everyone has.`
+              : `Not end-to-end encrypted yet: ${conversationName} hasn't set up encryption. New messages will be encrypted once they do.`}
+          </span>
+        </div>
+      )}
 
       {/* Messages Area */}
       <div
@@ -511,7 +626,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       )}
 
       {/* Message Input */}
-      <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-3 mobile-nav-safe">
+      <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-2.5 mobile-nav-safe">
         <MessageInput
           onSend={handleSendMessage}
           onSendVoice={handleSendVoice}

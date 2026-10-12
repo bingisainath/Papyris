@@ -7,6 +7,29 @@ import appIcon from '../assets/images/icon.png';
 
 const PREF_KEY = 'papyris_notifications';
 
+// Notifications still on screen, per chat, so reading the chat can take them away
+const shown = new Map<string, Notification[]>();
+
+/** Close a chat's notifications (it was read, here or on another device). */
+export function clearNotifications(conversationId: string) {
+  shown.get(conversationId)?.forEach((n) => n.close());
+  shown.delete(conversationId);
+}
+
+/**
+ * The number on the browser's or installed app's icon. Notifications left open keep the
+ * browser's own count up, so they're closed as chats are read.
+ */
+export function setUnreadBadge(count: number) {
+  const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+  try {
+    if (count > 0) nav.setAppBadge?.(count)?.catch(() => undefined);
+    else nav.clearAppBadge?.()?.catch(() => undefined);
+  } catch {
+    // Badging isn't available here
+  }
+}
+
 export type NotificationStatus = 'unsupported' | 'denied' | 'off' | 'on';
 
 export const notificationsSupported = () => typeof window !== 'undefined' && 'Notification' in window;
@@ -61,6 +84,12 @@ export function notifyNewMessage(options: {
       icon: resolveMediaUrl(options.icon) || appIcon,
       tag: options.conversationId,
     });
+    shown.set(options.conversationId, [...(shown.get(options.conversationId) || []), notification]);
+    notification.onclose = () => {
+      const left = (shown.get(options.conversationId) || []).filter((n) => n !== notification);
+      if (left.length) shown.set(options.conversationId, left);
+      else shown.delete(options.conversationId);
+    };
     notification.onclick = () => {
       window.focus();
       window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT, { detail: `/chat/${options.conversationId}` }));

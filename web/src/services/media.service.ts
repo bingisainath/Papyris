@@ -12,6 +12,10 @@ export interface UploadedMedia {
   filename: string;
   width?: number | null;
   height?: number | null;
+  /** Videos: poster frame made by the server, and the length in seconds */
+  thumbnailUrl?: string | null;
+  thumbnailSignedUrl?: string | null;
+  duration?: number | null;
 }
 
 class MediaService {
@@ -21,14 +25,17 @@ class MediaService {
   async upload(
     file: File,
     onProgress?: (percent: number) => void,
-    options: { signal?: AbortSignal; quality?: UploadQuality } = {},
+    // encrypted: the file is end-to-end encrypted (crypto/media.ts); say what kind it is
+    options: { signal?: AbortSignal; quality?: UploadQuality; encrypted?: 'image' | 'video' | 'audio' | 'file' | 'backup' } = {},
   ): Promise<UploadedMedia> {
     const formData = new FormData();
     formData.append('file', file);
 
     const response = await api.post('/api/v1/media/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      params: options.quality ? { quality: options.quality } : undefined,
+      params: options.encrypted
+        ? { encrypted: true, kind: options.encrypted }
+        : options.quality ? { quality: options.quality } : undefined,
       signal: options.signal,
       onUploadProgress: (event) => {
         if (onProgress && event.total) {

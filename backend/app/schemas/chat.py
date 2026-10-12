@@ -21,3 +21,11 @@ class ConversationResponse(BaseModel):
     kind: str
     title: Optional[str] = None
     members: List[UserPick]
+
+
+class CreateConversationRequest(BaseModel):
+    kind: str  # 'dm' or 'group'
+    title: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    avatar_url: Optional[str] = None
+    participant_ids: List[str]

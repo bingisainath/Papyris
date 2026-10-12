@@ -2,13 +2,20 @@
 import React, { useRef, useState } from 'react';
 import { Avatar } from '../../atoms';
 import Icon from '../../atoms/Icon';
-import { Download, Forward, RotateCw, X } from 'lucide-react';
+import { Download, Forward, Lock, Play, RotateCw, ShieldAlert, X } from 'lucide-react';
 import VoiceNotePlayer from '../VoiceNotePlayer';
 import { formatMessageTime } from '../../../utils/dateFormat';
 import { formatFileSize, mediaBoxStyle } from '../../../utils/media';
+import { downloadDecrypted, useMediaSrc } from '../../../crypto/media';
+import { UNREADABLE_TEXT } from '../../../crypto/messages';
+import { toast } from 'react-toastify';
 import type { Reaction, ReplyPreview } from '../../../redux/slices/chatSlice';
 
 type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+
+const STATUS_LABELS: Record<MessageStatus, string> = {
+  sending: 'Sending', sent: 'Sent', delivered: 'Delivered', read: 'Read', failed: 'Not sent',
+};
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
@@ -29,6 +36,14 @@ interface MessageBubbleProps {
   mediaThumbnail?: string;
   mediaWidth?: number;
   mediaHeight?: number;
+  // End-to-end encrypted media: the file's key (the file is decrypted in the browser) and type
+  mediaKey?: string;
+  mediaMime?: string;
+  thumbKey?: string;
+  e2e?: 'encrypted' | 'unreadable' | 'pending';
+  mediaV2?: { sha256: string; size: number }; // v2 files (PMV2 format)
+  thumbV2?: { sha256: string; size: number };
+  e2eUnverified?: boolean;
   uploadProgress?: number; // 0-100 while the attachment uploads
   uploadFailed?: boolean;
   onCancelUpload?: () => void;
@@ -68,6 +83,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   mediaWidth,
   mediaHeight,
   mediaDuration,
+  mediaKey,
+  mediaMime,
+  thumbKey,
+  e2e,
+  e2eUnverified,
+  mediaV2,
+  thumbV2,
   uploadProgress,
   uploadFailed,
   onCancelUpload,
@@ -91,13 +113,23 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const [showActions, setShowActions] = useState(false);
   const box = mediaBoxStyle(mediaWidth, mediaHeight);
+  // Encrypted videos are only downloaded (and decrypted) once someone presses play
+  const [playVideo, setPlayVideo] = useState(false);
+  const encryptedVideo = mediaType === 'video' && !!mediaKey;
+  const media = useMediaSrc(encryptedVideo && !playVideo ? undefined : mediaUrl, mediaType === 'file' ? undefined : mediaKey, mediaMime, mediaV2);
+  const poster = useMediaSrc(mediaThumbnail, thumbKey, 'image/jpeg', thumbV2);
+  const saveEncryptedFile = () => downloadDecrypted(mediaUrl!, mediaKey!, mediaMime, mediaFilename || 'file', mediaV2)
+    .catch(() => toast.error("Couldn't open this file. Try again"));
+  // Photos and videos fill the bubble with an even, thin frame; a captionless photo shows the time on the picture
+  const visual = !isDeleted && !!mediaUrl && (mediaType === 'image' || mediaType === 'video');
+  const timeOnMedia = visual && mediaType === 'image' && !text;
   const lastPointerType = useRef<string>('mouse');
 
   const statusIcons: Record<MessageStatus, React.ReactElement> = {
     sending: <Icon name="clock" size={14} className="text-white/70 animate-pulse" />,
     sent: <Icon name="check" size={14} className="text-white/70" />,
     delivered: <Icon name="checkDouble" size={14} className="text-white/70" />,
-    read: <Icon name="checkDouble" size={14} className="text-secondary-300" />,
+    read: <Icon name="checkDouble" size={14} className="text-sky-300" />,
     failed: <Icon name="xCircle" size={14} className="text-accent-400" />
   };
 
@@ -148,22 +180,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           onClick={handleBubbleClick}
           className={`
             relative
-            px-4 py-2.5
+            ${visual ? 'p-[3px]' : 'px-4 py-2.5'}
             rounded-2xl
             ${isSent
-              ? 'bg-primary-700 text-white rounded-br-sm shadow-card'
-              : `bg-white border-2 border-muted-100 text-muted-900 rounded-bl-sm shadow-soft ${
-                  isGroup ? 'border-l-4' : ''
-                }`
+              ? 'bg-primary-700 text-white rounded-br-sm shadow-[0_4px_12px_rgba(84,63,125,0.18)]'
+              : visual
+                ? 'bg-white text-muted-900 rounded-bl-sm shadow-[0_2px_8px_rgba(25,18,39,0.06)]'
+                : 'bg-white text-muted-900 rounded-bl-sm shadow-[0_2px_8px_rgba(25,18,39,0.06)]'
             }
             transition-all duration-200
             animate-scale-in
           `}
-          style={
-            !isSent && isGroup
-              ? { borderLeftColor: senderColor }
-              : undefined
-          }
         >
           {isDeleted ? (
             <p className={`text-sm italic flex items-center gap-1.5 ${isSent ? 'text-white/80' : 'text-muted-500'}`}>
@@ -177,7 +204,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 <button
                   type="button"
                   onClick={() => onJumpToMessage?.(replyTo.id)}
-                  className={`block w-full text-left mb-2 px-3 py-1.5 rounded-lg border-l-4 ${
+                  className={`block w-full text-left ${visual ? 'mb-[3px]' : 'mb-2'} px-3 py-1.5 rounded-lg border-l-4 ${
                     isSent ? 'bg-white/15 border-white/60' : 'bg-muted-50 border-primary-500'
                   }`}
                 >
@@ -190,50 +217,93 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                 </button>
               )}
 
+              {e2e === 'pending' && (
+                <p className={`text-sm italic flex items-center gap-1.5 ${isSent ? 'text-white/80' : 'text-muted-500'}`}>
+                  <Lock className="w-3.5 h-3.5 flex-shrink-0 animate-pulse" />
+                  Waiting for this message…
+                </p>
+              )}
+              {e2e === 'unreadable' && (
+                <p className={`text-sm italic flex items-center gap-1.5 ${isSent ? 'text-white/80' : 'text-muted-500'}`}>
+                  <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                  {UNREADABLE_TEXT}
+                </p>
+              )}
+
               {/* Media content */}
-              {mediaUrl && (
-                <div className={`relative ${text ? 'mb-2' : 'mb-1'}`}>
+              {mediaUrl && e2e !== 'unreadable' && e2e !== 'pending' && (
+                <div className={`relative ${visual ? (text ? 'mb-1.5' : '') : text ? 'mb-2' : 'mb-1'}`}>
                   {mediaType === 'image' && (
                     <button
                       type="button"
                       onClick={onOpenImage}
-                      className={`block overflow-hidden rounded-lg ${box ? (isSent ? 'bg-white/10' : 'bg-muted-100') : ''}`}
+                      className={`block overflow-hidden rounded-[13px] max-w-full ${box ? (isSent ? 'bg-white/10' : 'bg-muted-100') : ''}`}
                       style={box}
                       title="View photo"
                     >
-                      <img
-                        src={mediaUrl}
-                        alt={mediaFilename || 'Shared image'}
-                        loading="lazy"
-                        onError={onMediaError}
-                        className={box ? 'w-full h-full object-cover' : 'rounded-lg max-w-full sm:max-w-xs max-h-64 object-cover'}
-                      />
+                      {media.src ? (
+                        <img
+                          src={media.src}
+                          alt={mediaFilename || 'Shared image'}
+                          loading="lazy"
+                          onError={mediaKey ? undefined : onMediaError}
+                          className={box ? 'w-full h-full object-cover' : 'max-w-full sm:max-w-xs max-h-64 object-cover'}
+                        />
+                      ) : (
+                        <span className={`flex items-center justify-center text-xs ${box ? 'w-full h-full' : 'w-56 h-40'} ${isSent ? 'text-white/70' : 'text-muted-400'}`}>
+                          {media.failed ? "Couldn't decrypt this photo" : <Lock className="w-5 h-5 animate-pulse" />}
+                        </span>
+                      )}
                     </button>
                   )}
-                  {mediaType === 'video' && (
+                  {encryptedVideo && !media.src && (
+                    <button
+                      type="button"
+                      onClick={() => setPlayVideo(true)}
+                      style={box}
+                      className={`relative block overflow-hidden rounded-[13px] max-w-full bg-black ${box ? '' : 'w-64 h-40'}`}
+                      title="Play video"
+                      aria-label="Play video"
+                    >
+                      {poster.src && <img src={poster.src} alt="" className="w-full h-full object-cover opacity-90" />}
+                      <span className="absolute inset-0 flex items-center justify-center">
+                        <span className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center text-white">
+                          {playVideo && !media.failed ? <Lock className="w-5 h-5 animate-pulse" /> : <Play className="w-6 h-6 fill-white" />}
+                        </span>
+                      </span>
+                      {media.failed && <span className="absolute bottom-2 left-2 text-xs text-white">Couldn't decrypt this video</span>}
+                    </button>
+                  )}
+                  {mediaType === 'video' && media.src && (
                     <video
-                      src={mediaUrl}
-                      poster={mediaThumbnail}
+                      src={media.src}
+                      poster={poster.src}
+                      autoPlay={encryptedVideo}
                       controls
                       playsInline
                       // With a poster nothing needs to load until the user presses play
                       preload={mediaThumbnail ? 'none' : 'metadata'}
-                      onError={onMediaError}
+                      onError={mediaKey ? undefined : onMediaError}
                       style={box}
-                      className={box ? 'rounded-lg bg-black object-contain' : 'rounded-lg max-w-full sm:max-w-xs max-h-64 bg-black'}
+                      className={box ? 'block max-w-full rounded-[13px] bg-black object-cover' : 'block rounded-[13px] max-w-full sm:max-w-xs max-h-64 bg-black'}
                     />
                   )}
                   {mediaType === 'audio' && (
-                    <VoiceNotePlayer src={mediaUrl} duration={mediaDuration} isSent={isSent} onError={onMediaError} />
+                    media.src
+                      ? <VoiceNotePlayer src={media.src} duration={mediaDuration} isSent={isSent} onError={mediaKey ? undefined : onMediaError} />
+                      : <span className={`flex items-center gap-2 text-xs py-2 ${isSent ? 'text-white/70' : 'text-muted-500'}`}><Lock className="w-3.5 h-3.5" />{media.failed ? "Couldn't decrypt this voice message" : 'Decrypting…'}</span>
                   )}
-                  {mediaType === 'file' && (
-                    <a
-                      href={mediaUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download={mediaFilename}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg ${isSent ? 'bg-white/15 hover:bg-white/25' : 'bg-muted-100 hover:bg-muted-200'}`}
-                    >
+                  {mediaType === 'file' && mediaKey && (
+                    <button type="button" onClick={saveEncryptedFile} title="Save" className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left ${isSent ? 'bg-white/15 hover:bg-white/25' : 'bg-muted-100 hover:bg-muted-200'}`}>
+                      <Icon name="attach" size={20} />
+                      <span className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium truncate max-w-[12rem]">{mediaFilename || 'File'}</span>
+                        {mediaSize ? <span className="text-[11px] opacity-70">{formatFileSize(mediaSize)}</span> : null}
+                      </span>
+                    </button>
+                  )}
+                  {mediaType === 'file' && !mediaKey && (
+                    <a href={mediaUrl} target="_blank" rel="noopener noreferrer" download={mediaFilename} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left ${isSent ? 'bg-white/15 hover:bg-white/25' : 'bg-muted-100 hover:bg-muted-200'}`}>
                       <Icon name="attach" size={20} />
                       <span className="flex flex-col min-w-0">
                         <span className="text-sm font-medium truncate max-w-[12rem]">{mediaFilename || 'File'}</span>
@@ -258,11 +328,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
                   {/* Upload progress */}
                   {uploadProgress !== undefined && (
-                    <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/20 rounded-b-lg overflow-hidden">
+                    <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/20 rounded-b-[13px] overflow-hidden">
                       <div
                         className="h-full bg-white transition-all duration-200"
                         style={{ width: `${uploadProgress}%` }}
                       />
+                    </div>
+                  )}
+
+                  {timeOnMedia && uploadProgress === undefined && (
+                    <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/45 text-white pointer-events-none">
+                      <span className="text-[10px]">{formatMessageTime(timestamp)}</span>
+                      {isSent && status && <span role="img" aria-label={STATUS_LABELS[status]} title={STATUS_LABELS[status]} className={`flex-shrink-0 ${status === 'read' ? '' : '[&_svg]:!text-white'}`}>{statusIcons[status]}</span>}
                     </div>
                   )}
                 </div>
@@ -270,7 +347,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 
               {/* Text content */}
               {text && (
-                <p className={`text-sm break-words whitespace-pre-wrap ${isSent ? 'text-white' : 'text-muted-900'}`}>
+                <p className={`text-sm break-words whitespace-pre-wrap ${visual ? 'px-2' : ''} ${isSent ? 'text-white' : 'text-muted-900'}`}>
                   {text}
                 </p>
               )}
@@ -278,7 +355,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           )}
 
           {/* Timestamp and status */}
-          <div className={`flex items-center gap-1 mt-1 ${isSent ? 'justify-end' : 'justify-start'}`}>
+          <div className={`${timeOnMedia ? 'hidden' : 'flex'} items-center gap-1 ${visual ? 'mt-0.5 px-2 pb-0.5' : 'mt-1'} ${isSent ? 'justify-end' : 'justify-start'}`}>
             {editedAt && !isDeleted && (
               <span className={`text-[10px] italic ${isSent ? 'text-white/70' : 'text-muted-400'}`}>edited</span>
             )}
@@ -286,12 +363,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
               {formatMessageTime(timestamp)}
             </span>
             {isSent && status && !isDeleted && (
-              <span className="flex-shrink-0">
+              <span role="img" aria-label={STATUS_LABELS[status]} title={STATUS_LABELS[status]} className="flex-shrink-0">
                 {statusIcons[status]}
               </span>
             )}
           </div>
         </div>
+
+        {e2eUnverified && (
+          <p className="flex items-center gap-1 mt-1 text-[11px] text-warning-700" title="Signed with a key that isn't this person's. It may not be from them.">
+            <ShieldAlert className="w-3.5 h-3.5" /> Couldn't verify the sender
+          </p>
+        )}
 
         {/* Upload failed: try again or drop it */}
         {uploadFailed && (

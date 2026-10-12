@@ -59,7 +59,12 @@ export interface WebSocketEvent {
   status?: string;
   isTyping?: boolean;
   lastMessageId?: string;
+  // encryption v2
+  deviceId?: number;
+  envelope?: import('../crypto/v2').IncomingEnvelope;
+  version?: number;
   readUpTo?: string | null;
+  deliveredUpTo?: string | null;
   expenseId?: string | null;
   receiptId?: string;
   error?: string | null;
@@ -75,6 +80,10 @@ export interface WebSocketEvent {
   left?: boolean;
   pinned?: boolean;
   pinnedAt?: string | null;
+  // conversation_prefs (mute / archive on another of our devices)
+  mutedUntil?: string | null;
+  isArchived?: boolean;
+  isPinned?: boolean;
   userName?: string | null;
   messageType?: 'text' | 'image' | 'video' | 'file' | 'system';
   replyTo?: {
@@ -223,6 +232,11 @@ class WebSocketService {
     }
   }
 
+  /** Send any event (used by encryption v2's message_v2). False if not connected. */
+  sendEvent(data: Record<string, unknown>): boolean {
+    return this.send(data);
+  }
+
   /**
    * Join a conversation room
    */
@@ -252,7 +266,8 @@ class WebSocketService {
     clientId: string,
     text: string,
     media?: OutgoingMedia,
-    replyToId?: string
+    replyToId?: string,
+    hasLink?: boolean // encrypted messages: lets the server list it in the Links tab
   ) {
     const sent = this.send({
       type: 'message',
@@ -260,6 +275,7 @@ class WebSocketService {
       clientId,
       text,
       ...media,
+      ...(hasLink ? { hasLink: true } : {}),
       ...(replyToId ? { replyToId } : {})
     });
 
@@ -284,6 +300,15 @@ class WebSocketService {
   /**
    * Mark message as read
    */
+  /** A message from someone else reached this device (they see two ticks) */
+  markDelivered(conversationId: string, lastMessageId: string) {
+    this.send({
+      type: 'delivered',
+      roomId: conversationId,
+      lastMessageId
+    });
+  }
+
   markAsRead(conversationId: string, lastMessageId: string) {
     this.send({
       type: 'read',

@@ -21,7 +21,7 @@ npx react-native run-android      # terminal 2: build, install and open the app
 JavaScript changes reload instantly through Metro. Native changes (new native libraries,
 `android/` edits) need `run-android` again. The API address is in `src/config.ts`.
 
-Tests: `npx jest` · types: `npx tsc --noEmit` · lint: `npx eslint src`
+Tests: `npx jest` · types: `npx tsc --noEmit` · lint: `npm run lint`
 
 ## Keyboard
 

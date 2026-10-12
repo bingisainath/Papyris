@@ -1,6 +1,7 @@
 # backend/app/api/v1/media.py
 
 import asyncio
+import logging
 import os
 import re
 import time
@@ -15,6 +16,7 @@ from app.models.user import User
 from app.services import media_crypto, media_processing, media_storage
 
 router = APIRouter(prefix="/media", tags=["Media"])
+logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1024 * 1024
 _RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
@@ -24,6 +26,8 @@ _RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
 async def upload_media(
     file: UploadFile = File(...),
     quality: str = Query("standard", pattern="^(standard|hd|original)$"),
+    encrypted: bool = Query(False, description="End-to-end encrypted by the app: stored as opaque bytes"),
+    kind: Optional[str] = Query(None, pattern="^(image|video|audio|file|backup)$", description="With encrypted: what it is, for the size limit"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -32,17 +36,30 @@ async def upload_media(
     quality: standard = videos compressed to 720p; hd = videos kept as sent;
     original = sent as a document, nothing changed except removing photo metadata.
     Photos always lose their metadata (location etc.). Files are encrypted on disk.
+
+    encrypted=true: the app already encrypted the file end to end (and removed photo metadata
+    itself). The server can't look inside, so it stores the bytes as they are: no type check,
+    compression or poster frame.
     """
-    mime = (file.content_type or "").split(";")[0].strip().lower()
-    if mime not in media_storage.ALLOWED_TYPES:
-        raise HTTPException(status_code=415, detail=f"Unsupported file type: {mime or 'unknown'}")
+    if encrypted:
+        if not kind:
+            raise HTTPException(status_code=400, detail="Say what kind of file this is")
+        media_type, extension, mime = kind, media_storage.ENCRYPTED_EXTENSION, "application/octet-stream"
+        # 16-byte header plus a 16-byte tag per 64 KiB chunk
+        plain_max = media_storage.max_size_for(media_type)
+        max_size = plain_max + 16 + 16 * (plain_max // (64 * 1024) + 1)
+        head = await file.read(16)
+    else:
+        mime = (file.content_type or "").split(";")[0].strip().lower()
+        if mime not in media_storage.ALLOWED_TYPES:
+            raise HTTPException(status_code=415, detail=f"Unsupported file type: {mime or 'unknown'}")
 
-    media_type, extension = media_storage.ALLOWED_TYPES[mime]
-    max_size = media_storage.max_size_for(media_type)
+        media_type, extension = media_storage.ALLOWED_TYPES[mime]
+        max_size = media_storage.max_size_for(media_type)
 
-    head = await file.read(16)
-    if not media_storage.content_matches(mime, head):
-        raise HTTPException(status_code=415, detail="File content does not match its type")
+        head = await file.read(16)
+        if not media_storage.content_matches(mime, head):
+            raise HTTPException(status_code=415, detail="File content does not match its type")
 
     key = media_storage.new_key(extension)
     path = media_storage.path_for_key(key)
@@ -51,6 +68,8 @@ async def upload_media(
 
     size = len(head)
     width = height = None
+    duration = None
+    poster_key = None
     try:
         with open(work, "wb") as out:
             out.write(head)
@@ -63,7 +82,9 @@ async def upload_media(
                     )
                 out.write(chunk)
 
-        if media_type == "image":
+        if encrypted:
+            pass  # opaque: nothing to clean up or compress
+        elif media_type == "image":
             try:
                 dims = await asyncio.to_thread(media_processing.clean_image, work, mime, quality == "original")
                 width, height = dims if dims else (None, None)
@@ -79,14 +100,34 @@ async def upload_media(
                     key = key.rsplit(".", 1)[0] + extension
                     path = media_storage.path_for_key(key)
 
+        if media_type == "video" and not encrypted:
+            # Poster frame for previews; the video still uploads fine if this fails
+            poster = work.with_name(work.name + ".jpg")
+            try:
+                info = await media_processing.video_poster(work, poster)
+                if info:
+                    width, height, duration = info
+                    poster_key = media_storage.new_key(".jpg")
+                    poster_path = media_storage.path_for_key(poster_key)
+                    poster_path.parent.mkdir(parents=True, exist_ok=True)
+                    await asyncio.to_thread(media_crypto.encrypt_file, poster, poster_path)
+            except Exception:
+                logger.warning("Couldn't make a video poster", exc_info=True)
+                poster_key = None
+            finally:
+                poster.unlink(missing_ok=True)
+
         size = await asyncio.to_thread(media_crypto.encrypt_file, work, path)
     except BaseException:
         path.unlink(missing_ok=True)
+        if poster_key:
+            media_storage.path_for_key(poster_key).unlink(missing_ok=True)
         raise
     finally:
         work.unlink(missing_ok=True)
 
-    name = os.path.basename(file.filename or "")[:255] or f"file{extension}"
+    # (encrypted: the real name travels inside the encrypted message)
+    name = f"file{extension}" if encrypted else os.path.basename(file.filename or "")[:255] or f"file{extension}"
     if not name.lower().endswith(extension) and media_type == "video":
         name = name.rsplit(".", 1)[0] + extension
     return {
@@ -103,6 +144,10 @@ async def upload_media(
             "filename": name,
             "width": width,
             "height": height,
+            # Videos: a server-made poster frame and the length in seconds (null if unavailable)
+            "thumbnailUrl": media_storage.MEDIA_URL_PREFIX + poster_key if poster_key else None,
+            "thumbnailSignedUrl": media_storage.sign_url(media_storage.MEDIA_URL_PREFIX + poster_key) if poster_key else None,
+            "duration": round(duration, 1) if duration else None,
         },
     }
 
@@ -134,6 +179,9 @@ async def get_media(
         # Cache only as long as the link is valid
         "Cache-Control": f"private, max-age={max(int(exp) - int(time.time()), 0)}",
         "X-Content-Type-Options": "nosniff",
+        # The same file is loaded by <img>/<video> (no Origin) and by fetch() for decryption (CORS):
+        # without this a browser can reuse the first, header-less response for the second and block it
+        "Vary": "Origin",
     }
     if download:
         # Save to disk under the original name (?download=1&name=holiday.jpg)

@@ -7,6 +7,8 @@ import { tokenStore } from './token';
 
 /** Fired on window when the session can't be renewed; AuthProvider logs the user out. */
 export const SESSION_EXPIRED_EVENT = 'papyris:session-expired';
+/** Another of your devices logged this browser out (Settings → Sessions). */
+export const LOGGED_OUT_ELSEWHERE_EVENT = 'papyris:logged-out-elsewhere';
 
 let inFlight: Promise<string | null> | null = null;
 

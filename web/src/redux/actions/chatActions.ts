@@ -8,12 +8,17 @@ import {
   setConversations,
   setMessages,
   prependMessages,
-  setPinned,
+  setPinned, setConversationPrefs,
   setLoading,
   setMessagesLoading,
   setError,
   addConversation,
+  updateMessage,
+  updateConversationLastMessage,
 } from '../slices/chatSlice';
+import { decryptMessage, previewText, unverifiedMessages } from '../../crypto/messages';
+import { fromLocal, isV2Marker, joinedAt, lastLocal, localFor, pendingFields } from '../../crypto/v2-platform/chat';
+import type { Message } from '../slices/chatSlice';
 
 /**
  * Fetch all conversations
@@ -56,6 +61,7 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
 
         return {
           ...conv,
+          lastMessage: previewText(conv.lastMessage, conv.id, conv.lastMessageSenderId),
           isOnline,
           members: conv.members || [],
           unreadCount: isActive ? 0 : conv.unreadCount || 0,
@@ -63,6 +69,16 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
       });
 
       dispatch(setConversations(conversationsWithOnline));
+
+      // v2 chats: the server only knows a message was sent; the preview comes from this device's copy
+      conversationsWithOnline.filter((c: any) => isV2Marker(c.lastMessage)).forEach((c: any) => {
+        dispatch(updateConversationLastMessage({ conversationId: c.id, lastMessage: 'Encrypted message', timestamp: c.lastMessageTime }));
+        lastLocal(c.id).then((m) => {
+          if (!m) return;
+          const f = fromLocal(m);
+          dispatch(updateConversationLastMessage({ conversationId: c.id, lastMessage: f.text || (f.mediaType === 'image' ? 'Photo' : f.mediaType === 'video' ? 'Video' : f.mediaType === 'audio' ? 'Voice message' : f.mediaFilename || 'File'), timestamp: c.lastMessageTime }));
+        }).catch(() => undefined);
+      });
 
 
     }
@@ -74,7 +90,7 @@ export const fetchConversations = () => async (dispatch: AppDispatch, getState: 
   }
 };
 
-const toMessage = (msg: any) => ({
+const toMessage = (msg: any) => (isV2Marker(msg.text) ? (m: Message) => ({ ...m, ...pendingFields }) : (m: Message) => m)(decryptMessage({
   id: msg.id,
   conversationId: msg.conversation_id,
   senderId: msg.sender_id,
@@ -106,7 +122,37 @@ const toMessage = (msg: any) => ({
       }
     : null,
   reactions: (msg.reactions || []).map((r: any) => ({ emoji: r.emoji, userIds: r.user_ids })),
-});
+} as Message));
+
+/** v2 rows (and quoted v2 messages): fill from this device's local database. */
+function fillV2(dispatch: AppDispatch, conversationId: string, messages: Message[]) {
+  for (const m of messages) {
+    if (m.e2eVersion === 2 && m.e2e === 'pending') {
+      localFor(m.id).then(async (local) => {
+        if (local) {
+          dispatch(updateMessage({ conversationId, messageId: m.id, updates: fromLocal(local) }));
+        } else {
+          const joined = await joinedAt();
+          // Sent before this browser was linked (both times from the server's clock): it will never arrive here
+          if (joined && Date.parse(m.timestamp) < joined) dispatch(updateMessage({ conversationId, messageId: m.id, updates: { e2e: 'unreadable' } }));
+        }
+      }).catch(() => undefined);
+    }
+    if (m.replyTo && isV2Marker(m.replyTo.text)) {
+      const reply = m.replyTo;
+      localFor(reply.id).then((local) => {
+        dispatch(updateMessage({ conversationId, messageId: m.id, updates: { replyTo: { ...reply, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } } }));
+      }).catch(() => undefined);
+    }
+  }
+}
+
+/** Mark encrypted messages whose signature isn't from their sender's key (checked in the background). */
+export function flagUnverified(dispatch: AppDispatch, conversationId: string, messages: Message[]) {
+  unverifiedMessages(messages)
+    .then(ids => ids.forEach(id => dispatch(updateMessage({ conversationId, messageId: id, updates: { e2eUnverified: true } }))))
+    .catch(() => undefined); // offline: checked again next time the chat loads
+}
 
 /**
  * Fetch the newest page of messages for a conversation
@@ -118,11 +164,10 @@ export const fetchMessages = (conversationId: string) => async (dispatch: AppDis
     const response = await chatService.getMessages(conversationId);
 
     if (response.success && response.data) {
-      dispatch(setMessages({
-        conversationId,
-        messages: response.data.map(toMessage),
-        hasMore: !!response.has_more,
-      }));
+      const messages = response.data.map(toMessage);
+      dispatch(setMessages({ conversationId, messages, hasMore: !!response.has_more }));
+      flagUnverified(dispatch, conversationId, messages);
+      fillV2(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch messages:', error);
@@ -145,11 +190,10 @@ export const fetchOlderMessages = (conversationId: string) => async (
   try {
     const response = await chatService.getMessages(conversationId, 50, oldest.id);
     if (response.success && response.data) {
-      dispatch(prependMessages({
-        conversationId,
-        messages: response.data.map(toMessage),
-        hasMore: !!response.has_more,
-      }));
+      const messages = response.data.map(toMessage);
+      dispatch(prependMessages({ conversationId, messages, hasMore: !!response.has_more }));
+      flagUnverified(dispatch, conversationId, messages);
+      fillV2(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch older messages:', error);
@@ -271,6 +315,34 @@ export const togglePinConversation = (conversationId: string) => async (
     dispatch(setPinned({ conversationId, pinnedAt: response.data?.pinnedAt ?? null }));
   } catch (error) {
     dispatch(setPinned({ conversationId, pinnedAt: previous }));
+    toast.error(parseApiError(error));
+  }
+};
+
+/** Mute a chat for yourself (optimistic). */
+export const muteConversation = (conversationId: string, duration: '8h' | '1w' | 'always' | null) => async (
+  dispatch: AppDispatch,
+  getState: () => RootState
+) => {
+  const previous = getState().chat.conversations.find(c => c.id === conversationId)?.mutedUntil ?? null;
+  const hours = { '8h': 8, '1w': 24 * 7, always: 24 * 365 * 100 };
+  dispatch(setConversationPrefs({ conversationId, mutedUntil: duration ? new Date(Date.now() + hours[duration] * 3600e3).toISOString() : null }));
+  try {
+    const response = await chatService.muteConversation(conversationId, duration);
+    dispatch(setConversationPrefs({ conversationId, mutedUntil: response.data?.mutedUntil ?? null }));
+  } catch (error) {
+    dispatch(setConversationPrefs({ conversationId, mutedUntil: previous }));
+    toast.error(parseApiError(error));
+  }
+};
+
+/** Archive a chat for yourself, or bring it back (optimistic). */
+export const archiveConversation = (conversationId: string, archived: boolean) => async (dispatch: AppDispatch) => {
+  dispatch(setConversationPrefs({ conversationId, isArchived: archived, ...(archived ? { isPinned: false } : {}) }));
+  try {
+    await chatService.archiveConversation(conversationId, archived);
+  } catch (error) {
+    dispatch(setConversationPrefs({ conversationId, isArchived: !archived }));
     toast.error(parseApiError(error));
   }
 };

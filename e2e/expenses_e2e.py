@@ -20,6 +20,9 @@ import httpx
 from PIL import Image, ImageDraw
 from playwright.sync_api import expect, sync_playwright
 
+sys.path.insert(0, str(Path(__file__).parent))
+from encryption_gate import pass_encryption_gate  # noqa: E402
+
 API = os.environ.get("PAPYRIS_API", "http://localhost:8000") + "/api/v1"
 WEB = os.environ.get("PAPYRIS_WEB", "http://localhost:3000")
 PASSWORD = "Passw0rd!23"
@@ -66,6 +69,7 @@ def login(page, username: str) -> None:
     page.locator("input[name=loginPassword]").fill(PASSWORD)
     page.locator("input[name=loginPassword]").press("Enter")
     page.wait_for_url(lambda url: "/login" not in url)
+    pass_encryption_gate(page, username)
 
 
 def main() -> None:
@@ -175,9 +179,9 @@ def main() -> None:
 
         # ---- balances + settle up on the Expenses page
         page.goto(f"{WEB}/expenses?chat={group}")
-        expect(page.get_by_text("You are owed")).to_be_visible()
+        expect(page.get_by_text("You get back")).to_be_visible()  # the "You" tab: only your own amounts
         page.screenshot(path=SHOTS / "06-expenses-page.png")
-        page.get_by_role("button", name="Settle").first.click()
+        page.get_by_role("button", name="Mark paid").first.click()  # someone paid you back
         page.get_by_role("button", name="Record payment").click()
         page.wait_for_timeout(800)
         page.screenshot(path=SHOTS / "07-after-settle.png")

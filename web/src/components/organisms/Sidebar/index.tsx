@@ -1,7 +1,11 @@
 // src/components/organisms/Sidebar.tsx
+// Desktop navigation: a narrow purple rail with the logo, the four sections and you at the bottom.
 import React from 'react';
-import { Avatar, Badge, Typography } from '../../atoms';
-import Icon from '../../atoms/Icon';
+import { LogOut, MessageSquareText, Settings, Users, Wallet } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { Avatar } from '../../atoms';
+
+const ICONS: Record<NavigationItem['icon'], LucideIcon> = { chat: MessageSquareText, users: Users, expense: Wallet, settings: Settings };
 
 interface NavigationItem {
   id: string;
@@ -44,139 +48,69 @@ const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   className = ''
 }) => {
-  // Add badges to nav items
-  const itemsWithBadges = navigationItems.map(item => {
-    if (item.id === 'chats' && unreadChats > 0) {
-      return { ...item, badge: unreadChats };
-    }
-    if (item.id === 'expenses' && pendingExpenses > 0) {
-      return { ...item, badge: pendingExpenses };
-    }
-    return item;
-  });
+  const badgeFor = (id: string) => (id === 'chats' ? unreadChats : id === 'expenses' ? pendingExpenses : 0);
 
   return (
-    <div className={`
-      flex flex-col h-full
-      bg-white
-      border-r-2 border-primary-100
-      shadow-soft
-      ${className}
-    `}>
-      {/* Logo / Brand */}
-      <div className="px-6 py-5 border-b border-primary-100">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary-700 flex items-center justify-center shadow-card">
-            <Typography variant="h5" weight="bold" className="text-white">
-              P
-            </Typography>
-          </div>
-          <div>
-            <Typography variant="h5" weight="bold" className="text-primary-700">
-              Papyris
-            </Typography>
-            <Typography variant="caption" className="text-muted-500">
-              Chat & Split
-            </Typography>
-          </div>
-        </div>
-      </div>
+    <div className={`flex flex-col items-center h-full py-5 px-3 bg-primary-700 text-white ${className}`}>
+      <button
+        type="button"
+        onClick={() => onNavigate('/chat')}
+        title="Papyris"
+        aria-label="Papyris home"
+        className="w-[42px] h-[42px] mb-8 rounded-[13px] bg-white text-primary-700 font-display font-bold text-xl grid place-items-center shadow-[0_6px_18px_rgba(40,29,70,0.33)]"
+      >
+        P
+      </button>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {itemsWithBadges.map((item) => {
+      <nav className="w-full flex flex-col gap-2" aria-label="Main">
+        {navigationItems.map((item) => {
           const isActive = activeRoute === item.path || activeRoute.startsWith(item.path);
-          
+          const badge = badgeFor(item.id);
+          const ItemIcon = ICONS[item.icon];
           return (
             <button
               key={item.id}
+              type="button"
               onClick={() => onNavigate(item.path)}
-              className={`
-                w-full flex items-center justify-between gap-3
-                px-4 py-3 rounded-xl
-                transition-all duration-200
-                ${isActive 
-                  ? 'bg-primary-50 border-l-4 border-primary-600 text-primary-700 shadow-soft' 
-                  : 'text-muted-600 hover:bg-primary-50/50 hover:text-primary-600'
-                }
-              `}
+              aria-current={isActive ? 'page' : undefined}
+              className={`relative w-full h-[58px] rounded-[14px] flex flex-col items-center justify-center gap-1 transition-colors ${
+                isActive ? 'bg-white/10 text-white' : 'text-primary-200 hover:bg-white/10 hover:text-white'
+              }`}
             >
-              <div className="flex items-center gap-3">
-                <Icon 
-                  name={item.icon} 
-                  size={22} 
-                  className={isActive ? 'text-primary-600' : 'text-muted-500'}
-                />
-                <Typography 
-                  variant="body1" 
-                  weight={isActive ? 'semibold' : 'medium'}
-                  className={isActive ? 'text-primary-700' : 'text-muted-700'}
-                >
-                  {item.label}
-                </Typography>
-              </div>
-              
-              {item.badge && item.badge > 0 && (
-                <Badge 
-                  count={item.badge} 
-                  variant="primary" 
-                  size="sm" 
-                />
+              {isActive && <span className="absolute -left-3 w-[3px] h-6 rounded-r bg-white" aria-hidden />}
+              <ItemIcon size={21} strokeWidth={1.8} />
+              <span className="text-[10px] font-semibold leading-none">{item.label}</span>
+              {badge > 0 && (
+                <span className="absolute top-1.5 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-primary-700 text-[10px] font-bold grid place-items-center">
+                  {badge > 99 ? '99+' : badge}
+                </span>
               )}
             </button>
           );
         })}
       </nav>
 
-      {/* User profile section */}
-      <div className="px-3 py-4 border-t border-primary-100">
-        {/* Profile button */}
-        <button
-          onClick={onProfileClick}
-          className="
-            w-full flex items-center gap-3
-            p-3 rounded-xl
-            hover:bg-primary-50
-            transition-all duration-200
-            group
-          "
-        >
-          <Avatar
-            src={user.avatar}
-            alt={user.name}
-            size="md"
-            className="ring-2 ring-white group-hover:ring-primary-200 transition-all"
-          />
-          <div className="flex-1 min-w-0 text-left">
-            <Typography variant="body1" weight="semibold" className="text-muted-900 truncate">
-              {user.name}
-            </Typography>
-            {user.username && (
-              <Typography variant="caption" className="text-muted-500 truncate">
-                @{user.username}
-              </Typography>
-            )}
-          </div>
-          <Icon name="dots" size={18} className="text-muted-400 group-hover:text-primary-600 transition-colors" />
-        </button>
-
-        {/* Logout button */}
+      <div className="mt-auto flex flex-col items-center gap-4">
         {onLogout && (
           <button
+            type="button"
             onClick={onLogout}
-            className="
-              w-full flex items-center gap-3
-              px-4 py-2.5 mt-2 rounded-xl
-              text-accent-600 hover:bg-accent-50
-              transition-all duration-200
-            "
+            title="Log out"
+            aria-label="Log out"
+            className="w-11 h-11 rounded-[14px] grid place-items-center text-primary-200 hover:bg-white/10 hover:text-white"
           >
-            <Icon name="logout" size={18} />
-            <Typography variant="body2" weight="medium">
-              Logout
-            </Typography>
+            <LogOut size={19} />
           </button>
         )}
+        <button
+          type="button"
+          onClick={onProfileClick}
+          title={user.username ? `${user.name} (@${user.username})` : user.name}
+          aria-label="Your profile"
+          className="rounded-full ring-2 ring-white/20 hover:ring-white/60 transition-shadow"
+        >
+          <Avatar src={user.avatar} alt={user.name} size="md" />
+        </button>
       </div>
     </div>
   );

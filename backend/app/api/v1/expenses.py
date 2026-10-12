@@ -6,13 +6,13 @@ Amounts come in as decimal strings in major units ("12.30") and are stored as in
 """
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ from app.models.ai import AIModel
 from app.models.expense import Expense, ExpenseEvent, Settlement
 from app.models.receipt import Receipt
 from app.models.user import User
+from app.services import expense_export
 from app.services import expense_service as svc
 from app.services import media_storage
 from app.services.message_service import MessageService
@@ -29,54 +30,13 @@ from app.services.balances import net_balances, pairwise, simplify
 from app.services.money import CURRENCIES, MoneyError, format_minor, is_supported, to_minor
 from app.services.split_engine import split_manual, validate_payers
 from app.websocket.routes import publish_users
+from app.schemas.expenses import (
+    ExpenseRequest, LockRequest, SettlementRequest, SettlementUpdate, SettingsRequest, RemindRequest,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Expenses"])
-
-
-class SplitEntry(BaseModel):
-    user_id: uuid.UUID
-    # exact: amount ("4.50"); percent: "25"; shares: "2"; ignored for equal
-    value: Optional[str] = Field(None, max_length=20)
-
-
-class PayerEntry(BaseModel):
-    user_id: uuid.UUID
-    amount: str = Field(..., max_length=20)
-
-
-class ExpenseRequest(BaseModel):
-    description: str = Field(..., min_length=1, max_length=200)
-    category: str = "other"
-    currency: str = Field(..., min_length=3, max_length=3)
-    amount: str = Field(..., max_length=20)
-    spent_at: Optional[datetime] = None
-    split_mode: Literal["equal", "exact", "percent", "shares", "itemized"] = "equal"
-    splits: list[SplitEntry] = Field(default_factory=list, max_length=200)
-    # None = the person adding it paid everything
-    payers: Optional[list[PayerEntry]] = Field(None, max_length=200)
-    # Required when editing: the version you started from
-    version: Optional[int] = None
-
-
-class LockRequest(BaseModel):
-    locked: bool
-
-
-class SettlementRequest(BaseModel):
-    from_user: uuid.UUID
-    to_user: uuid.UUID
-    currency: str = Field(..., min_length=3, max_length=3)
-    amount: str = Field(..., max_length=20)
-    note: Optional[str] = Field(None, max_length=200)
-
-
-class SettingsRequest(BaseModel):
-    default_currency: Optional[str] = Field(None, min_length=3, max_length=3)
-    simplify_debts: Optional[bool] = None
-    # 0 = clear (use each person's own choice)
-    receipt_model_id: Optional[int] = None
 
 
 def _ok(data, message: str = "OK") -> dict:
@@ -145,6 +105,18 @@ async def list_currencies():
     return _ok([{"code": c, "symbol": s, "name": n, "decimals": d} for c, (d, s, n) in CURRENCIES.items()])
 
 
+@router.get("/exchange-rates")
+async def exchange_rates(base: str = Query(..., min_length=3, max_length=3), current_user: User = Depends(get_current_user)):
+    """How many of each currency one `base` buys (for showing totals in someone's chosen currency)."""
+    from app.services import fx_rates
+    base = _currency(base)
+    try:
+        rates, updated = await fx_rates.rates_for(base)
+    except fx_rates.RatesUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    return _ok({"base": base, "rates": rates, "updated": updated, "source": "ExchangeRate-API (open.er-api.com)"})
+
+
 @router.get("/expenses/conversations")
 async def conversations_with_expenses(
     current_user: User = Depends(get_current_user),
@@ -158,6 +130,112 @@ async def conversations_with_expenses(
         .where(ConversationMember.user_id == current_user.id, Expense.deleted_at.is_(None))
     )).scalars().all()
     return _ok([str(i) for i in ids])
+
+
+@router.get("/expenses/activity")
+async def recent_activity(
+    limit: int = Query(30, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Newest expenses and payments across every chat you're in (Expenses home), with the chat's name."""
+    from app.models.conversation import Conversation
+    from app.models.conversation_member import ConversationMember
+    chat_ids = (await db.execute(
+        select(ConversationMember.conversation_id).where(ConversationMember.user_id == current_user.id)
+    )).scalars().all()
+    if not chat_ids:
+        return _ok({"items": [], "users": {}, "chats": {}})
+    items: list[dict] = []
+    for e in (await db.execute(
+        select(Expense).where(Expense.conversation_id.in_(chat_ids), Expense.deleted_at.is_(None))
+        .order_by(Expense.spent_at.desc()).limit(limit)
+    )).scalars().all():
+        items.append({"kind": "expense", "at": e.spent_at.isoformat(), **svc.serialize(e),
+                      "can_edit": not e.locked and e.deleted_at is None})
+    for st in (await db.execute(
+        select(Settlement).where(Settlement.conversation_id.in_(chat_ids), Settlement.deleted_at.is_(None))
+        .order_by(Settlement.created_at.desc()).limit(limit)
+    )).scalars().all():
+        items.append({"kind": "settlement", "at": st.created_at.isoformat(), **_serialize_settlement(st)})
+    items.sort(key=lambda i: i["at"], reverse=True)
+    items = items[:limit]
+
+    # Names for the people and chats in these items (a direct chat is named after the other person)
+    used = {uuid.UUID(i["conversation_id"]) for i in items}
+    user_ids = {current_user.id}
+    for i in items:
+        if i["kind"] == "settlement":
+            user_ids |= {uuid.UUID(i["from_user"]), uuid.UUID(i["to_user"])}
+        else:
+            user_ids |= {uuid.UUID(p["user_id"]) for p in i["payers"]} | {uuid.UUID(x["user_id"]) for x in i["shares"]}
+    chats: dict[str, dict] = {}
+    if used:
+        convs = (await db.execute(select(Conversation).where(Conversation.id.in_(used)))).scalars().all()
+        dm_members = (await db.execute(
+            select(ConversationMember.conversation_id, ConversationMember.user_id)
+            .where(ConversationMember.conversation_id.in_([c.id for c in convs if c.kind != "group"]),
+                   ConversationMember.user_id != current_user.id)
+        )).all()
+        partner = {cid: uid for cid, uid in dm_members}
+        user_ids |= set(partner.values())
+        rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+        users = {str(u.id): _user_view(u) for u in rows}
+        for c in convs:
+            if c.kind == "group":
+                chats[str(c.id)] = {"name": c.title or "Group", "is_group": True}
+            else:
+                other = users.get(str(partner.get(c.id)), {})
+                chats[str(c.id)] = {"name": other.get("name") or other.get("username") or "Direct chat", "is_group": False}
+    else:
+        users = {}
+    return _ok({"items": items, "users": users, "chats": chats})
+
+
+@router.get("/expenses/overview")
+async def expenses_overview(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Your money across every chat (Expenses home): per currency, how much you're owed and owe in all;
+    and per person, the total between you and the chats it comes from (as each chat shows it).
+    """
+    from app.models.conversation import Conversation
+    from app.models.conversation_member import ConversationMember
+    me = str(current_user.id)
+    chat_ids = (await db.execute(
+        select(Expense.conversation_id).distinct()
+        .join(ConversationMember, ConversationMember.conversation_id == Expense.conversation_id)
+        .where(ConversationMember.user_id == current_user.id, Expense.deleted_at.is_(None))
+    )).scalars().all()
+    totals: dict[str, dict] = {}
+    people: dict[tuple[str, str], dict] = {}
+    for chat_id in chat_ids:
+        _, _, debts = await _debts(db, chat_id)
+        mine = [d for d in debts if me in (d.from_user, d.to_user)]
+        if not mine:
+            continue
+        chat = await db.get(Conversation, chat_id)
+        for d in mine:
+            other = d.to_user if d.from_user == me else d.from_user
+            signed = d.amount if d.to_user == me else -d.amount  # + they owe you, - you owe them
+            t = totals.setdefault(d.currency, {"currency": d.currency, "owed_minor": 0, "owe_minor": 0})
+            t["owed_minor" if signed > 0 else "owe_minor"] += abs(signed)
+            p = people.setdefault((other, d.currency), {"user_id": other, "currency": d.currency, "net_minor": 0, "chats": []})
+            p["net_minor"] += signed
+            p["chats"].append({"conversation_id": str(chat_id), "title": chat.title if chat and chat.kind == "group" else None,
+                               "is_group": bool(chat and chat.kind == "group"), "amount_minor": signed})
+    users = {}
+    if people:
+        rows = (await db.execute(select(User).where(User.id.in_([uuid.UUID(u) for u, _ in people])))).scalars().all()
+        users = {str(u.id): _user_view(u) for u in rows}
+    await db.commit()  # settings rows may have just been created
+    return _ok({
+        "currencies": [{**t, "net_minor": t["owed_minor"] - t["owe_minor"]} for t in sorted(totals.values(), key=lambda t: t["currency"])],
+        "people": sorted((p for p in people.values() if p["net_minor"]), key=lambda p: -abs(p["net_minor"])),
+        "users": users,
+    })
 
 
 @router.get("/conversations/{conversation_id}/expenses")
@@ -446,38 +524,77 @@ async def create_settlement(
     return _ok(_serialize_settlement(settlement), "Payment recorded")
 
 
+async def _editable_settlement(db: AsyncSession, settlement_id: uuid.UUID, user: User) -> Settlement:
+    """A recorded payment that `user` may change: they recorded it, made it, got it, or run the chat."""
+    settlement = await db.get(Settlement, settlement_id)
+    if settlement is None or settlement.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    access = await svc.load_access(db, settlement.conversation_id, user)
+    if not (access.is_admin or user.id in (settlement.created_by, settlement.from_user, settlement.to_user)):
+        raise HTTPException(status_code=403, detail="Only the two people in this payment, whoever recorded it, or an admin can change it")
+    return settlement
+
+
+async def _announce_settlement_change(db: AsyncSession, settlement: Settlement, actor: User, text: str, action: str) -> None:
+    members = await svc.member_users(db, settlement.conversation_id)
+    payload = await MessageService.post_system_message(db, settlement.conversation_id, actor, text)
+    member_ids = list(members)
+    await publish_users(member_ids, payload)
+    await publish_users(member_ids, {"type": "expense_changed", "conversationId": str(settlement.conversation_id), "action": action})
+
+
+def _payment_text(members: dict, settlement: Settlement) -> str:
+    payer, payee = members.get(str(settlement.from_user)), members.get(str(settlement.to_user))
+    return (f"{payer.username if payer else 'Someone'} paid {payee.username if payee else 'someone'} "
+            f"{format_minor(settlement.amount_minor, settlement.currency)}")
+
+
+@router.patch("/settlements/{settlement_id}")
+async def update_settlement(
+    settlement_id: uuid.UUID,
+    body: SettlementUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fix a recorded payment's amount or note (e.g. it was €20, not €25)."""
+    settlement = await _editable_settlement(db, settlement_id, current_user)
+    amount = _money(body.amount, settlement.currency)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be more than zero")
+    before = format_minor(settlement.amount_minor, settlement.currency)
+    settlement.amount_minor = amount
+    settlement.note = (body.note or "").strip() or None
+    await db.flush()
+    members = await svc.member_users(db, settlement.conversation_id)
+    text = f"{current_user.username} changed a payment: {_payment_text(members, settlement)}"
+    if before != format_minor(amount, settlement.currency):
+        text += f" (was {before})"
+    await _announce_settlement_change(db, settlement, current_user, text, "settlement_changed")
+    return _ok(_serialize_settlement(settlement), "Payment updated")
+
+
 @router.delete("/settlements/{settlement_id}")
 async def delete_settlement(
     settlement_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    settlement = await db.get(Settlement, settlement_id)
-    if settlement is None or settlement.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    access = await svc.load_access(db, settlement.conversation_id, current_user)
-    if not (access.is_admin or settlement.created_by == current_user.id):
-        raise HTTPException(status_code=403, detail="Only the person who recorded it or an admin can remove it")
+    """Undo a recorded payment: balances go back to how they were before it."""
+    settlement = await _editable_settlement(db, settlement_id, current_user)
     settlement.deleted_at = datetime.now(timezone.utc)
-    await db.commit()
-    member_ids = await MessageService.member_ids(db, settlement.conversation_id)
-    await publish_users(member_ids, {"type": "expense_changed", "conversationId": str(settlement.conversation_id), "action": "settlement_removed"})
+    await db.flush()
+    members = await svc.member_users(db, settlement.conversation_id)
+    text = f"{current_user.username} undid a payment: {_payment_text(members, settlement)}"
+    await _announce_settlement_change(db, settlement, current_user, text, "settlement_removed")
     return _ok(_serialize_settlement(settlement), "Payment removed")
 
 
 # ------------------------------------------------------------------ balances & settings
 
-@router.get("/conversations/{conversation_id}/balances")
-async def get_balances(
-    conversation_id: uuid.UUID,
-    simplified: Optional[bool] = None,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await svc.load_access(db, conversation_id, current_user)
+async def _debts(db: AsyncSession, conversation_id: uuid.UUID, simplified: Optional[bool] = None):
+    """(simplified?, nets per currency, who pays whom) for one chat, as its settings say to show them."""
     settings = await svc.get_settings(db, conversation_id)
     use_simplified = settings.simplify_debts if simplified is None else simplified
-
     expenses = (await db.execute(
         select(Expense).where(Expense.conversation_id == conversation_id, Expense.deleted_at.is_(None))
     )).scalars().all()
@@ -498,6 +615,25 @@ async def get_balances(
     ]
     nets = net_balances(plain_expenses, plain_settlements)
     debts = simplify(nets) if use_simplified else pairwise(plain_expenses, plain_settlements)
+    return use_simplified, nets, debts
+
+
+def _user_view(u: User) -> dict:
+    """A chat partner as the money screens show them; `pay` holds their payment app usernames."""
+    return {"id": str(u.id), "username": u.username, "name": u.name, "avatar": media_storage.sign_url(u.avatar),
+            "pay": u.payment_handles or {}}
+
+
+@router.get("/conversations/{conversation_id}/balances")
+async def get_balances(
+    conversation_id: uuid.UUID,
+    simplified: Optional[bool] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await svc.load_access(db, conversation_id, current_user)
+    use_simplified, nets, debts = await _debts(db, conversation_id, simplified)
+    settings = await svc.get_settings(db, conversation_id)
 
     me = str(current_user.id)
     currencies = sorted(set(nets) | {d.currency for d in debts})
@@ -505,10 +641,7 @@ async def get_balances(
     users = {}
     if user_ids:
         rows = (await db.execute(select(User).where(User.id.in_([uuid.UUID(u) for u in user_ids])))).scalars().all()
-        users = {
-            str(u.id): {"id": str(u.id), "username": u.username, "name": u.name, "avatar": media_storage.sign_url(u.avatar)}
-            for u in rows
-        }
+        users = {str(u.id): _user_view(u) for u in rows}
     await db.commit()  # settings row may have just been created
 
     return _ok({
@@ -582,3 +715,189 @@ async def update_expense_settings(
     member_ids = await MessageService.member_ids(db, conversation_id)
     await publish_users(member_ids, {"type": "expense_changed", "conversationId": str(conversation_id), "action": "settings"})
     return _ok(data, "Settings saved")
+
+
+@router.get("/conversations/{conversation_id}/expenses/export")
+async def export_expenses(
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The chat's expenses as an Excel file: summary, expenses and discounted products."""
+    access = await svc.load_access(db, conversation_id, current_user)
+    settings = await svc.get_settings(db, conversation_id)
+    title = access.conversation.title
+    if not title:
+        others = [u.name or u.username for uid, u in (await svc.member_users(db, conversation_id)).items() if uid != str(current_user.id)]
+        title = " & ".join(others) or "Chat"
+    data = await expense_export.build_workbook(db, conversation_id, title, settings.simplify_debts)
+    await db.commit()  # settings row may have just been created
+    filename = re.sub(r"[^A-Za-z0-9 _-]+", "", title).strip().replace(" ", "-")[:40] or "chat"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}-expenses-{datetime.now(timezone.utc):%Y-%m-%d}.xlsx"'},
+    )
+
+
+# ------------------------------------------------------------------ summary & history (Expenses → a chat)
+
+async def _member_view(db: AsyncSession, conversation_id: uuid.UUID) -> dict:
+    members = await svc.member_users(db, conversation_id)
+    return {uid: _user_view(u) for uid, u in members.items()}
+
+
+@router.get("/conversations/{conversation_id}/expenses/summary")
+async def expense_summary(
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    One chat's money at a glance, per currency: total spent; what each member paid, their share, the
+    payments they made or got, and their balance; and spending by category and by month. `me` is the
+    signed-in person's own part.
+    """
+    await svc.load_access(db, conversation_id, current_user)
+    expenses = (await db.execute(
+        select(Expense).where(Expense.conversation_id == conversation_id, Expense.deleted_at.is_(None))
+    )).scalars().all()
+    settlements = (await db.execute(
+        select(Settlement).where(Settlement.conversation_id == conversation_id, Settlement.deleted_at.is_(None))
+    )).scalars().all()
+    me = str(current_user.id)
+    out: dict[str, dict] = {}
+
+    def bucket(currency: str) -> dict:
+        return out.setdefault(currency, {"currency": currency, "total_minor": 0, "count": 0, "members": {}, "by_category": {}, "by_month": {}})
+
+    def member(b: dict, uid: str) -> dict:
+        return b["members"].setdefault(uid, {"user_id": uid, "paid_minor": 0, "share_minor": 0, "sent_minor": 0, "received_minor": 0})
+
+    for e in expenses:
+        b = bucket(e.currency)
+        b["total_minor"] += e.total_minor
+        b["count"] += 1
+        cat = b["by_category"].setdefault(e.category or "other", {"category": e.category or "other", "total_minor": 0, "count": 0})
+        cat["total_minor"] += e.total_minor
+        cat["count"] += 1
+        month = f"{e.spent_at:%Y-%m}"
+        b["by_month"][month] = b["by_month"].get(month, 0) + e.total_minor
+        for p in e.payers:
+            member(b, str(p.user_id))["paid_minor"] += p.amount_minor
+        for s in e.shares:
+            member(b, str(s.user_id))["share_minor"] += s.amount_minor
+    for s in settlements:
+        b = bucket(s.currency)
+        member(b, str(s.from_user))["sent_minor"] += s.amount_minor
+        member(b, str(s.to_user))["received_minor"] += s.amount_minor
+
+    users = await _member_view(db, conversation_id)
+    currencies = []
+    for currency in sorted(out):
+        b = out[currency]
+        for uid in users:  # everyone in the chat, even with nothing yet
+            member(b, uid)
+        members = []
+        for m in b["members"].values():
+            # Balance: positive = the group owes them, negative = they owe the group
+            m["net_minor"] = m["paid_minor"] - m["share_minor"] + m["sent_minor"] - m["received_minor"]
+            members.append(m)
+        members.sort(key=lambda m: -m["net_minor"])
+        mine = b["members"].get(me) or {"user_id": me, "paid_minor": 0, "share_minor": 0, "sent_minor": 0, "received_minor": 0, "net_minor": 0}
+        currencies.append({
+            "currency": currency,
+            "total_minor": b["total_minor"],
+            "total_display": format_minor(b["total_minor"], currency),
+            "count": b["count"],
+            "me": mine,
+            "members": members,
+            "by_category": sorted(b["by_category"].values(), key=lambda c: -c["total_minor"]),
+            "by_month": [{"month": k, "total_minor": v} for k, v in sorted(b["by_month"].items(), reverse=True)],
+        })
+    await db.commit()
+    return _ok({"currencies": currencies, "users": users})
+
+
+@router.get("/conversations/{conversation_id}/history")
+async def conversation_expense_history(
+    conversation_id: uuid.UUID,
+    category: Optional[str] = None,
+    member: Optional[uuid.UUID] = Query(None, description="Only entries this person paid, shares or settled"),
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    kind: Optional[Literal["expense", "settlement"]] = None,
+    include_deleted: bool = False,
+    limit: int = Query(200, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Expenses and recorded payments in one timeline, newest first, with filters."""
+    await svc.load_access(db, conversation_id, current_user)
+    items: list[dict] = []
+    if kind != "settlement":
+        stmt = select(Expense).where(Expense.conversation_id == conversation_id)
+        if not include_deleted:
+            stmt = stmt.where(Expense.deleted_at.is_(None))
+        if category:
+            stmt = stmt.where(Expense.category == category)
+        if date_from:
+            stmt = stmt.where(Expense.spent_at >= date_from)
+        if date_to:
+            stmt = stmt.where(Expense.spent_at < date_to)
+        for e in (await db.execute(stmt.order_by(Expense.spent_at.desc()).limit(limit))).scalars().all():
+            if member and not any(p.user_id == member for p in e.payers) and not any(s.user_id == member and s.amount_minor for s in e.shares):
+                continue
+            items.append({"kind": "expense", "at": e.spent_at.isoformat(), **svc.serialize(e),
+                          "can_edit": not e.locked and e.deleted_at is None})
+    if kind != "expense" and not category:
+        stmt = select(Settlement).where(Settlement.conversation_id == conversation_id, Settlement.deleted_at.is_(None))
+        if member:
+            stmt = stmt.where((Settlement.from_user == member) | (Settlement.to_user == member))
+        if date_from:
+            stmt = stmt.where(Settlement.created_at >= date_from)
+        if date_to:
+            stmt = stmt.where(Settlement.created_at < date_to)
+        for s in (await db.execute(stmt.order_by(Settlement.created_at.desc()).limit(limit))).scalars().all():
+            items.append({"kind": "settlement", "at": s.created_at.isoformat(), **_serialize_settlement(s)})
+    items.sort(key=lambda i: i["at"], reverse=True)
+    return _ok({"items": items[:limit], "users": await _member_view(db, conversation_id)})
+
+
+# ------------------------------------------------------------------ reminders
+
+
+REMIND_EVERY = 24 * 3600  # one reminder per person, chat and currency a day
+
+
+@router.post("/conversations/{conversation_id}/remind")
+async def remind(
+    conversation_id: uuid.UUID,
+    body: RemindRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Nudge someone who owes you in this chat: a notification on their phones (and in the app)."""
+    from app.services import push
+    from app.websocket.routes import pubsub
+    access = await svc.load_access(db, conversation_id, current_user)
+    currency = body.currency.upper()
+    _, _, debts = await _debts(db, conversation_id)
+    owed = next((d.amount for d in debts if d.currency == currency and d.from_user == str(body.user_id) and d.to_user == str(current_user.id)), 0)
+    if owed <= 0:
+        raise HTTPException(status_code=400, detail="They don't owe you anything here")
+    key = f"papyris:remind:{conversation_id}:{current_user.id}:{body.user_id}:{currency}"
+    if not await pubsub.redis.set(key, "1", nx=True, ex=REMIND_EVERY):
+        raise HTTPException(status_code=429, detail="You've already reminded them today")
+    await db.commit()  # settings row may have just been created
+    who = current_user.name or current_user.username
+    amount = format_minor(owed, currency)
+    where = access.conversation.title if access.conversation.kind == "group" and access.conversation.title else None
+    text = f"{who} reminded you: you owe them {amount}" + (f" in {where}" if where else "")
+    if push.enabled():
+        await push.send_to_users(db, [body.user_id], where or who, text, {"type": "expense_reminder", "conversationId": str(conversation_id)})
+    await publish_users([str(body.user_id)], {
+        "type": "expense_reminder", "conversationId": str(conversation_id), "fromUserId": str(current_user.id),
+        "fromName": who, "currency": currency, "amountMinor": owed, "text": text,
+    })
+    return _ok({"reminded": True}, "Reminder sent")

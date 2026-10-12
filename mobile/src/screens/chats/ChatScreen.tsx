@@ -1,31 +1,40 @@
 // src/screens/chats/ChatScreen.tsx
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Copy, CornerUpLeft, Info, Pencil, ReceiptText, SendHorizontal, Trash2, X } from 'lucide-react-native';
+import { Copy, CornerUpLeft, Download, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Search, ShieldAlert, Trash2, X } from 'lucide-react-native';
+import ChatSearch from './ChatSearch';
+import { useKeyChanges, useTrustActions } from '../../crypto/v2-platform/trust';
+import { useChatEncryption } from '../../crypto/useChatEncryption';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Avatar from '../../components/Avatar';
-import MessageBubble from '../../components/MessageBubble';
+import Avatar from '../../components/common/Avatar';
+import MessageBubble from '../../components/chat/MessageBubble';
+import AlbumGrid, { groupAlbums } from '../../components/chat/AlbumGrid';
+import Composer from '../../components/chat/Composer';
+import ForwardSheet from '../../components/chat/ForwardSheet';
+import MediaViewer, { ViewerItem } from '../../components/chat/MediaViewer';
+import { saveToPhone } from '../../utils/save';
 import { chatApi, Message, ReplyPreview } from '../../api/chat';
 import { errorMessage } from '../../api/client';
-import { mediaUrl } from '../../config';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
-import { typingNames, useChat } from '../../store/chat';
-import { socket } from '../../ws/socket';
+import { mediaPayloadOf, typingNames, useChat } from '../../store/chat';
+import { sealFor } from '../../crypto/messages';
+import { editV2 } from '../../crypto/v2-platform/chat';
+import { socket } from '../../websocket/socket';
 import { colors, radius, space } from '../../theme';
 import { dayLabel } from '../../utils/time';
 import type { AppStackParams } from '../../navigation/types';
+import { showAlert } from '../../components/common/Dialog';
 
+const NO_MEMBERS: string[] = [];
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const TYPING_REPEAT_MS = 2500;
 const EMPTY: Message[] = [];
 
-type Row = { kind: 'message'; message: Message } | { kind: 'day'; label: string; key: string };
+type Row = { kind: 'message'; message: Message } | { kind: 'album'; messages: Message[] } | { kind: 'day'; label: string; key: string };
 
 const preview = (m: Message) =>
   m.text || (m.mediaType === 'image' ? 'Photo' : m.mediaType === 'video' ? 'Video' : m.mediaType === 'audio' ? 'Voice message' : m.mediaFilename || 'File');
@@ -38,13 +47,14 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   const hasMore = useChat((s) => !!s.hasMore[conversationId]);
   const typing = useChat((s) => s.typing);
   const online = useChat((s) => s.online);
-  const { open, loadMessages, loadOlder, send, retry } = useChat.getState();
+  const { open, loadMessages, loadOlder, send, retry, sendMedia, cancelUpload, retryUpload, forward } = useChat.getState();
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [selected, setSelected] = useState<Message | null>(null);
-  const [viewer, setViewer] = useState<string | null>(null);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [forwarding, setForwarding] = useState<Message | null>(null);
   const [loading, setLoading] = useState(!messages.length);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const lastTypingSent = useRef(0);
@@ -55,7 +65,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   // Join the room while the chat is on screen
   useFocusEffect(useCallback(() => {
     open(conversationId);
-    loadMessages(conversationId).catch((e) => Alert.alert("Couldn't load messages", errorMessage(e))).finally(() => setLoading(false));
+    loadMessages(conversationId).catch((e) => showAlert("Couldn't load messages", errorMessage(e))).finally(() => setLoading(false));
     return () => open(null);
   }, [conversationId, open, loadMessages]));
 
@@ -71,19 +81,32 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     ? conversation?.isGroup ? `${typers.length > 1 ? `${typers.length} people are` : `${typers[0]} is`} typing…` : 'typing…'
     : conversation?.isGroup ? `${conversation.members.length} members` : otherId && online.includes(otherId) ? 'Online' : 'Offline';
 
+  const encryption = useChatEncryption(conversationId);
+
+  const keyChanges = useKeyChanges(conversation?.members || NO_MEMBERS);
+
+  const trustActions = useTrustActions();
+  const encrypted = encryption.state === 'encrypted';
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerTitle: () => (
         <Pressable onPress={() => navigation.navigate('ChatInfo', { conversationId })} style={styles.headerTitle} accessibilityLabel="Chat info">
           <Avatar uri={conversation?.avatar} name={conversation?.name} size={36} online={!!otherId && online.includes(otherId)} />
           <View style={styles.headerText}>
-            <Text style={styles.headerName} numberOfLines={1}>{conversation?.name || 'Chat'}</Text>
+            <View style={styles.headerNameRow}>
+              <Text style={styles.headerName} numberOfLines={1}>{conversation?.name || 'Chat'}</Text>
+              {encrypted && <Lock size={12} color={colors.muted400} accessibilityLabel="End-to-end encrypted" />}
+            </View>
             <Text style={[styles.headerStatus, typers.length > 0 && { color: colors.primary700 }]} numberOfLines={1}>{status}</Text>
           </View>
         </Pressable>
       ),
       headerRight: () => (
         <View style={styles.headerActions}>
+          <Pressable onPress={() => setSearching(true)} hitSlop={8} accessibilityLabel="Search in this chat">
+            <Search size={22} color={colors.primary700} />
+          </Pressable>
           <Pressable onPress={() => navigation.navigate('AddExpense', { conversationId })} hitSlop={8} accessibilityLabel="Add expense">
             <ReceiptText size={22} color={colors.primary700} />
           </Pressable>
@@ -93,21 +116,45 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         </View>
       ),
     });
-  }, [navigation, conversation, conversationId, status, typers.length, otherId, online]);
+  }, [navigation, conversation, conversationId, status, typers.length, otherId, online, encrypted]);
 
   // Newest first for the inverted list, with a day label above each day's first message
   const rows = useMemo<Row[]>(() => {
+    const items = groupAlbums(messages);
+    const firstOf = (item: (typeof items)[number]) => (item.kind === 'album' ? item.messages[0] : item.message);
     const out: Row[] = [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      out.push({ kind: 'message', message: m });
-      const older = messages[i - 1];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      out.push(item);
+      const m = firstOf(item);
+      const older = items[i - 1] ? firstOf(items[i - 1]) : null;
       if (!older || new Date(older.timestamp).toDateString() !== new Date(m.timestamp).toDateString()) {
         out.push({ kind: 'day', label: dayLabel(m.timestamp), key: `day-${m.timestamp}` });
       }
     }
     return out;
   }, [messages]);
+
+  // Photos and videos of this chat, for the full-screen viewer
+  const media = useMemo<ViewerItem[]>(() => messages
+    .filter((m) => (m.mediaType === 'image' || m.mediaType === 'video') && m.mediaUrl && !m.isDeleted && !m.id.startsWith('temp-'))
+    .map((m) => ({
+      id: m.id, url: m.mediaUrl!, type: m.mediaType as 'image' | 'video', filename: m.mediaFilename, mediaKey: m.mediaKey, mediaMime: m.mediaMime, mediaV2: m.mediaV2,
+      senderName: m.senderId === me.id ? 'You' : m.senderName, timestamp: m.timestamp,
+    })), [messages, me.id]);
+  const openMedia = (id: string) => {
+    const index = media.findIndex((x) => x.id === id);
+    if (index >= 0) setViewerIndex(index);
+  };
+
+  const save = async (m: Message) => {
+    try {
+      await saveToPhone(m.mediaUrl!, m.mediaFilename || `${m.mediaType}-${m.id.slice(0, 8)}`, m.mediaKey, m.mediaMime, m.mediaV2);
+      if (Platform.OS === 'android') showAlert('Saving to Downloads', 'You\'ll get a notification when it\'s done.');
+    } catch {
+      showAlert("Couldn't save it", 'Check your connection and try again.');
+    }
+  };
 
   const onChangeText = (value: string) => {
     setText(value);
@@ -131,9 +178,17 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       setText('');
       if (!value || value === original.text) return;
       try {
-        await chatApi.editMessage(original.id, value);
+        if (original.e2eVersion === 2) {
+          // v2: the edit is a new encrypted packet to the same devices; the server row doesn't change
+          await editV2({ conversationId, isGroup: !!conversation?.isGroup, members: conversation?.members || [] }, original, value);
+          useChat.setState((s) => ({ messages: { ...s.messages, [conversationId]: (s.messages[conversationId] || []).map((m) => (m.id === original.id ? { ...m, text: value, editedAt: new Date().toISOString() } : m)) } }));
+          return;
+        }
+        // Encrypted chat (v1): the edit is a new envelope (keeping the attached file's key)
+        const sealed = await sealFor(conversationId, { t: value, m: mediaPayloadOf(original) });
+        await chatApi.editMessage(original.id, sealed?.text ?? value, sealed?.hasLink);
       } catch (e) {
-        Alert.alert("Couldn't edit message", errorMessage(e));
+        showAlert("Couldn't edit message", errorMessage(e));
       }
       return;
     }
@@ -144,28 +199,61 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   };
 
   const react = (message: Message, emoji: string) => {
-    chatApi.react(message.id, emoji).catch((e) => Alert.alert("Couldn't react", errorMessage(e)));
+    chatApi.react(message.id, emoji).catch((e) => showAlert("Couldn't react", errorMessage(e)));
   };
 
   const remove = (message: Message) => {
-    Alert.alert('Delete message?', 'It will be deleted for everyone.', [
+    showAlert('Delete message?', 'It will be deleted for everyone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive',
-        onPress: () => chatApi.deleteMessage(message.id).catch((e) => Alert.alert("Couldn't delete", errorMessage(e))),
+        onPress: () => chatApi.deleteMessage(message.id).catch((e) => showAlert("Couldn't delete", errorMessage(e))),
       },
     ]);
   };
 
-  const jumpTo = (messageId: string) => {
-    const index = rows.findIndex((r) => r.kind === 'message' && r.message.id === messageId);
-    if (index >= 0) list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const jumpTo = (messageId: string): boolean => {
+    const index = rows.findIndex((r) => (r.kind === 'message' && r.message.id === messageId) || (r.kind === 'album' && r.messages.some((m) => m.id === messageId)));
+    if (index < 0) return false;
+    list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    setHighlighted(messageId);
+    setTimeout(() => setHighlighted(null), 1600);
+    return true;
   };
+
+  // Opened from a search result (messageId): load older pages until the message is here, then show it
+  const [target, setTarget] = useState<string | undefined>(route.params.messageId);
+  useEffect(() => { if (route.params.messageId) setTarget(route.params.messageId); }, [route.params.messageId]);
+  useEffect(() => {
+    if (!target || loading) return;
+    let cancelled = false;
+    const has = () => (useChat.getState().messages[conversationId] || []).some((m) => m.id === target);
+    (async () => {
+      for (let page = 0; page < 40 && !cancelled && !has(); page++) {
+        if (!useChat.getState().hasMore[conversationId]) break;
+        await loadOlder(conversationId).catch(() => undefined);
+      }
+      if (cancelled) return;
+      setTimeout(() => {
+        if (!jumpToRef.current(target)) showAlert("Couldn't find that message in this chat any more.");
+        setTarget(undefined);
+        navigation.setParams({ messageId: undefined });
+      }, 300);
+    })();
+    return () => { cancelled = true; };
+  }, [target, loading, conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const jumpToRef = useRef(jumpTo);
+  jumpToRef.current = jumpTo;
+  const [searching, setSearching] = useState(false);
 
   const renderRow = ({ item }: { item: Row }) => {
     if (item.kind === 'day') return <Text style={styles.day}>{item.label}</Text>;
+    if (item.kind === 'album') {
+      return <AlbumGrid messages={item.messages} mine={item.messages[0].senderId === me.id} showSender={!!conversation?.isGroup} onOpen={openMedia} />;
+    }
     const m = item.message;
-    return (
+    const bubble = (
       <MessageBubble
         message={m}
         mine={m.senderId === me.id}
@@ -174,11 +262,15 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         onLongPress={() => setSelected(m)}
         onReact={(emoji) => react(m, emoji)}
         onRetry={() => retry(conversationId, m.id)}
-        onOpenImage={() => setViewer(mediaUrl(m.mediaUrl) || null)}
+        onOpenMedia={() => openMedia(m.id)}
+        onOpenFile={() => save(m)}
+        onCancelUpload={() => cancelUpload(conversationId, m.id)}
+        onRetryUpload={() => retryUpload(m.id)}
         onOpenExpense={(expenseId) => navigation.navigate('ExpenseDetail', { expenseId })}
         onJumpToReply={jumpTo}
       />
     );
+    return highlighted === m.id ? <View style={styles.highlight}>{bubble}</View> : bubble;
   };
 
   const loadMore = async () => {
@@ -190,7 +282,43 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
+      {searching && (
+        <ChatSearch conversationId={conversationId} currentUserId={me.id} onClose={() => setSearching(false)}
+          onPick={(id) => { setSearching(false); setTarget(id); }} />
+      )}
       <View ref={keyboard.ref} style={[styles.flex, { paddingBottom: keyboard.offset }]}>
+        {/* Someone's security code changed (they started fresh): say so once; verified contacts must be accepted */}
+        {keyChanges.map((t) => {
+          const name = conversation?.isGroup ? (messages.find((m) => m.senderId === t.user)?.senderName || 'A member') : conversation?.name || 'They';
+          return (
+            <View key={t.user} style={[styles.keyChange, t.needsAccept && styles.keyChangeUrgent]}>
+              <ShieldAlert size={14} color={t.needsAccept ? colors.danger600 : colors.primary700} />
+              <View style={styles.flex}>
+                <Text style={[styles.keyChangeText, t.needsAccept && { color: colors.danger600 }]}>
+                  {t.needsAccept
+                    ? `${name}'s security code changed. You'd verified them, so messages to them wait until you check the new code or accept it.`
+                    : `${name}'s security code changed, probably because they started fresh on a new phone.`}
+                </Text>
+                <View style={styles.keyChangeActions}>
+                  <Pressable onPress={() => navigation.navigate('ChatInfo', { conversationId })} hitSlop={6}><Text style={styles.keyChangeLink}>Compare codes</Text></Pressable>
+                  <Pressable onPress={() => (t.needsAccept ? trustActions.accept(t.user) : trustActions.dismiss(t.user))} hitSlop={6}>
+                    <Text style={styles.keyChangeLink}>{t.needsAccept ? 'Accept' : 'OK'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          );
+        })}
+        {encryption.state === 'not-encrypted' && (
+          <View style={styles.notEncrypted}>
+            <LockOpen size={14} color={colors.warning700} />
+            <Text style={styles.notEncryptedText}>
+              {conversation?.isGroup
+                ? `Not end-to-end encrypted yet: ${encryption.missing.length} member${encryption.missing.length === 1 ? " hasn't" : "s haven't"} set up encryption. New messages will be encrypted once everyone has.`
+                : `Not end-to-end encrypted yet: ${conversation?.name || 'they'} hasn't set up encryption. New messages will be encrypted once they do.`}
+            </Text>
+          </View>
+        )}
         {loading ? (
           <View style={styles.center}><ActivityIndicator color={colors.primary700} /></View>
         ) : (
@@ -198,13 +326,17 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             ref={list}
             data={rows}
             inverted
-            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.message.id)}
+            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'album' ? `album-${r.messages[0].id}` : r.message.id)}
             renderItem={renderRow}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
-            onScrollToIndexFailed={() => undefined}
+            onScrollToIndexFailed={(info) => {
+              // Far up the list and not measured yet: get close first, then aim again
+              list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+              setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), 120);
+            }}
             ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ margin: space(3) }} color={colors.primary700} /> : null}
-            ListEmptyComponent={<Text style={[styles.day, styles.flipped]}>No messages yet. Say hello.</Text>}
+            ListEmptyComponent={<Text style={styles.day}>No messages yet. Say hello.</Text>}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
           />
@@ -222,26 +354,17 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
           </View>
         )}
 
-        <View style={styles.composer}>
-          <TextInput
-            value={text}
-            onChangeText={onChangeText}
-            placeholder="Message"
-            placeholderTextColor={colors.muted400}
-            multiline
-            maxLength={5000}
-            style={styles.input}
-            accessibilityLabel="Message"
-          />
-          <Pressable
-            onPress={submit}
-            disabled={!text.trim() && !editing}
-            style={[styles.send, !text.trim() && !editing && styles.sendOff]}
-            accessibilityLabel={editing ? 'Save' : 'Send'}
-          >
-            <SendHorizontal size={20} color={colors.white} />
-          </Pressable>
-        </View>
+        <Composer
+          text={text}
+          onChangeText={onChangeText}
+          editing={!!editing}
+          onSendText={submit}
+          onSendAttachments={(attachments) => {
+            attachments.forEach((a, i) => sendMedia(conversationId, a, { id: me.id, username: me.username }, i === 0 ? replyTo : null));
+            setReplyTo(null);
+          }}
+          onSendVoice={(a) => { sendMedia(conversationId, a, { id: me.id, username: me.username }, replyTo); setReplyTo(null); }}
+        />
       </View>
 
       {/* Long-press menu */}
@@ -262,6 +385,8 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
                 setSelected(null);
               }} />
               {!!selected.text && <SheetAction icon={Copy} label="Copy text" onPress={() => { Clipboard.setString(selected.text); setSelected(null); }} />}
+              <SheetAction icon={ForwardIcon} label="Forward" onPress={() => { setForwarding(selected); setSelected(null); }} />
+              {!!selected.mediaUrl && <SheetAction icon={Download} label="Save to phone" onPress={() => { const m = selected; setSelected(null); save(m); }} />}
               {selected.senderId === me.id && !!selected.text && (
                 <SheetAction icon={Pencil} label="Edit" onPress={() => { setReplyTo(null); setEditing(selected); setText(selected.text); setSelected(null); }} />
               )}
@@ -273,12 +398,27 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         </Pressable>
       </Modal>
 
-      {/* Photo viewer */}
-      <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
-        <Pressable style={styles.viewer} onPress={() => setViewer(null)} accessibilityLabel="Close photo">
-          {viewer && <Image source={{ uri: viewer }} style={styles.viewerImage} resizeMode="contain" />}
-        </Pressable>
-      </Modal>
+      {/* Photos and videos */}
+      <MediaViewer
+        items={media}
+        index={viewerIndex}
+        onClose={() => setViewerIndex(null)}
+        onForward={(id) => { const m = messages.find((x) => x.id === id); setViewerIndex(null); if (m) setForwarding(m); }}
+      />
+
+      <ForwardSheet
+        visible={!!forwarding}
+        onClose={() => setForwarding(null)}
+        onSend={async (ids) => {
+          if (!forwarding) return;
+          const { sent, skipped } = await forward(forwarding, ids).catch(() => ({ sent: 0, skipped: 0 }));
+          const notes = [
+            sent ? (sent === 1 ? 'Forwarded' : `Forwarded to ${sent} chats`) : '',
+            skipped ? `Not forwarded to ${skipped === 1 ? 'a chat' : `${skipped} chats`} that isn't end-to-end encrypted yet` : '',
+          ].filter(Boolean);
+          showAlert(notes.join('. ') || 'Not connected. Try again.');
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -291,24 +431,28 @@ const SheetAction: React.FC<{ icon: React.ComponentType<{ size?: number; color?:
 );
 
 const styles = StyleSheet.create({
+  highlight: { backgroundColor: colors.primary100, borderRadius: radius.md },
   safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingVertical: space(3) },
-  flipped: { transform: [{ scaleY: -1 }] },
   day: { alignSelf: 'center', marginVertical: space(2), paddingHorizontal: space(3), paddingVertical: 3, borderRadius: radius.full, backgroundColor: colors.muted100, fontSize: 12, color: colors.muted600, overflow: 'hidden' },
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: space(2.5), maxWidth: 230 },
+  headerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  notEncrypted: { flexDirection: 'row', gap: space(2), paddingHorizontal: space(4), paddingVertical: space(2), backgroundColor: colors.warning50 },
+  notEncryptedText: { flex: 1, fontSize: 12, color: colors.warning700 },
   headerText: { flexShrink: 1 },
-  headerName: { fontSize: 16, fontWeight: '600', color: colors.muted900 },
+  headerName: { flexShrink: 1, fontSize: 16, fontWeight: '600', color: colors.muted900 },
   headerStatus: { fontSize: 12, color: colors.muted500 },
   headerActions: { flexDirection: 'row', gap: space(5), alignItems: 'center' },
+  keyChange: { flexDirection: 'row', gap: space(2), paddingHorizontal: space(4), paddingVertical: space(2), backgroundColor: colors.primary50, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.primary200 },
+  keyChangeUrgent: { backgroundColor: colors.danger50, borderBottomColor: colors.danger500 },
+  keyChangeText: { fontSize: 12, color: colors.primary800 },
+  keyChangeActions: { flexDirection: 'row', gap: space(5), marginTop: space(1.5) },
+  keyChangeLink: { fontSize: 13, fontWeight: '700', color: colors.primary700 },
   banner: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginHorizontal: space(3), marginBottom: space(2), padding: space(2.5), borderLeftWidth: 4, borderLeftColor: colors.primary600, backgroundColor: colors.primary50, borderRadius: radius.md },
   bannerTitle: { fontSize: 12, fontWeight: '700', color: colors.primary700 },
   bannerText: { fontSize: 14, color: colors.muted600 },
-  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: space(2), paddingHorizontal: space(3), paddingVertical: space(2), backgroundColor: colors.white, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.muted200 },
-  input: { flex: 1, minHeight: 44, maxHeight: 140, paddingHorizontal: space(4), paddingTop: 11, paddingBottom: 11, borderRadius: 22, backgroundColor: colors.muted100, fontSize: 16, color: colors.muted900 },
-  send: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary700, alignItems: 'center', justifyContent: 'center' },
-  sendOff: { backgroundColor: colors.muted300 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.4)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.white, borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: space(8), paddingTop: space(3) },
   quickReactions: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: space(4), paddingBottom: space(3), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.muted200 },
@@ -316,8 +460,6 @@ const styles = StyleSheet.create({
   quickReactionText: { fontSize: 24 },
   action: { flexDirection: 'row', alignItems: 'center', gap: space(4), paddingHorizontal: space(6), paddingVertical: space(4) },
   actionText: { fontSize: 16, color: colors.muted900 },
-  viewer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', alignItems: 'center', justifyContent: 'center' },
-  viewerImage: { width: '100%', height: '80%' },
 });
 
 export default ChatScreen;

@@ -91,16 +91,16 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
           autoComplete={autoComplete}
           required={required}
           className={`
-            w-full px-4 py-2.5
+            w-full h-[42px] px-4
             ${leftIcon ? 'pl-10' : ''}
             ${rightIcon ? 'pr-10' : ''}
-            rounded-lg
-            border-2
+            rounded-xl
+            border
             ${hasError 
               ? 'border-accent-500 focus:border-accent-600 focus:ring-accent-500/20' 
-              : 'border-muted-200 focus:border-primary-600 focus:ring-primary-600/20'
+              : 'border-muted-200 focus:border-primary-500 focus:ring-primary-100'
             }
-            bg-white
+            ${leftIcon ? 'bg-[#f6f6f8] focus:bg-white' : 'bg-white'}
             text-muted-900
             placeholder:text-muted-400
             transition-all duration-200

@@ -9,11 +9,14 @@ Server-side clean-up of uploads before they are stored:
 - Videos: re-encoded to H.264/AAC MP4 at most 1280 px, unless sent in HD or as a document.
   Uses the ffmpeg bundled with the imageio-ffmpeg package (no system install needed); if it
   isn't available the original is kept.
+- Video posters: a representative frame saved as a JPEG, plus the video's size and length, so
+  apps that can't make a poster themselves (the phone app) still show a preview.
 """
 
 import asyncio
 import io
 import logging
+import re
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -23,6 +26,9 @@ logger = logging.getLogger(__name__)
 MAX_IMAGE_EDGE = 4096
 VIDEO_MAX_EDGE = 1280
 VIDEO_TIMEOUT_SECONDS = 300
+POSTER_MAX_EDGE = 640
+POSTER_TIMEOUT_SECONDS = 30
+_DURATION_RE = re.compile(rb"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)")
 
 try:
     import imageio_ffmpeg
@@ -113,3 +119,40 @@ async def compress_video(source: Path, target: Path) -> bool:
         target.unlink(missing_ok=True)  # already small; keep the original
         return False
     return True
+
+
+async def video_poster(source: Path, target: Path) -> tuple[int, int, float | None] | None:
+    """
+    Save a representative early frame of the video as a JPEG (at most 640 px) at `target`.
+    Returns (video width, video height, duration in seconds or None), or None if it couldn't.
+    """
+    if not FFMPEG:
+        return None
+    cmd = [
+        FFMPEG, "-hide_banner", "-y", "-i", str(source),
+        # pick the most typical of the first 30 frames (skips black/fade-in first frames)
+        "-vf", f"thumbnail=30,scale='min({POSTER_MAX_EDGE},iw)':-2",
+        "-frames:v", "1", "-q:v", "4", "-map_metadata", "-1", str(target),
+    ]
+    process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=POSTER_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        process.kill()
+        target.unlink(missing_ok=True)
+        return None
+    if process.returncode != 0 or not target.exists() or target.stat().st_size == 0:
+        target.unlink(missing_ok=True)
+        return None
+    duration = None
+    if match := _DURATION_RE.search(stderr or b""):
+        hours, minutes, seconds = match.groups()
+        duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    try:
+        with Image.open(target) as img:
+            poster_w, poster_h = img.size
+    except Exception:
+        target.unlink(missing_ok=True)
+        return None
+    # The frame is scaled down; report the video's own proportions at its shown size
+    return poster_w, poster_h, duration

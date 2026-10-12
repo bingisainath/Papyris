@@ -57,7 +57,14 @@ class ConversationMember(Base):
         nullable=True
     )
     
-    muted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # created_at of the newest message that reached one of this member's devices (two grey ticks)
+    last_delivered_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    muted: Mapped[bool] = mapped_column(Boolean, default=False)  # unused; see muted_until
+    # Muted until this time (no notifications; far future = always). None = not muted
+    muted_until: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Archived by this member: hidden from their main chat list (stays archived when messages arrive)
+    archived_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # When this member pinned the conversation to the top of their list (None = not pinned)
     pinned_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)

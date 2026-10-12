@@ -66,9 +66,12 @@ async def test_list_uses_constant_number_of_queries(client, make_user, make_dm, 
 
     other = await make_user()
     await add_message(await make_dm(me, other), other)
-    small = await queries_for_list()
+    small = await queries_for_list()  # includes marking the DM delivered
     for _ in range(4):
-        await add_message(await make_group(me, [await make_user()]), me)
+        await add_message(await make_group(me, [friend := await make_user()]), friend)
+    stranger = await make_user()
+    await add_message(await make_dm(me, stranger), stranger)
+    # Five chats with new messages from others: still the same queries (delivery is marked in bulk)
     assert await queries_for_list() == small
 
 

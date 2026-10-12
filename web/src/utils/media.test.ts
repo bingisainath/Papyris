@@ -23,10 +23,14 @@ describe('validateFile', () => {
 });
 
 describe('mediaBoxStyle', () => {
-  it('fits within 320x256 keeping the aspect ratio', () => {
-    expect(mediaBoxStyle(400, 300)).toMatchObject({ width: 320, aspectRatio: '400 / 300' });
-    expect(mediaBoxStyle(200, 400)).toMatchObject({ width: 128 });
-    expect(mediaBoxStyle(100, 50)).toMatchObject({ width: 100 }); // never upscales
+  it('takes the picture\'s shape: wide ones full width, tall ones full height', () => {
+    expect(mediaBoxStyle(400, 300)).toEqual({ width: 300, height: 225 });
+    expect(mediaBoxStyle(300, 400)).toEqual({ width: 255, height: 340 });
+  });
+
+  it('crops only very thin or very wide pictures', () => {
+    expect(mediaBoxStyle(100, 1000)).toEqual({ width: 160, height: 340 });
+    expect(mediaBoxStyle(1000, 100)).toEqual({ width: 300, height: 120 });
   });
 
   it('returns nothing without dimensions', () => {

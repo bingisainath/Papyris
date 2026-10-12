@@ -39,7 +39,16 @@ export interface UserResponse {
     avatar?: string;
     bio?: string;
     email_verified?: boolean;
+    payment_handles?: PaymentHandles | null;
+    display_currency?: string | null; // expense totals are also shown in this currency
   };
+}
+
+/** Where people in your chats can pay you (usernames only; Papyris never moves money). */
+export interface PaymentHandles {
+  revolut?: string; // revolut.me/<name>
+  paypal?: string; // paypal.me/<name>
+  upi?: string; // name@bank (India)
 }
 
 export interface JwtPayload {
