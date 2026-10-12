@@ -8,7 +8,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 import { ActivityIndicator, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ArrowRightLeft, BellRing, CheckCircle2, ChevronDown, Download, Lock, Plus, ScrollText, Wallet } from 'lucide-react-native';
+import { ArrowRightLeft, BellRing, CheckCircle2, ChevronDown, Download, Lock, PenLine, Plus, ScrollText, Wallet } from 'lucide-react-native';
+import { useDisplayCurrency } from '../../hooks/useDisplayCurrency';
 import { payOptions } from '../../utils/pay';
 import type { PayHandles } from '../../utils/pay';
 import Avatar from '../../components/common/Avatar';
@@ -21,13 +22,14 @@ import { decimalsFor, formatMinor, parseMajor, toMajorString } from '../../utils
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import CategoryIcon from '../../components/expenses/CategoryIcon';
+import Svg, { Circle } from 'react-native-svg';
 import { useExpenseChanges } from '../../hooks/useMembers';
 import { showAlert } from '../../components/common/Dialog';
 import Gradient, { CARD_GRADIENT } from '../../components/common/Gradient';
 import { useChat } from '../../store/chat';
 
 type Tab = 'you' | 'balances' | 'summary' | 'history';
-type Settle = { from: string; to: string; currency: string; amount: string };
+type Settle = { from: string; to: string; currency: string; amount: string; editing?: string; note?: string | null };
 type Users = ExpenseSummary['users'];
 
 const TABS: { value: Tab; label: string }[] = [
@@ -35,7 +37,6 @@ const TABS: { value: Tab; label: string }[] = [
 ];
 const CATEGORIES = ['groceries', 'food', 'drinks', 'transport', 'travel', 'rent', 'utilities', 'household', 'entertainment', 'shopping', 'health', 'gifts', 'other'];
 const label = (category: string) => category.charAt(0).toUpperCase() + category.slice(1);
-const monthLabel = (month: string) => new Date(`${month}-01T12:00:00`).toLocaleDateString([], { month: 'long', year: 'numeric' });
 
 type DateRange = 'all' | 'month' | '30d' | '90d' | 'year';
 const RANGES: { value: DateRange; label: string }[] = [
@@ -119,7 +120,8 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
     if (!minor || minor <= 0) { showAlert('Enter the amount paid'); return; }
     setSaving(true);
     try {
-      await expenseService.settle(conversationId, { from_user: settle.from, to_user: settle.to, currency: settle.currency, amount: settle.amount });
+      if (settle.editing) await expenseService.updateSettlement(settle.editing, { amount: settle.amount, note: settle.note });
+      else await expenseService.settle(conversationId, { from_user: settle.from, to_user: settle.to, currency: settle.currency, amount: settle.amount });
       setSettle(null);
       load();
     } catch (e) {
@@ -160,7 +162,9 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
       </View>
       {tab === 'history' ? (
         <HistoryTab conversationId={conversationId} me={me.id} name={name} users={users} version={version}
-          onOpen={(id) => navigation.navigate('ExpenseDetail', { expenseId: id })} onChanged={load} />
+          onOpen={(id) => navigation.navigate('ExpenseDetail', { expenseId: id })} onChanged={load}
+          onEdit={(id) => navigation.navigate('AddExpense', { conversationId, expenseId: id })}
+          onEditPayment={(it) => setSettle({ from: it.from_user, to: it.to_user, currency: it.currency, amount: toMajorString(it.amount_minor, it.currency), editing: it.id, note: it.note })} />
       ) : (
         <ScrollView contentContainerStyle={styles.content}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
@@ -174,12 +178,14 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
         <Pressable style={styles.backdrop} onPress={() => setSettle(null)}>
           {settle && (
             <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.sheetTitle}>Settle up</Text>
+              <Text style={styles.sheetTitle}>{settle.editing ? 'Edit payment' : 'Settle up'}</Text>
               <Text style={styles.sheetText}>
-                Record that {name(settle.from)} paid {settle.to === me.id ? 'you' : name(settle.to)}. Papyris doesn't move money: pay however you like, then record it here.
+                {settle.editing
+                  ? `Change how much ${settle.from === me.id ? 'you' : name(settle.from)} paid ${settle.to === me.id ? 'you' : name(settle.to)}. Everyone in the chat is told.`
+                  : `Record that ${settle.from === me.id ? 'you' : name(settle.from)} paid ${settle.to === me.id ? 'you' : name(settle.to)}. Papyris doesn't move money: pay however you like, then record it here.`}
               </Text>
               <TextInput value={settle.amount} onChangeText={(amount) => setSettle({ ...settle, amount })} keyboardType="decimal-pad" style={styles.amount} accessibilityLabel="Amount paid" />
-              <Button title="Record payment" onPress={record} loading={saving} />
+              <Button title={settle.editing ? 'Save changes' : 'Record payment'} onPress={record} loading={saving} />
             </Pressable>
           )}
         </Pressable>
@@ -192,6 +198,7 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
 const PositionCard: React.FC<{ summary: ExpenseSummary; me: string; isGroup: boolean; onAdd: () => void; onSettle?: () => void }> = ({
   summary, isGroup, onAdd, onSettle,
 }) => {
+  const { approx } = useDisplayCurrency();
   // Lead with the currency where you're most out of balance
   const main = [...summary.currencies].sort((a, b) => Math.abs(b.me.net_minor) - Math.abs(a.me.net_minor))[0];
   const net = main.me.net_minor;
@@ -212,6 +219,7 @@ const PositionCard: React.FC<{ summary: ExpenseSummary; me: string; isGroup: boo
           </>
         )}
       </Text>
+      {net !== 0 && !!approx(Math.abs(net), main.currency) && <Text style={styles.positionApprox}>{approx(Math.abs(net), main.currency)}</Text>}
       <View style={styles.posStats}>
         {stats.map((st) => (
           <View key={st.label} style={styles.posStat}>
@@ -374,57 +382,145 @@ const Bar: React.FC<{ part: number; whole: number }> = ({ part, whole }) => (
   <View style={styles.barTrack}><View style={[styles.barFill, { width: `${whole ? Math.max(2, (part / whole) * 100) : 0}%` }]} /></View>
 );
 
-const SummaryTab: React.FC<{ summary: ExpenseSummary; name: (id: string) => string; users: Users }> = ({ summary, name, users }) => (
-  <>
-    {summary.currencies.map((c: CurrencySummary) => {
-      const topPaid = Math.max(...c.members.map((m) => Math.max(m.paid_minor, m.share_minor)), 1);
-      const topMonth = Math.max(...c.by_month.map((m) => m.total_minor), 1);
-      return (
-        <View key={c.currency} style={styles.card}>
-          <Text style={styles.sub}>Total spent · {c.currency}</Text>
-          <Text style={styles.total}>{formatMinor(c.total_minor, c.currency)}</Text>
-          <Text style={styles.sub}>{c.count} expense{c.count === 1 ? '' : 's'}</Text>
+// Category colours, in a fixed order (validated for colour-blind separation); the rest fold into "Other"
+const SLICE_COLORS = ['#4a3aa7', '#2a78d6', '#1baf7a', '#eda100', '#e87ba4'];
+const OTHER_COLOR = '#94a3b8';
+const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
 
-          <Text style={styles.blockTitle}>By category</Text>
-          {c.by_category.map((cat) => (
-            <View key={cat.category} style={styles.row}>
-              <CategoryIcon category={cat.category} size={30} />
-              <View style={styles.flex}>
-                <View style={styles.spread}>
-                  <Text style={styles.memberName}>{label(cat.category)} <Text style={styles.sub}>· {cat.count}</Text></Text>
-                  <Text style={styles.rowAmount}>{formatMinor(cat.total_minor, c.currency)} <Text style={styles.sub}>{Math.round((cat.total_minor / c.total_minor) * 100)}%</Text></Text>
-                </View>
-                <Bar part={cat.total_minor} whole={c.total_minor} />
+/** Donut of spending by category: thin ring with 2px gaps; the middle shows the total or the tapped slice. */
+const Donut: React.FC<{ slices: { label: string; value: number; color: string }[]; active: number | null; onPick: (i: number | null) => void; center: React.ReactNode }> = ({
+  slices, active, onPick, center,
+}) => {
+  const size = 168;
+  const stroke = 20;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const sum = slices.reduce((a, x) => a + x.value, 0) || 1;
+  const gap = slices.length > 1 ? 2 : 0;
+  let offset = 0;
+  return (
+    <View style={{ width: size, height: size }} accessibilityLabel="Spending by category">
+      <Svg width={size} height={size}>
+        <Circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f1f0f5" strokeWidth={stroke} />
+        {slices.map((sl, i) => {
+          const len = (sl.value / sum) * c;
+          const dash = Math.max(len - gap, 0.5);
+          const el = (
+            <Circle key={sl.label} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={sl.color}
+              strokeWidth={active === i ? stroke + 6 : stroke} strokeDasharray={`${dash} ${c - dash}`} strokeDashoffset={-offset}
+              opacity={active === null || active === i ? 1 : 0.35}
+              rotation={-90} origin={`${size / 2}, ${size / 2}`} onPress={() => onPick(active === i ? null : i)} />
+          );
+          offset += len;
+          return el;
+        })}
+      </Svg>
+      <View style={styles.donutCenter} pointerEvents="none">{center}</View>
+    </View>
+  );
+};
+
+const SummaryTab: React.FC<{ summary: ExpenseSummary; name: (id: string) => string; users: Users }> = ({ summary, name, users }) => {
+  const [active, setActive] = useState<{ currency: string; index: number } | null>(null);
+  const { approx } = useDisplayCurrency();
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  return (
+    <>
+      {summary.currencies.map((c: CurrencySummary) => {
+        const cats = [...c.by_category].sort((a, b) => b.total_minor - a.total_minor);
+        const rest = cats.slice(SLICE_COLORS.length);
+        const slices = [
+          ...cats.slice(0, SLICE_COLORS.length).map((cat, i) => ({ label: label(cat.category), value: cat.total_minor, color: SLICE_COLORS[i], count: cat.count })),
+          ...(rest.length ? [{ label: 'Other', value: rest.reduce((a, x) => a + x.total_minor, 0), color: OTHER_COLOR, count: rest.reduce((a, x) => a + x.count, 0) }] : []),
+        ];
+        const picked = active?.currency === c.currency ? active.index : null;
+        const months = [...c.by_month].reverse().slice(-6);
+        const topMonth = Math.max(...months.map((m) => m.total_minor), 1);
+        const spenders = c.members.filter((m) => m.paid_minor || m.share_minor);
+        const topPaid = Math.max(...spenders.map((m) => Math.max(m.paid_minor, m.share_minor)), 1);
+        const tiles = [
+          { k: 'Expenses', v: String(c.count) },
+          { k: 'Average', v: formatMinor(c.count ? Math.round(c.total_minor / c.count) : 0, c.currency) },
+          { k: 'This month', v: formatMinor(c.by_month.find((m) => m.month === thisMonth)?.total_minor || 0, c.currency) },
+          { k: 'Top category', v: cats[0] ? label(cats[0].category) : '—' },
+        ];
+        return (
+          <View key={c.currency} style={{ gap: space(3) }}>
+            <View style={styles.card}>
+              <Text style={styles.kicker}>TOTAL SPENT · {c.currency}</Text>
+              <Text style={styles.total}>{formatMinor(c.total_minor, c.currency)}</Text>
+              {!!approx(c.total_minor, c.currency) && <Text style={styles.sub}>{approx(c.total_minor, c.currency)}</Text>}
+              <View style={styles.tiles}>
+                {tiles.map((t) => (
+                  <View key={t.k} style={styles.tile}>
+                    <Text style={styles.tileLabel}>{t.k}</Text>
+                    <Text style={styles.tileValue} numberOfLines={1}>{t.v}</Text>
+                  </View>
+                ))}
               </View>
             </View>
-          ))}
 
-          <Text style={styles.blockTitle}>By member <Text style={styles.sub}>paid · share</Text></Text>
-          {c.members.filter((m) => m.paid_minor || m.share_minor).map((m) => (
-            <View key={m.user_id} style={styles.row}>
-              <Avatar uri={users[m.user_id]?.avatar} name={users[m.user_id]?.name || users[m.user_id]?.username || 'Someone'} size={30} />
-              <View style={styles.flex}>
-                <View style={styles.spread}>
-                  <Text style={styles.memberName} numberOfLines={1}>{name(m.user_id)}</Text>
-                  <Text style={styles.rowAmount}>{formatMinor(m.paid_minor, c.currency)} <Text style={styles.sub}>· {formatMinor(m.share_minor, c.currency)}</Text></Text>
-                </View>
-                <Bar part={m.paid_minor} whole={topPaid} />
+            <View style={styles.card}>
+              <Text style={styles.blockTitleTop}>By category</Text>
+              <View style={{ alignItems: 'center' }}>
+                <Donut slices={slices} active={picked} onPick={(i) => setActive(i === null ? null : { currency: c.currency, index: i })}
+                  center={<>
+                    <Text style={styles.sub}>{picked !== null ? slices[picked].label : 'Total'}</Text>
+                    <Text style={styles.donutValue}>{picked !== null ? `${pct(slices[picked].value, c.total_minor)}%` : formatMinor(c.total_minor, c.currency)}</Text>
+                  </>} />
+              </View>
+              {slices.map((sl, i) => (
+                <Pressable key={sl.label} onPress={() => setActive(picked === i ? null : { currency: c.currency, index: i })}
+                  style={[styles.legendRow, picked === i && { backgroundColor: colors.muted50 }]}>
+                  <View style={[styles.legendDot, { backgroundColor: sl.color }]} />
+                  <Text style={[styles.memberName, styles.flex]} numberOfLines={1}>{sl.label} <Text style={styles.sub}>· {sl.count}</Text></Text>
+                  <Text style={styles.rowAmount}>{formatMinor(sl.value, c.currency)}</Text>
+                  <Text style={styles.legendPct}>{pct(sl.value, c.total_minor)}%</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.blockTitleTop}>By month</Text>
+              <View style={styles.monthChart} accessibilityLabel="Spending by month">
+                {months.map((m, i) => {
+                  const latest = i === months.length - 1;
+                  return (
+                    <View key={m.month} style={styles.monthCol}>
+                      {latest && <Text style={styles.monthValue}>{formatMinor(m.total_minor, c.currency)}</Text>}
+                      <View style={[styles.monthBar, { height: `${Math.max(4, (m.total_minor / topMonth) * 80)}%`, backgroundColor: latest ? colors.primary600 : colors.primary200 }]} />
+                      <Text style={styles.monthLabel}>{new Date(`${m.month}-01T12:00:00`).toLocaleDateString([], { month: 'short' })}</Text>
+                    </View>
+                  );
+                })}
               </View>
             </View>
-          ))}
 
-          <Text style={styles.blockTitle}>By month</Text>
-          {c.by_month.map((m) => (
-            <View key={m.month} style={styles.flexGap}>
-              <View style={styles.spread}><Text style={styles.memberName}>{monthLabel(m.month)}</Text><Text style={styles.rowAmount}>{formatMinor(m.total_minor, c.currency)}</Text></View>
-              <Bar part={m.total_minor} whole={topMonth} />
+            <View style={styles.card}>
+              <View style={styles.spread}>
+                <Text style={styles.blockTitleTop}>By member</Text>
+                <Text style={styles.sub}>paid · share</Text>
+              </View>
+              {spenders.map((m) => (
+                <View key={m.user_id} style={styles.row}>
+                  <Avatar uri={users[m.user_id]?.avatar} name={users[m.user_id]?.name || users[m.user_id]?.username || 'Someone'} size={30} />
+                  <View style={[styles.flex, { gap: 4 }]}>
+                    <View style={styles.spread}>
+                      <Text style={styles.memberName} numberOfLines={1}>{name(m.user_id)}</Text>
+                      <Text style={styles.rowAmount}>{formatMinor(m.paid_minor, c.currency)} <Text style={styles.sub}>· {formatMinor(m.share_minor, c.currency)}</Text></Text>
+                    </View>
+                    <Bar part={m.paid_minor} whole={topPaid} />
+                    <View style={styles.barTrack}><View style={[styles.barFill, { backgroundColor: colors.primary200, width: `${(m.share_minor / topPaid) * 100}%` }]} /></View>
+                  </View>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-      );
-    })}
-  </>
-);
+          </View>
+        );
+      })}
+    </>
+  );
+};
 
 // ---------------------------------------------------------------- History
 
@@ -454,8 +550,10 @@ const Picker: React.FC<{ title: string; options: { value: string; label: string 
 
 const HistoryTab: React.FC<{
   conversationId: string; me: string; name: (id: string) => string; users: Users; version: number;
-  onOpen: (expenseId: string) => void; onChanged: () => void;
-}> = ({ conversationId, me, name, users, version, onOpen, onChanged }) => {
+  onOpen: (expenseId: string) => void; onChanged: () => void; onEdit: (expenseId: string) => void;
+  onEditPayment: (payment: Extract<ActivityItem, { kind: 'settlement' }>) => void;
+}> = ({ conversationId, me, name, users, version, onOpen, onChanged, onEdit, onEditPayment }) => {
+  const { approx } = useDisplayCurrency();
   const [range, setRange] = useState<DateRange>('all');
   const [category, setCategory] = useState('');
   const [member, setMember] = useState('');
@@ -470,9 +568,9 @@ const HistoryTab: React.FC<{
     [conversationId, filters]);
   useEffect(() => { load(); }, [load, version]);
 
-  const removePayment = (id: string) => showAlert('Remove this payment?', 'Balances go back to how they were before it.', [
+  const removePayment = (id: string) => showAlert('Undo this payment?', 'Balances go back to how they were before it, and the chat is told.', [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Remove', style: 'destructive', onPress: () => { expenseService.removeSettlement(id).then(onChanged).catch((e) => showAlert("Couldn't remove it", errorMessage(e))); } },
+    { text: 'Undo', style: 'destructive', onPress: () => { expenseService.removeSettlement(id).then(onChanged).catch((e) => showAlert("Couldn't undo it", errorMessage(e))); } },
   ]);
   const filtered = range !== 'all' || !!category || !!member || !!kind;
 
@@ -496,14 +594,23 @@ const HistoryTab: React.FC<{
         const when = new Date(it.at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
         if (it.kind === 'settlement') {
           return (
-            <Pressable key={`s-${it.id}`} onLongPress={it.created_by === me ? () => removePayment(it.id) : undefined} style={styles.item}>
+            <View key={`s-${it.id}`} style={styles.item}>
               <View style={styles.payIcon}><ArrowRightLeft size={16} color={colors.success700} /></View>
               <View style={styles.flex}>
                 <Text style={styles.itemTitle} numberOfLines={1}>{name(it.from_user)} paid {it.to_user === me ? 'you' : name(it.to_user)}</Text>
-                <Text style={styles.sub}>Payment · {when}{it.note ? ` · ${it.note}` : ''}{it.created_by === me ? ' · hold to remove' : ''}</Text>
+                <Text style={styles.sub}>Payment · {when}{it.note ? ` · ${it.note}` : ''}</Text>
+                {[it.created_by, it.from_user, it.to_user].includes(me) && (
+                  <View style={styles.payActions}>
+                    <Pressable onPress={() => onEditPayment(it)} hitSlop={6} accessibilityLabel="Edit payment"><Text style={styles.payEdit}>Edit</Text></Pressable>
+                    <Pressable onPress={() => removePayment(it.id)} hitSlop={6} accessibilityLabel="Undo payment"><Text style={styles.payUndo}>Undo</Text></Pressable>
+                  </View>
+                )}
               </View>
-              <Text style={styles.rowAmount}>{formatMinor(it.amount_minor, it.currency)}</Text>
-            </Pressable>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.rowAmount}>{formatMinor(it.amount_minor, it.currency)}</Text>
+                {!!approx(it.amount_minor, it.currency) && <Text style={styles.approx}>{approx(it.amount_minor, it.currency)}</Text>}
+              </View>
+            </View>
           );
         }
         const net = (it.payers.find((p) => p.user_id === me)?.amount_minor || 0) - (it.shares.find((s) => s.user_id === me)?.amount_minor || 0);
@@ -519,7 +626,15 @@ const HistoryTab: React.FC<{
               </View>
               <Text style={styles.sub}>{payer} paid {formatMinor(it.total_minor, it.currency)} · {label(it.category)} · {when}</Text>
             </View>
-            <Text style={[styles.rowAmount, { color: netColor(net) }]}>{net === 0 ? '—' : `${net > 0 ? '+' : '−'}${formatMinor(Math.abs(net), it.currency)}`}</Text>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[styles.rowAmount, { color: netColor(net) }]}>{net === 0 ? '—' : `${net > 0 ? '+' : '−'}${formatMinor(Math.abs(net), it.currency)}`}</Text>
+              {net !== 0 && !!approx(Math.abs(net), it.currency) && <Text style={styles.approx}>{approx(Math.abs(net), it.currency)}</Text>}
+            </View>
+            {it.can_edit && !it.locked && (
+              <Pressable onPress={() => onEdit(it.id)} hitSlop={8} style={styles.editButton} accessibilityLabel={`Edit ${it.description}`}>
+                <PenLine size={16} color={colors.muted500} />
+              </Pressable>
+            )}
           </Pressable>
         );
       })}
@@ -556,6 +671,7 @@ const styles = StyleSheet.create({
   positionLabel: { fontSize: 11, letterSpacing: 1.3, color: colors.primary100 },
   positionTitle: { marginTop: space(2), fontSize: 18, fontWeight: '600', color: colors.white },
   positionAmount: { fontSize: 26, fontWeight: '800' },
+  positionApprox: { marginTop: 2, fontSize: 13, fontWeight: '600', color: colors.primary100 },
   posStats: { flexDirection: 'row', gap: space(2), marginTop: space(4) },
   posStat: { flex: 1, minWidth: 0, paddingHorizontal: space(3), paddingVertical: space(2.5), borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)' },
   posStatLabel: { fontSize: 11, color: colors.primary100 },
@@ -577,6 +693,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space(2.5) },
   rowText: { flex: 1, fontSize: 14, color: colors.muted700 },
   rowAmount: { fontSize: 14, fontWeight: '600', color: colors.muted900 },
+  approx: { fontSize: 11, color: colors.muted400, marginTop: 1 },
+  payActions: { flexDirection: 'row', gap: space(4), marginTop: space(1.5) },
+  payEdit: { fontSize: 13, fontWeight: '700', color: colors.primary700 },
+  payUndo: { fontSize: 13, fontWeight: '700', color: colors.muted500 },
+  editButton: { padding: space(1.5), marginLeft: space(1) },
   settledText: { color: colors.success700, fontWeight: '600', fontSize: 14 },
   memberName: { fontSize: 14, color: colors.muted900 },
   bold: { fontWeight: '700' },
@@ -593,6 +714,22 @@ const styles = StyleSheet.create({
   note: { fontSize: 12, color: colors.muted400, paddingHorizontal: space(1) },
   total: { fontSize: 30, fontWeight: '800', color: colors.muted900 },
   blockTitle: { marginTop: space(3), fontSize: 15, fontWeight: '700', color: colors.muted900 },
+  blockTitleTop: { fontSize: 16, fontWeight: '700', color: colors.muted900 },
+  kicker: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: colors.muted500 },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2), marginTop: space(2) },
+  tile: { flexBasis: '47%', flexGrow: 1, paddingHorizontal: space(3), paddingVertical: space(2.5), borderRadius: 12, backgroundColor: colors.primary50 },
+  tileLabel: { fontSize: 11, fontWeight: '600', color: colors.muted500 },
+  tileValue: { marginTop: 2, fontSize: 15, fontWeight: '700', color: colors.muted900 },
+  donutCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  donutValue: { fontSize: 17, fontWeight: '800', color: colors.muted900 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: space(2.5), paddingVertical: space(1.5), paddingHorizontal: space(1), borderRadius: 8 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendPct: { width: 36, textAlign: 'right', fontSize: 12, color: colors.muted500 },
+  monthChart: { height: 150, flexDirection: 'row', alignItems: 'flex-end', gap: space(3), marginTop: space(2) },
+  monthCol: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+  monthBar: { width: '70%', maxWidth: 26, borderTopLeftRadius: 4, borderTopRightRadius: 4 },
+  monthValue: { fontSize: 10, fontWeight: '700', color: colors.primary700 },
+  monthLabel: { fontSize: 11, color: colors.muted500 },
   barTrack: { height: 6, borderRadius: 3, backgroundColor: colors.muted100, overflow: 'hidden', marginTop: 4 },
   barFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary500 },
   empty: { textAlign: 'center', color: colors.muted500, marginTop: space(8), paddingHorizontal: space(6) },

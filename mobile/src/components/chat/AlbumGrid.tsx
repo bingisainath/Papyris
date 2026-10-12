@@ -60,7 +60,7 @@ const AlbumGrid: React.FC<{ messages: Message[]; mine: boolean; showSender: bool
           ))}
           <View style={styles.meta} pointerEvents="none">
             <Text style={styles.time}>{clockTime(last.timestamp)}</Text>
-            {mine && <CheckCheck size={14} color={last.status === 'read' ? '#c9bfe6' : colors.white} />}
+            {mine && <CheckCheck size={14} color={last.status === 'read' ? '#7dd3fc' : colors.white} />}
           </View>
         </View>
       </View>

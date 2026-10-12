@@ -4,6 +4,7 @@ import reducer, {
   clearUnreadCount,
   incrementUnreadCount,
   markMessagesRead,
+  markMessagesDelivered,
   prependMessages,
   setConversations,
   setMessages,
@@ -76,6 +77,15 @@ describe('read receipts', () => {
     state = reducer(state, markMessagesRead({ conversationId: CONV, readUpTo: at(2) }));
     const status = Object.fromEntries(state.messages[CONV].map(m => [m.id, m.status]));
     expect(status).toEqual({ a: 'read', b: 'read', temp: 'sending', c: 'sent' });
+  });
+});
+
+describe('delivery receipts', () => {
+  it('turns one tick into two up to deliveredUpTo, never downgrading read ones', () => {
+    let state = stateWith([msg('a', 1, { status: 'sent' }), msg('b', 2, { status: 'read' }), msg('c', 3, { status: 'sent' })]);
+    state = reducer(state, markMessagesDelivered({ conversationId: CONV, deliveredUpTo: at(2) }));
+    const status = Object.fromEntries(state.messages[CONV].map(m => [m.id, m.status]));
+    expect(status).toEqual({ a: 'delivered', b: 'read', c: 'sent' });
   });
 });
 

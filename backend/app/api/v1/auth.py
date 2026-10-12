@@ -155,6 +155,8 @@ async def update_me(
         current_user.avatar = media_storage.unsigned(payload.avatar) or None
     if payload.payment_handles is not None:
         current_user.payment_handles = payload.payment_handles.merged_into(current_user.payment_handles)
+    if payload.display_currency is not None:
+        current_user.display_currency = payload.display_currency or None
 
     db.add(current_user)
     await db.commit()

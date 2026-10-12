@@ -43,6 +43,11 @@ class SettlementRequest(BaseModel):
     note: Optional[str] = Field(None, max_length=200)
 
 
+class SettlementUpdate(BaseModel):
+    amount: str = Field(..., max_length=20)
+    note: Optional[str] = Field(None, max_length=200)
+
+
 class SettingsRequest(BaseModel):
     default_currency: Optional[str] = Field(None, min_length=3, max_length=3)
     simplify_debts: Optional[bool] = None

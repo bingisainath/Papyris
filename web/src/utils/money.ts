@@ -30,6 +30,18 @@ export function formatMinor(minor: number | null | undefined, currency: string):
   }
 }
 
+/**
+ * An amount in another currency, for display only ("≈ $12.40"). `rates` are units of each
+ * currency per 1 of the target, so target = amount / rates[from]. Null when there's no rate.
+ */
+export function convertMinor(minor: number, from: string, to: string, rates: Record<string, number> | null): number | null {
+  if (from === to) return minor;
+  const rate = rates?.[from];
+  if (!rate) return null;
+  const major = minor / 10 ** decimalsFor(from) / rate;
+  return Math.round(major * 10 ** decimalsFor(to));
+}
+
 /** Minor units -> editable text, e.g. 1230 -> "12.30" */
 export function toMajorString(minor: number, currency: string): string {
   const decimals = decimalsFor(currency);

@@ -268,6 +268,13 @@ const data = <T>(promise: Promise<{ data: { data: T } }>) => promise.then(r => r
 
 export const expenseService = {
   currencies: () => data<CurrencyInfo[]>(api.get(`${V1}/currencies`)),
+  /** Units of each currency per 1 `base` (for showing totals in someone's chosen currency). */
+  exchangeRates: (base: string) =>
+    data<{ base: string; rates: Record<string, number>; updated: string | null; source: string }>(api.get(`${V1}/exchange-rates`, { params: { base } })),
+  /** Newest expenses and payments across every chat (Expenses home). */
+  recentActivity: (limit = 30) =>
+    data<{ items: ActivityItem[]; users: Record<string, BalanceUser>; chats: Record<string, { name: string; is_group: boolean }> }>(
+      api.get(`${V1}/expenses/activity`, { params: { limit } })),
 
   /** Ids of your chats that have expenses */
   conversationsWithExpenses: () => data<string[]>(api.get(`${V1}/expenses/conversations`)),
@@ -292,6 +299,8 @@ export const expenseService = {
   activity: (conversationId: string, filters: ActivityFilters = {}) =>
     data<{ items: ActivityItem[]; users: Record<string, BalanceUser> }>(api.get(`${V1}/conversations/${conversationId}/history`, { params: filters })),
   removeSettlement: (id: string) => data(api.delete(`${V1}/settlements/${id}`)),
+  /** Fix a recorded payment's amount or note. */
+  updateSettlement: (id: string, body: { amount: string; note?: string | null }) => data(api.patch(`${V1}/settlements/${id}`, body)),
   /** The chat's expenses as an Excel file (summary, expenses, discounted products), saved by the browser. */
   downloadExcel: async (conversationId: string) => {
     const res = await api.get(`${V1}/conversations/${conversationId}/expenses/export`, { responseType: 'blob' });

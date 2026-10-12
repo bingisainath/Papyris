@@ -19,7 +19,7 @@ from app.api.dependencies import get_current_user
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services import media_storage
-from app.websocket.routes import publish_users
+from app.websocket.routes import publish_delivered, publish_users
 import logging
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,15 @@ async def get_conversations(
                 for u in (await db.execute(select(User).where(User.id.in_(dm_partner_ids)))).scalars().all()
             }
 
+        # Fetching the list means everything in it reached this device: senders see two ticks
+        newly_delivered = []
+        for conv, my_membership in rows:
+            latest = last_messages.get(conv.id)
+            if latest is not None and latest.sender_id != current_user.id and (
+                my_membership.last_delivered_at is None or my_membership.last_delivered_at < latest.created_at
+            ):
+                newly_delivered.append((conv.id, latest.created_at))
+
         response_data = []
         for conv, my_membership in rows:
             other_user = None
@@ -137,6 +146,11 @@ async def get_conversations(
                 "isArchived": my_membership.archived_at is not None,
                 "isTyping": False,
             })
+
+        if newly_delivered:
+            everyone_has = await ChatService.mark_all_delivered(db, current_user.id, [cid for cid, _ in newly_delivered])
+            for conv_id, (up_to, member_ids) in everyone_has.items():
+                await publish_users(member_ids, {"type": "delivered", "roomId": str(conv_id), "deliveredUpTo": up_to.isoformat()})
 
         return {
             "success": True,
@@ -212,7 +226,12 @@ async def get_messages(
             senders_result = await db.execute(select(User).where(User.id.in_(sender_ids)))
             senders = {u.id: u for u in senders_result.scalars().all()}
 
+        # Opening a chat also means its messages reached this device
+        newest_from_others = max((m.created_at for m in messages if m.sender_id != current_user.id), default=None)
+        if newest_from_others and await ChatService.mark_delivered(db, current_user.id, conversation_id, newest_from_others):
+            await publish_delivered(db, conversation_id)
         read_up_to = await ChatService.read_up_to(db, conversation_id)
+        reached = await ChatService.reached_by_member(db, conversation_id)
         replies = await MessageService.reply_previews(db, {m.reply_to_id for m in messages if m.reply_to_id})
         reactions = await MessageService.reactions_for(db, [m.id for m in messages])
 
@@ -220,6 +239,8 @@ async def get_messages(
         for msg in messages:
             sender = senders.get(msg.sender_id)
             is_read = read_up_to is not None and msg.created_at <= read_up_to
+            # Two ticks once it reached every other member's devices
+            is_delivered = all(t is not None and t >= msg.created_at for uid, t in reached.items() if uid != msg.sender_id)
 
             msg_data = {
                 "id": str(msg.id),
@@ -241,7 +262,7 @@ async def get_messages(
                 "media_filename": msg.media_filename,
                 "expense_id": str(msg.expense_id) if msg.expense_id else None,
                 "created_at": msg.created_at.isoformat(),
-                "status": "read" if is_read else "delivered",
+                "status": "read" if is_read else "delivered" if is_delivered else "sent",
                 "sender": {
                     "id": str(sender.id),
                     "username": sender.username,

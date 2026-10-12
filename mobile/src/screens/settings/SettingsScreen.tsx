@@ -3,7 +3,10 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
+import { Bell, ChevronRight, Coins, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
+import CurrencyPicker from '../../components/expenses/CurrencyPicker';
+import { authApi } from '../../api/auth';
+import { errorMessage } from '../../api/client';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/common/Avatar';
@@ -20,8 +23,26 @@ type PushState = Awaited<ReturnType<typeof pushStatus>>;
 
 const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParams>>();
-  const { user, logout } = useAuth();
+  const { user, logout, setUser } = useAuth();
   const [push, setPush] = useState<PushState | null>(null);
+  const [pickingCurrency, setPickingCurrency] = useState(false);
+
+  // "Show totals in": expense amounts in other currencies also show converted (≈)
+  const setDisplayCurrency = async (code: string) => {
+    try {
+      setUser(await authApi.updateMe({ display_currency: code }));
+    } catch (e) {
+      showAlert("Couldn't save that", errorMessage(e));
+    }
+  };
+  const displayCurrency = () => {
+    if (!user?.display_currency) { setPickingCurrency(true); return; }
+    showAlert('Show totals in', `Amounts in other currencies also show converted to ${user.display_currency}.`, [
+      { text: 'Turn off', style: 'destructive', onPress: () => setDisplayCurrency('') },
+      { text: 'Change currency', onPress: () => setPickingCurrency(true) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
 
   // Re-check when the screen is shown and when coming back from the phone's settings
   useFocusEffect(useCallback(() => {
@@ -77,7 +98,12 @@ const SettingsScreen: React.FC = () => {
           <Row icon={ScanLine} label="Receipt scanning" hint="AI model and your own keys" onPress={() => navigation.navigate('ReceiptScanning')} />
           <Divider />
           <Row icon={Store} label="Store discounts" hint="Staff or member discounts" onPress={() => navigation.navigate('StoreDiscounts')} />
+          <Divider />
+          <Row icon={Coins} label="Show totals in" hint="Also show amounts converted at today's rate" onPress={displayCurrency}
+            value={user.display_currency || 'Off'} />
         </View>
+        <CurrencyPicker visible={pickingCurrency} value={user.display_currency || ''} onClose={() => setPickingCurrency(false)}
+          onPick={(code) => { setPickingCurrency(false); setDisplayCurrency(code); }} />
 
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.section}>

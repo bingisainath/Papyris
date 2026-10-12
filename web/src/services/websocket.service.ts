@@ -64,6 +64,7 @@ export interface WebSocketEvent {
   envelope?: import('../crypto/v2').IncomingEnvelope;
   version?: number;
   readUpTo?: string | null;
+  deliveredUpTo?: string | null;
   expenseId?: string | null;
   receiptId?: string;
   error?: string | null;
@@ -299,6 +300,15 @@ class WebSocketService {
   /**
    * Mark message as read
    */
+  /** A message from someone else reached this device (they see two ticks) */
+  markDelivered(conversationId: string, lastMessageId: string) {
+    this.send({
+      type: 'delivered',
+      roomId: conversationId,
+      lastMessageId
+    });
+  }
+
   markAsRead(conversationId: string, lastMessageId: string) {
     this.send({
       type: 'read',

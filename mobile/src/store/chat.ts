@@ -579,6 +579,7 @@ socket.on((e) => {
         };
       });
       if (!state.conversations.some((c) => c.id === e.roomId)) state.loadConversations().catch(() => undefined);
+      if (!mine && e.messageType !== 'system') socket.delivered(e.roomId, e.messageId);
       if (state.activeId === e.roomId) {
         markReadLocally(e.roomId, new Date(message.timestamp).getTime());
         if (!mine) socket.read(e.roomId, e.messageId);
@@ -600,6 +601,19 @@ socket.on((e) => {
       });
       break;
     }
+    case 'delivered':
+      if (e.roomId && e.deliveredUpTo) {
+        const upTo = new Date(e.deliveredUpTo).getTime();
+        set((s) => ({
+          messages: {
+            ...s.messages,
+            [e.roomId]: (s.messages[e.roomId] || []).map((m) =>
+              m.status === 'sent' && new Date(m.timestamp).getTime() <= upTo ? { ...m, status: 'delivered' } : m,
+            ),
+          },
+        }));
+      }
+      break;
     case 'read':
       if (e.roomId && e.readUpTo) {
         const upTo = new Date(e.readUpTo).getTime();

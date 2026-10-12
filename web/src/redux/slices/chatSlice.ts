@@ -303,6 +303,17 @@ const chatSlice = createSlice({
       }
     },
 
+    /** Every member has the conversation on a device up to deliveredUpTo: one tick becomes two. */
+    markMessagesDelivered: (state, action: PayloadAction<{ conversationId: string; deliveredUpTo: string }>) => {
+      const { conversationId, deliveredUpTo } = action.payload;
+      const limit = new Date(deliveredUpTo).getTime();
+      (state.messages[conversationId] || []).forEach(m => {
+        if (m.status === 'sent' && new Date(m.timestamp).getTime() <= limit) {
+          m.status = 'delivered';
+        }
+      });
+    },
+
     /** Everyone in the conversation has read up to readUpTo: update sent/delivered ticks. */
     markMessagesRead: (state, action: PayloadAction<{ conversationId: string; readUpTo: string }>) => {
       const { conversationId, readUpTo } = action.payload;
@@ -501,6 +512,7 @@ export const {
   applyMessageUpdate,
   setReactions,
   markMessagesRead,
+  markMessagesDelivered,
   syncOnlineStatus,
   replaceOptimisticMessage,
   addMessage,

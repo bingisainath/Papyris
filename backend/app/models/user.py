@@ -52,6 +52,9 @@ class User(Base):
 
     # Where people in your chats can pay you: {"revolut": "...", "paypal": "...", "upi": "..."}
     payment_handles = Column(JSONB, nullable=True)
+
+    # Expense totals are also shown converted to this currency (ISO code); None = off
+    display_currency = Column(String(3), nullable=True)
     
     # Social IDs (for OAuth integration - future)
     google_id = Column(String, nullable=True, unique=True)

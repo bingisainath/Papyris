@@ -3,11 +3,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronDown, Search } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, Search } from 'lucide-react';
 import { Avatar } from '../atoms';
 import { expenseService } from '../../services/expense.service';
 import type { ExpensesOverview } from '../../services/expense.service';
-import { displayName, Money, useExpenseChanges } from './shared';
+import { Approx, displayName, Money, useDisplayCurrency, useExpenseChanges } from './shared';
+import ExpensesHome from './ExpensesHome';
 import AddExpenseSheet from './AddExpenseSheet';
 import ChatExpenses from './ChatExpenses';
 import ExpenseDetail from './ExpenseDetail';
@@ -74,15 +75,8 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
     if (filter === 'owed') return sign(c.id).owed;
     return true;
   });
-  const [openExpense, setOpenExpense] = useState<string | null>(null);
+  const [openExpense, setOpenExpense] = useState<{ id: string; edit?: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
-
-  // Desktop: open the first chat so the page isn't empty
-  useEffect(() => {
-    if (!selectedId && shown.length && window.matchMedia('(min-width: 768px)').matches) {
-      setParams({ chat: shown[0].id }, { replace: true });
-    }
-  }, [selectedId, shown, setParams]);
 
   const chips: { value: Filter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -126,6 +120,18 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
           ))}
         </div>
 
+        <button
+          type="button"
+          onClick={() => setParams({})}
+          aria-current={!selected ? 'true' : undefined}
+          className={`hidden md:flex w-full items-center gap-3 mb-3 px-2.5 py-2.5 rounded-[14px] text-left ${!selected ? 'bg-primary-50' : 'hover:bg-primary-50/60'}`}
+        >
+          <span className="w-12 h-12 rounded-full bg-primary-100 text-primary-700 grid place-items-center"><LayoutDashboard size={20} /></span>
+          <span className="min-w-0">
+            <span className="block font-bold text-muted-900">Overview</span>
+            <span className="block text-xs text-muted-500">Totals and recent activity</span>
+          </span>
+        </button>
         <p className="px-2 pb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-muted-500">People & groups</p>
         <ul className="space-y-0.5">
           {listed.map((c) => (
@@ -162,6 +168,12 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
             </li>
           )}
         </ul>
+        {!selected && (
+          <div className="md:hidden mt-5">
+            <ExpensesHome activityOnly overview={overview} currentUserId={currentUserId}
+              onOpenChat={(id) => setParams({ chat: id })} onOpenExpense={(id, edit) => setOpenExpense({ id, edit })} />
+          </div>
+        )}
       </aside>
 
       <main className={`flex-1 min-w-0 overflow-y-auto bg-[#f6f6f8] ${selected ? '' : 'hidden md:block'}`}>
@@ -175,16 +187,17 @@ const ExpensesPage: React.FC<Props> = ({ conversations, currentUserId }) => {
             isGroup={!!selected.isGroup}
             onBack={() => setParams({})}
             onOpenChat={() => navigate(`/chat/${selected.id}`)}
-            onOpenExpense={setOpenExpense}
+            onOpenExpense={(id, edit) => setOpenExpense({ id, edit })}
             onAddExpense={() => setAdding(true)}
           />
         ) : (
-          <div className="h-full flex items-center justify-center text-muted-400">Choose a chat</div>
+          <ExpensesHome overview={overview} currentUserId={currentUserId}
+            onOpenChat={(id) => setParams({ chat: id })} onOpenExpense={(id, edit) => setOpenExpense({ id, edit })} />
         )}
       </main>
 
       {openExpense && (
-        <ExpenseDetail expenseId={openExpense} currentUserId={currentUserId} onClose={() => setOpenExpense(null)} />
+        <ExpenseDetail expenseId={openExpense.id} startEditing={openExpense.edit} currentUserId={currentUserId} onClose={() => setOpenExpense(null)} />
       )}
       {adding && selected && (
         <AddExpenseSheet conversationId={selected.id} currentUserId={currentUserId} onClose={() => setAdding(false)} />
@@ -201,6 +214,7 @@ const ChatNet: React.FC<{ nets?: Record<string, number> }> = ({ nets }) => {
   return (
     <span className={`text-right text-[13px] font-bold tabular-nums ${minor > 0 ? 'text-success-700' : 'text-accent-500'}`}>
       {minor > 0 ? '+' : '−'}<Money minor={Math.abs(minor)} currency={currency} />
+      <Approx minor={Math.abs(minor)} currency={currency} className="block text-[10px] font-semibold text-muted-400" />
       {entries.length > 1 && <span className="block text-[10px] font-semibold text-muted-400">+{entries.length - 1} more</span>}
     </span>
   );
@@ -210,7 +224,15 @@ const ChatNet: React.FC<{ nets?: Record<string, number> }> = ({ nets }) => {
 const Overview: React.FC<{ data: ExpensesOverview | null; conversations: ChatSummary[]; onOpenChat: (id: string) => void }> = ({ data, conversations, onOpenChat }) => {
   const [open, setOpen] = useState<string | null>(null);
   const [showPeople, setShowPeople] = useState(false);
+  const { target, convert } = useDisplayCurrency();
   if (!data) return null;
+  // Everything together in the display currency, when one is set and amounts are in others
+  const together = target && data.currencies.some((c) => c.currency !== target)
+    ? data.currencies.reduce<number | null>((sum, c) => {
+      const v = convert(c.net_minor, c.currency);
+      return sum === null || v === null ? null : sum + v;
+    }, 0)
+    : null;
   const chatName = (id: string, title: string | null) => title || conversations.find((c) => c.id === id)?.name || 'Direct chat';
   const [main, ...others] = data.currencies;
 
@@ -232,6 +254,11 @@ const Overview: React.FC<{ data: ExpensesOverview | null; conversations: ChatSum
             <p className="mt-1 text-xs text-primary-100">
               Owed to you <Money minor={main.owed_minor} currency={main.currency} /> · you owe <Money minor={main.owe_minor} currency={main.currency} />
             </p>
+            {together !== null && target && (
+              <p className="mt-2 text-sm font-semibold">
+                ≈ {together < 0 ? '−' : '+'}<Money minor={Math.abs(together)} currency={target} /> overall in {target}
+              </p>
+            )}
             {others.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {others.map((c) => (

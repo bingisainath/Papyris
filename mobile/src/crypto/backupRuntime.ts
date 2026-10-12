@@ -89,6 +89,9 @@ export async function restoreFromBackup(userId: string, recoveryKey: string, cur
   let blob: Uint8Array;
   try {
     const response = await ReactNativeBlobUtil.config({ path }).fetch('GET', mediaUrl(server.url)!);
+    if (response.info().status === 404) {
+      throw new Error("Your backup file is missing on the server. Open Papyris on a device that's still signed in and choose Back up now, or link this phone from it.");
+    }
     if (response.info().status !== 200) throw new Error("Couldn't download the backup");
     blob = fromBase64(await fs.readFile(path, 'base64'));
   } finally {

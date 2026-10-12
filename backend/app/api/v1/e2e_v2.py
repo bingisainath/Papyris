@@ -335,8 +335,18 @@ async def create_link_request(body: LinkRequestBody, user: User = Depends(get_cu
         _bad(e)
     now = _now()
     await db.execute(delete(E2ELinkRequest).where(E2ELinkRequest.expires_at < now))
-    pending = await db.scalar(select(func.count()).select_from(E2ELinkRequest).where(E2ELinkRequest.user_id == user.id))
-    if pending >= 5:
+    # The limit is on devices waiting, not requests: a device asking again (a retry, or the page
+    # asking twice while it loads) doesn't use it up. Its earlier requests stay valid until they
+    # expire, so whichever code is on its screen still works.
+    waiting = await db.scalar(
+        select(func.count(func.distinct(E2ELinkRequest.device_id)))
+        .where(E2ELinkRequest.user_id == user.id, E2ELinkRequest.device_id != device.device_id)
+    )
+    mine = await db.scalar(
+        select(func.count()).select_from(E2ELinkRequest)
+        .where(E2ELinkRequest.user_id == user.id, E2ELinkRequest.device_id == device.device_id)
+    )
+    if waiting >= 5 or mine >= 10:
         raise HTTPException(status_code=429, detail="Too many devices waiting to be linked. Try again in a few minutes.")
     code = checks.link_code(ek, checks.key32(device.sign_public), checks.key32(device.dh_public))
     request = E2ELinkRequest(user_id=user.id, device_id=device.device_id, ephemeral_public=body.ek, code=code,

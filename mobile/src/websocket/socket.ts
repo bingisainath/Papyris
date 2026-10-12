@@ -150,6 +150,11 @@ class Socket {
     this.send({ type: 'typing', roomId, isTyping });
   }
 
+  /** A message from someone else reached this phone (they see two ticks) */
+  delivered(roomId: string, lastMessageId: string) {
+    this.send({ type: 'delivered', roomId, lastMessageId });
+  }
+
   read(roomId: string, lastMessageId: string) {
     this.send({ type: 'read', roomId, lastMessageId });
   }

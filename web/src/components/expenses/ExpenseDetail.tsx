@@ -17,13 +17,14 @@ interface Props {
   expenseId: string;
   currentUserId: string;
   onClose: () => void;
+  startEditing?: boolean; // open straight into the edit form (the Edit button on a history row)
 }
 
 const ACTION_ICONS: Record<HistoryEntry['action'], LucideIcon> = {
   created: Plus, updated: PenLine, deleted: Trash2, restored: RotateCcw, locked: Lock, unlocked: LockOpen,
 };
 
-const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose }) => {
+const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, startEditing }) => {
   const [expense, setExpense] = useState<Expense | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [tab, setTab] = useState<'details' | 'history'>('details');
@@ -36,11 +37,12 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose }) =
       const [e, h] = await Promise.all([expenseService.get(expenseId), expenseService.history(expenseId)]);
       setExpense(e);
       setHistory(h);
+      if (startEditing && e.can_edit && !e.deleted) setEditing((current) => current ?? 'manual');
     } catch (error) {
       toast.error(parseApiError(error));
       onClose();
     }
-  }, [expenseId, onClose]);
+  }, [expenseId, onClose, startEditing]);
 
   useEffect(() => { load(); }, [load]);
   useExpenseChanges(expense?.conversation_id, load);
@@ -75,7 +77,7 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose }) =
         currentUserId={currentUserId}
         expense={editing === 'manual' ? expense : undefined}
         receiptId={editing === 'receipt' ? expense.receipt_id || undefined : undefined}
-        onClose={() => { setEditing(null); load(); }}
+        onClose={() => { if (startEditing) { onClose(); return; } setEditing(null); load(); }}
       />
     );
   }

@@ -22,6 +22,7 @@ import {
   setPinned,
   setConversationPrefs,
   markMessagesRead,
+  markMessagesDelivered,
   syncOnlineStatus,
   setActiveConversation,
   updateUserOnlineStatus,
@@ -580,6 +581,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       const roomId = data.roomId;
       const isOwn = data.senderId === localStorage.getItem('userId');
 
+      // Tell the sender it reached this device (their one tick becomes two)
+      if (!isOwn && data.messageType !== 'system') wsService.markDelivered(roomId, data.messageId);
+
       // Sending a message means they stopped typing
       if (data.senderId) setTypingWithExpiry(dispatch, roomId, data.senderId, false);
 
@@ -637,6 +641,13 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   wsService.on('conversation_pinned', (data) => {
     if (data.conversationId) {
       dispatch(setPinned({ conversationId: data.conversationId, pinnedAt: data.pinned ? data.pinnedAt || new Date().toISOString() : null }));
+    }
+  });
+
+  // Delivery receipt: everyone has our messages up to this time on a device
+  wsService.on('delivered', (data) => {
+    if (data.roomId && data.deliveredUpTo) {
+      dispatch(markMessagesDelivered({ conversationId: data.roomId, deliveredUpTo: data.deliveredUpTo }));
     }
   });
 

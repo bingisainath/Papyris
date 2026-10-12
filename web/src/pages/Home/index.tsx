@@ -30,14 +30,14 @@ import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
 import { clearUnreadCount } from '../../redux/slices/chatSlice';
 import { chatService } from '../../services/chat.service';
 import { NAVIGATE_EVENT } from '../../utils/events';
-import { getNotificationStatus, setNotificationsEnabled } from '../../utils/notifications';
+import { clearNotifications, getNotificationStatus, setNotificationsEnabled, setUnreadBadge } from '../../utils/notifications';
 import type { NotificationStatus } from '../../utils/notifications';
 import { mediaService } from '../../services/media.service';
 import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
 import ConnectionBanner from '../../components/molecules/ConnectionBanner';
-import { ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
+import { DisplayCurrencySettings, ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
 import SessionsSettings from '../../components/organisms/SessionsSettings';
 import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
@@ -86,8 +86,13 @@ const Home: React.FC = () => {
   const totalUnread = counted.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
   useEffect(() => {
     document.title = totalUnread > 0 ? `(${totalUnread}) Papyris` : 'Papyris';
+    setUnreadBadge(totalUnread);
   }, [totalUnread]);
-  useEffect(() => () => { document.title = 'Papyris'; }, []);
+  useEffect(() => () => { document.title = 'Papyris'; setUnreadBadge(0); }, []);
+  // A chat that's been read (here or on another device) shouldn't keep its notifications up
+  useEffect(() => {
+    conversations.forEach(c => { if (!c.unreadCount) clearNotifications(c.id); });
+  }, [conversations]);
 
   // Lets toasts and other non-component code open a route (e.g. "added to group" toast)
   useEffect(() => {
@@ -597,6 +602,8 @@ const SettingsPage: React.FC<{
           <BackupSettings userId={user.id} />
 
           <NotificationSettings />
+
+          <DisplayCurrencySettings />
 
           <ReceiptScanningSettings />
 

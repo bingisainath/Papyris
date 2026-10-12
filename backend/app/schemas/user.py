@@ -35,6 +35,7 @@ class UserResponse(BaseModel):
     bio: Optional[str] = None
     avatar: Optional[str] = None
     payment_handles: Optional[dict] = None
+    display_currency: Optional[str] = None
     is_active: bool
     email_verified: bool = True
     created_at: datetime
@@ -74,6 +75,19 @@ class UserUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
     avatar: Optional[str] = Field(None, description="Uploaded image URL, or empty string to remove")
     payment_handles: Optional[PaymentHandles] = None
+    # Also show expense totals in this currency ("" turns it off)
+    display_currency: Optional[str] = Field(None, max_length=3)
+
+    @field_validator('display_currency')
+    @classmethod
+    def known_currency(cls, v: Optional[str]) -> Optional[str]:
+        from app.services.money import is_supported
+        if v is None or v == "":
+            return v
+        v = v.upper()
+        if not is_supported(v):
+            raise ValueError('Unknown currency')
+        return v
 
     @field_validator('name', 'username', 'bio')
     @classmethod

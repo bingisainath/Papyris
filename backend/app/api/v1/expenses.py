@@ -31,7 +31,7 @@ from app.services.money import CURRENCIES, MoneyError, format_minor, is_supporte
 from app.services.split_engine import split_manual, validate_payers
 from app.websocket.routes import publish_users
 from app.schemas.expenses import (
-    ExpenseRequest, LockRequest, SettlementRequest, SettingsRequest, RemindRequest,
+    ExpenseRequest, LockRequest, SettlementRequest, SettlementUpdate, SettingsRequest, RemindRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,6 +105,18 @@ async def list_currencies():
     return _ok([{"code": c, "symbol": s, "name": n, "decimals": d} for c, (d, s, n) in CURRENCIES.items()])
 
 
+@router.get("/exchange-rates")
+async def exchange_rates(base: str = Query(..., min_length=3, max_length=3), current_user: User = Depends(get_current_user)):
+    """How many of each currency one `base` buys (for showing totals in someone's chosen currency)."""
+    from app.services import fx_rates
+    base = _currency(base)
+    try:
+        rates, updated = await fx_rates.rates_for(base)
+    except fx_rates.RatesUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    return _ok({"base": base, "rates": rates, "updated": updated, "source": "ExchangeRate-API (open.er-api.com)"})
+
+
 @router.get("/expenses/conversations")
 async def conversations_with_expenses(
     current_user: User = Depends(get_current_user),
@@ -118,6 +130,66 @@ async def conversations_with_expenses(
         .where(ConversationMember.user_id == current_user.id, Expense.deleted_at.is_(None))
     )).scalars().all()
     return _ok([str(i) for i in ids])
+
+
+@router.get("/expenses/activity")
+async def recent_activity(
+    limit: int = Query(30, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Newest expenses and payments across every chat you're in (Expenses home), with the chat's name."""
+    from app.models.conversation import Conversation
+    from app.models.conversation_member import ConversationMember
+    chat_ids = (await db.execute(
+        select(ConversationMember.conversation_id).where(ConversationMember.user_id == current_user.id)
+    )).scalars().all()
+    if not chat_ids:
+        return _ok({"items": [], "users": {}, "chats": {}})
+    items: list[dict] = []
+    for e in (await db.execute(
+        select(Expense).where(Expense.conversation_id.in_(chat_ids), Expense.deleted_at.is_(None))
+        .order_by(Expense.spent_at.desc()).limit(limit)
+    )).scalars().all():
+        items.append({"kind": "expense", "at": e.spent_at.isoformat(), **svc.serialize(e),
+                      "can_edit": not e.locked and e.deleted_at is None})
+    for st in (await db.execute(
+        select(Settlement).where(Settlement.conversation_id.in_(chat_ids), Settlement.deleted_at.is_(None))
+        .order_by(Settlement.created_at.desc()).limit(limit)
+    )).scalars().all():
+        items.append({"kind": "settlement", "at": st.created_at.isoformat(), **_serialize_settlement(st)})
+    items.sort(key=lambda i: i["at"], reverse=True)
+    items = items[:limit]
+
+    # Names for the people and chats in these items (a direct chat is named after the other person)
+    used = {uuid.UUID(i["conversation_id"]) for i in items}
+    user_ids = {current_user.id}
+    for i in items:
+        if i["kind"] == "settlement":
+            user_ids |= {uuid.UUID(i["from_user"]), uuid.UUID(i["to_user"])}
+        else:
+            user_ids |= {uuid.UUID(p["user_id"]) for p in i["payers"]} | {uuid.UUID(x["user_id"]) for x in i["shares"]}
+    chats: dict[str, dict] = {}
+    if used:
+        convs = (await db.execute(select(Conversation).where(Conversation.id.in_(used)))).scalars().all()
+        dm_members = (await db.execute(
+            select(ConversationMember.conversation_id, ConversationMember.user_id)
+            .where(ConversationMember.conversation_id.in_([c.id for c in convs if c.kind != "group"]),
+                   ConversationMember.user_id != current_user.id)
+        )).all()
+        partner = {cid: uid for cid, uid in dm_members}
+        user_ids |= set(partner.values())
+        rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+        users = {str(u.id): _user_view(u) for u in rows}
+        for c in convs:
+            if c.kind == "group":
+                chats[str(c.id)] = {"name": c.title or "Group", "is_group": True}
+            else:
+                other = users.get(str(partner.get(c.id)), {})
+                chats[str(c.id)] = {"name": other.get("name") or other.get("username") or "Direct chat", "is_group": False}
+    else:
+        users = {}
+    return _ok({"items": items, "users": users, "chats": chats})
 
 
 @router.get("/expenses/overview")
@@ -452,22 +524,68 @@ async def create_settlement(
     return _ok(_serialize_settlement(settlement), "Payment recorded")
 
 
+async def _editable_settlement(db: AsyncSession, settlement_id: uuid.UUID, user: User) -> Settlement:
+    """A recorded payment that `user` may change: they recorded it, made it, got it, or run the chat."""
+    settlement = await db.get(Settlement, settlement_id)
+    if settlement is None or settlement.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    access = await svc.load_access(db, settlement.conversation_id, user)
+    if not (access.is_admin or user.id in (settlement.created_by, settlement.from_user, settlement.to_user)):
+        raise HTTPException(status_code=403, detail="Only the two people in this payment, whoever recorded it, or an admin can change it")
+    return settlement
+
+
+async def _announce_settlement_change(db: AsyncSession, settlement: Settlement, actor: User, text: str, action: str) -> None:
+    members = await svc.member_users(db, settlement.conversation_id)
+    payload = await MessageService.post_system_message(db, settlement.conversation_id, actor, text)
+    member_ids = list(members)
+    await publish_users(member_ids, payload)
+    await publish_users(member_ids, {"type": "expense_changed", "conversationId": str(settlement.conversation_id), "action": action})
+
+
+def _payment_text(members: dict, settlement: Settlement) -> str:
+    payer, payee = members.get(str(settlement.from_user)), members.get(str(settlement.to_user))
+    return (f"{payer.username if payer else 'Someone'} paid {payee.username if payee else 'someone'} "
+            f"{format_minor(settlement.amount_minor, settlement.currency)}")
+
+
+@router.patch("/settlements/{settlement_id}")
+async def update_settlement(
+    settlement_id: uuid.UUID,
+    body: SettlementUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fix a recorded payment's amount or note (e.g. it was €20, not €25)."""
+    settlement = await _editable_settlement(db, settlement_id, current_user)
+    amount = _money(body.amount, settlement.currency)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be more than zero")
+    before = format_minor(settlement.amount_minor, settlement.currency)
+    settlement.amount_minor = amount
+    settlement.note = (body.note or "").strip() or None
+    await db.flush()
+    members = await svc.member_users(db, settlement.conversation_id)
+    text = f"{current_user.username} changed a payment: {_payment_text(members, settlement)}"
+    if before != format_minor(amount, settlement.currency):
+        text += f" (was {before})"
+    await _announce_settlement_change(db, settlement, current_user, text, "settlement_changed")
+    return _ok(_serialize_settlement(settlement), "Payment updated")
+
+
 @router.delete("/settlements/{settlement_id}")
 async def delete_settlement(
     settlement_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    settlement = await db.get(Settlement, settlement_id)
-    if settlement is None or settlement.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    access = await svc.load_access(db, settlement.conversation_id, current_user)
-    if not (access.is_admin or settlement.created_by == current_user.id):
-        raise HTTPException(status_code=403, detail="Only the person who recorded it or an admin can remove it")
+    """Undo a recorded payment: balances go back to how they were before it."""
+    settlement = await _editable_settlement(db, settlement_id, current_user)
     settlement.deleted_at = datetime.now(timezone.utc)
-    await db.commit()
-    member_ids = await MessageService.member_ids(db, settlement.conversation_id)
-    await publish_users(member_ids, {"type": "expense_changed", "conversationId": str(settlement.conversation_id), "action": "settlement_removed"})
+    await db.flush()
+    members = await svc.member_users(db, settlement.conversation_id)
+    text = f"{current_user.username} undid a payment: {_payment_text(members, settlement)}"
+    await _announce_settlement_change(db, settlement, current_user, text, "settlement_removed")
     return _ok(_serialize_settlement(settlement), "Payment removed")
 
 
@@ -730,7 +848,8 @@ async def conversation_expense_history(
         for e in (await db.execute(stmt.order_by(Expense.spent_at.desc()).limit(limit))).scalars().all():
             if member and not any(p.user_id == member for p in e.payers) and not any(s.user_id == member and s.amount_minor for s in e.shares):
                 continue
-            items.append({"kind": "expense", "at": e.spent_at.isoformat(), **svc.serialize(e)})
+            items.append({"kind": "expense", "at": e.spent_at.isoformat(), **svc.serialize(e),
+                          "can_edit": not e.locked and e.deleted_at is None})
     if kind != "expense" and not category:
         stmt = select(Settlement).where(Settlement.conversation_id == conversation_id, Settlement.deleted_at.is_(None))
         if member:

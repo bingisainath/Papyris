@@ -296,6 +296,15 @@ export const expenseService = {
   activity: (conversationId: string, filters: ActivityFilters = {}) =>
     data<{ items: ActivityItem[]; users: Record<string, BalanceUser> }>(api.get(`${V1}/conversations/${conversationId}/history`, { params: filters })),
   removeSettlement: (id: string) => data(api.delete(`${V1}/settlements/${id}`)),
+  /** Fix a recorded payment's amount or note. */
+  updateSettlement: (id: string, body: { amount: string; note?: string | null }) => data(api.patch(`${V1}/settlements/${id}`, body)),
+  /** Units of each currency per 1 `base` (for showing totals in someone's chosen currency). */
+  exchangeRates: (base: string) =>
+    data<{ base: string; rates: Record<string, number>; updated: string | null }>(api.get(`${V1}/exchange-rates`, { params: { base } })),
+  /** Newest expenses and payments across every chat (Expenses home). */
+  recentActivity: (limit = 30) =>
+    data<{ items: ActivityItem[]; users: Record<string, BalanceUser>; chats: Record<string, { name: string; is_group: boolean }> }>(
+      api.get(`${V1}/expenses/activity`, { params: { limit } })),
   /** The chat's expenses as an Excel file (summary, expenses, discounted products), saved to Downloads (Android)
    *  or opened to save/share (iPhone). Returns the file name. */
   saveExcel: async (conversationId: string): Promise<string> => {

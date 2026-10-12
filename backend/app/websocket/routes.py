@@ -455,6 +455,16 @@ async def ws_chat(ws: WebSocket):
                 task.add_done_callback(_background_tasks.discard)
                 continue
 
+            # DELIVERY RECEIPT: a message reached this device (two grey ticks for the sender)
+            if event_type == "delivered" and room_id:
+                last_msg_id = data.get("lastMessageId")
+                if not last_msg_id or last_msg_id.startswith('temp-'):
+                    continue
+                task = asyncio.create_task(_handle_delivered(user_id, room_id, last_msg_id))
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
+                continue
+
             # PING/PONG
             if event_type == "ping":
                 await ws.send_json({"type": "pong"})
@@ -515,6 +525,47 @@ async def _handle_read(user_id: uuid.UUID, conversation_id: str, last_message_id
         "readUpTo": read_up_to.isoformat() if read_up_to else None,
     })
     logger.debug("User %s read %s up to %s", user_id, conversation_id, last_message_id)
+
+
+async def _handle_delivered(user_id: uuid.UUID, conversation_id: str, last_message_id: str) -> None:
+    """Record that a message reached one of user_id's devices; tell members if everyone has it now"""
+    try:
+        conv_uuid = uuid.UUID(conversation_id)
+        msg_uuid = uuid.UUID(last_message_id)
+    except ValueError:
+        return
+    try:
+        for _ in range(READ_WAIT_ATTEMPTS):
+            async with async_session_maker() as db:
+                if not await _check_membership(db, user_id, conversation_id):
+                    return
+                # The worker may not have persisted a just-sent message yet
+                created_at = (await db.execute(
+                    select(Message.created_at).where(Message.id == msg_uuid, Message.conversation_id == conv_uuid)
+                )).scalar_one_or_none()
+                if created_at is None:
+                    await asyncio.sleep(READ_WAIT_SECONDS)
+                    continue
+                if await ChatService.mark_delivered(db, user_id, conv_uuid, created_at):
+                    await publish_delivered(db, conv_uuid)
+                return
+    except Exception:
+        logger.exception("Failed to mark %s as delivered", last_message_id)
+
+
+async def publish_delivered(db: AsyncSession, conversation_id: uuid.UUID) -> None:
+    """Tell every member how far the conversation has reached everyone's devices"""
+    delivered_up_to = await ChatService.delivered_up_to(db, conversation_id)
+    if delivered_up_to is None:
+        return
+    member_ids = [str(m) for m in (await db.execute(
+        select(ConversationMember.user_id).where(ConversationMember.conversation_id == conversation_id)
+    )).scalars().all()]
+    await publish_users(member_ids, {
+        "type": "delivered",
+        "roomId": str(conversation_id),
+        "deliveredUpTo": delivered_up_to.isoformat(),
+    })
 
 
 async def _mark_read(

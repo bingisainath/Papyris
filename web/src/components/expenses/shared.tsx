@@ -10,7 +10,8 @@ import type { ConversationMemberInfo } from '../../services/chat.service';
 import { expenseService } from '../../services/expense.service';
 import type { ExpenseSettings } from '../../services/expense.service';
 import { EXPENSE_CHANGED_EVENT } from '../../utils/events';
-import { decimalsFor, formatMinor, parseMajor } from '../../utils/money';
+import { convertMinor, decimalsFor, formatMinor, parseMajor } from '../../utils/money';
+import { useAuth } from '../../app/AuthProvider';
 
 export type Member = ConversationMemberInfo;
 
@@ -151,6 +152,45 @@ export const MoneyInput: React.FC<{
       } ${className}`}
     />
   );
+};
+
+// Exchange rates per target currency, shared by every screen for an hour
+const rateCache: Record<string, { at: number; rates: Record<string, number>; updated: string | null }> = {};
+const RATES_FOR_MS = 60 * 60 * 1000;
+
+/**
+ * The currency chosen in Settings → "Show totals in", and a converter to it (null when it's off
+ * or there's no rate). Converted amounts are only ever shown as "≈", never used for balances.
+ */
+export function useDisplayCurrency() {
+  const { user } = useAuth();
+  const target = user?.display_currency || null;
+  const [entry, setEntry] = useState(target ? rateCache[target] || null : null);
+  useEffect(() => {
+    if (!target) { setEntry(null); return; }
+    const cached = rateCache[target];
+    if (cached && Date.now() - cached.at < RATES_FOR_MS) { setEntry(cached); return; }
+    let alive = true;
+    expenseService.exchangeRates(target)
+      .then((r) => { rateCache[target] = { at: Date.now(), rates: r.rates, updated: r.updated }; if (alive) setEntry(rateCache[target]); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [target]);
+  const convert = useCallback(
+    (minor: number, from: string) => (target && entry ? convertMinor(minor, from, target, entry.rates) : null),
+    [target, entry],
+  );
+  return { target, convert, updated: entry?.updated || null };
+}
+
+/** "≈ $12.40" next to an amount in another currency, when a display currency is set. */
+export const Approx: React.FC<{ minor: number; currency: string; className?: string; signed?: boolean }> = ({ minor, currency, className, signed }) => {
+  const { target, convert } = useDisplayCurrency();
+  if (!target || target === currency) return null;
+  const converted = convert(minor, currency);
+  if (converted === null) return null;
+  const sign = signed ? (converted > 0 ? '+' : converted < 0 ? '−' : '') : converted < 0 ? '−' : '';
+  return <span className={`tabular-nums ${className || 'text-xs text-muted-400'}`} title="Converted at today's rate">≈ {sign}{formatMinor(Math.abs(converted), target)}</span>;
 };
 
 export const Money: React.FC<{ minor: number | null | undefined; currency: string; className?: string }> = ({ minor, currency, className }) => (

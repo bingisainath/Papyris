@@ -90,6 +90,9 @@ export async function restoreFromBackup(userId: string, recoveryKey: string, cur
   if (!server.exists || !server.url) throw new Error('There is no backup for this account');
   const key = checkRecoveryKey(recoveryKey, server as BackupMeta);
   const response = await fetch(resolveMediaUrl(server.url)!);
+  if (response.status === 404) {
+    throw new Error("Your backup file is missing on the server. Open Papyris on a device that's still signed in and choose Back up now, or link this browser from it.");
+  }
   if (!response.ok) throw new Error("Couldn't download the backup");
   const content = openBackup(key, server as BackupMeta, new Uint8Array(await response.arrayBuffer()));
   // Version 1 keys (older messages) come back only if they're still the account's current ones

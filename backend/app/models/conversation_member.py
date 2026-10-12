@@ -57,6 +57,9 @@ class ConversationMember(Base):
         nullable=True
     )
     
+    # created_at of the newest message that reached one of this member's devices (two grey ticks)
+    last_delivered_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     muted: Mapped[bool] = mapped_column(Boolean, default=False)  # unused; see muted_until
     # Muted until this time (no notifications; far future = always). None = not muted
     muted_until: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)

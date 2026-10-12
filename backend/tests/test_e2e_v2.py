@@ -300,3 +300,29 @@ async def test_never_linked_devices_free_their_slots(client, make_user, db):
     assert (await client.post(f"{API}/devices", json=Device().registration(), headers=a.headers)).status_code == 200
     mine = (await client.get(f"{API}/devices/me", headers=a.headers)).json()["data"]["devices"]
     assert primary.id in [d["device_id"] for d in mine] and len(mine) == 2
+
+
+
+async def test_asking_again_replaces_a_devices_link_request(client, make_user):
+    """A page that asks twice while loading, or a retry, mustn't use up the account's limit of 5."""
+    user = await make_user()
+    laptop = await register(client, user, Device())
+    for _ in range(8):
+        ek = X25519PrivateKey.generate().public_key().public_bytes(*RAW)
+        r = await client.post(f"{API}/link-requests", json={"device_id": laptop.id, "ek": b64(ek)}, headers=user.headers)
+        assert r.status_code == 200, r.text
+    # ...but one device can't pile up requests without end
+    for _ in range(2):
+        ek = X25519PrivateKey.generate().public_key().public_bytes(*RAW)
+        await client.post(f"{API}/link-requests", json={"device_id": laptop.id, "ek": b64(ek)}, headers=user.headers)
+    ek = X25519PrivateKey.generate().public_key().public_bytes(*RAW)
+    assert (await client.post(f"{API}/link-requests", json={"device_id": laptop.id, "ek": b64(ek)}, headers=user.headers)).status_code == 429
+
+    # Five different devices waiting at once is still the limit
+    for _ in range(4):
+        other = await register(client, user, Device())
+        ek = X25519PrivateKey.generate().public_key().public_bytes(*RAW)
+        assert (await client.post(f"{API}/link-requests", json={"device_id": other.id, "ek": b64(ek)}, headers=user.headers)).status_code == 200
+    sixth = await register(client, user, Device())
+    ek = X25519PrivateKey.generate().public_key().public_bytes(*RAW)
+    assert (await client.post(f"{API}/link-requests", json={"device_id": sixth.id, "ek": b64(ek)}, headers=user.headers)).status_code == 429

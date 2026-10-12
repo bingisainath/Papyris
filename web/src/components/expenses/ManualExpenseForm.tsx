@@ -155,15 +155,19 @@ const ManualExpenseForm: React.FC<Props> = ({ conversationId, members, currentUs
     if (!editingItemized && !selected.length) return 'Choose who it’s split between';
     if (mode === 'exact' && !editingItemized && preview) {
       const sum = Object.values(preview).reduce((a, b) => a + b, 0);
-      if (sum !== totalMinor) return `Amounts add up to ${formatMinor(sum, currency)}, not ${formatMinor(totalMinor, currency)}`;
+      if (sum < totalMinor) return `${formatMinor(totalMinor - sum, currency)} left to split (of ${formatMinor(totalMinor, currency)})`;
+      if (sum > totalMinor) return `${formatMinor(sum - totalMinor, currency)} too much: the amounts come to ${formatMinor(sum, currency)}, the total is ${formatMinor(totalMinor, currency)}`;
     }
     if (mode === 'percent' && !editingItemized) {
       const sum = selected.reduce((a, id) => a + (Number((values[id] || '').replace(',', '.')) || 0), 0);
-      if (Math.abs(sum - 100) > 1e-9) return `Percentages add up to ${sum}%, not 100%`;
+      const left = Math.round((100 - sum) * 100) / 100;
+      if (left > 1e-9) return `${left}% left to split`;
+      if (left < -1e-9) return `${-left}% too much: the percentages come to ${sum}%`;
     }
     if (payers) {
       const paid = payers.reduce((a, p) => a + (parseMajor(p.amount, currency) || 0), 0);
-      if (paid !== totalMinor) return 'What people paid must add up to the total';
+      if (paid < totalMinor) return `${formatMinor(totalMinor - paid, currency)} of the total still needs a payer`;
+      if (paid > totalMinor) return `What people paid is ${formatMinor(paid - totalMinor, currency)} more than the total`;
     }
     return null;
   })();

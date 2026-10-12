@@ -57,7 +57,7 @@ const Avatar: React.FC<AvatarProps> = ({
   };
 
   return (
-    <div data-avatar className={`relative inline-block flex-shrink-0 ${className}`}>
+    <div data-avatar className={`relative inline-block align-middle flex-shrink-0 ${className}`}>
       {/* Purple ring for active/selected state */}
       {showRing && (
         <div className="absolute inset-0 rounded-full bg-primary-600 p-0.5">
@@ -71,7 +71,7 @@ const Avatar: React.FC<AvatarProps> = ({
           src={photo}
           onError={() => setFailed(true)}
           alt={alt}
-          className={`${sizes[size]} rounded-full object-cover ${showRing ? 'relative z-10' : ''}`}
+          className={`${sizes[size]} block rounded-full object-cover ${showRing ? 'relative z-10' : ''}`}
         />
       ) : (
         <span

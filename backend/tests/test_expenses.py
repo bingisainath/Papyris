@@ -147,6 +147,31 @@ async def test_settle_up_and_simplify_setting(client, trio, events):
     assert (await client.delete(f"/api/v1/settlements/{settlement}", headers=a.headers)).status_code == 200
 
 
+async def test_payee_can_fix_or_undo_a_payment(client, trio, events):
+    a, b, c, group = await trio()
+    await add(client, b, group, "30", splits=[{"user_id": a.id}])  # a owes b 30
+    r = await client.post(f"/api/v1/conversations/{group}/settlements",
+                          json={"from_user": a.id, "to_user": b.id, "currency": "EUR", "amount": "30"}, headers=a.headers)
+    settlement = r.json()["data"]["id"]
+
+    # Bob only got 20: he fixes it, and the chat is told
+    r = await client.patch(f"/api/v1/settlements/{settlement}", json={"amount": "20"}, headers=b.headers)
+    assert r.status_code == 200 and r.json()["data"]["amount_minor"] == 2000
+    assert any("changed a payment" in (p.get("text") or "") and "(was €30.00)" in p["text"] for _, p in events)
+    debts = (await balances(client, a, group))["currencies"][0]["debts"]
+    assert [(d["from_user"], d["to_user"], d["amount_minor"]) for d in debts] == [(a.id, b.id, 1000)]
+
+    assert (await client.patch(f"/api/v1/settlements/{settlement}", json={"amount": "0"}, headers=b.headers)).status_code == 400
+    assert (await client.patch(f"/api/v1/settlements/{settlement}", json={"amount": "5"}, headers=c.headers)).status_code == 403
+
+    # Then undoes it: the whole 30 is owed again
+    assert (await client.delete(f"/api/v1/settlements/{settlement}", headers=b.headers)).status_code == 200
+    assert any("undid a payment" in (p.get("text") or "") for _, p in events)
+    debts = (await balances(client, a, group))["currencies"][0]["debts"]
+    assert [d["amount_minor"] for d in debts] == [3000]
+    assert (await client.patch(f"/api/v1/settlements/{settlement}", json={"amount": "5"}, headers=b.headers)).status_code == 404
+
+
 async def test_outsider_sees_nothing(client, trio, make_user):
     a, b, c, group = await trio()
     expense = (await add(client, a, group, "5", splits=[{"user_id": a.id}])).json()["data"]
@@ -317,3 +342,48 @@ async def test_overview_across_chats_reminders_and_payment_details(client, trio,
     assert (await client.post(f"/api/v1/conversations/{group}/remind", json={"user_id": a.id, "currency": "EUR"}, headers=c.headers)).status_code == 400
     outsider = await make_user("outsider")
     assert (await client.post(f"/api/v1/conversations/{group}/remind", json={"user_id": c.id, "currency": "EUR"}, headers=outsider.headers)).status_code == 404
+
+
+# ------------------------------------------------------------------ Expenses home, display currency
+
+async def test_recent_activity_across_chats(client, trio, make_user, make_dm):
+    a, b, c, group = await trio()
+    dm = await make_dm(a, b)
+    await add(client, a, group, "12", splits=[{"user_id": b.id}])
+    await add(client, b, dm, "8", splits=[{"user_id": a.id}])
+    await client.post(f"/api/v1/conversations/{group}/settlements",
+                      json={"from_user": b.id, "to_user": a.id, "currency": "EUR", "amount": "5"}, headers=b.headers)
+    data = (await client.get("/api/v1/expenses/activity", headers=a.headers)).json()["data"]
+    assert [i["kind"] for i in data["items"]] == ["settlement", "expense", "expense"]
+    assert data["chats"][group]["is_group"] and data["chats"][dm] == {"name": b.username, "is_group": False}
+    assert data["items"][1]["can_edit"] is True
+    assert {a.id, b.id} <= set(data["users"])
+
+    # Someone outside both chats sees none of it
+    outsider = await make_user()
+    assert (await client.get("/api/v1/expenses/activity", headers=outsider.headers)).json()["data"]["items"] == []
+
+
+async def test_display_currency_setting(client, make_user):
+    user = await make_user()
+    r = await client.patch("/api/v1/auth/me", json={"display_currency": "usd"}, headers=user.headers)
+    assert r.status_code == 200 and r.json()["data"]["display_currency"] == "USD"
+    assert (await client.patch("/api/v1/auth/me", json={"display_currency": "XYZ"}, headers=user.headers)).status_code == 422
+    r = await client.patch("/api/v1/auth/me", json={"display_currency": ""}, headers=user.headers)
+    assert r.json()["data"]["display_currency"] is None
+
+
+async def test_exchange_rates_relative_to_base(client, make_user, monkeypatch):
+    from app.services import fx_rates
+
+    async def fake_usd_rates():
+        return {"USD": 1.0, "EUR": 0.5, "INR": 80.0}, "Sat, 11 Oct 2026 00:00:01 +0000"
+    monkeypatch.setattr(fx_rates, "usd_rates", fake_usd_rates)
+    user = await make_user()
+    data = (await client.get("/api/v1/exchange-rates", params={"base": "eur"}, headers=user.headers)).json()["data"]
+    assert data["base"] == "EUR" and data["rates"]["USD"] == 2.0 and data["rates"]["INR"] == 160.0
+
+    async def broken():
+        raise fx_rates.RatesUnavailable("down")
+    monkeypatch.setattr(fx_rates, "usd_rates", broken)
+    assert (await client.get("/api/v1/exchange-rates", params={"base": "EUR"}, headers=user.headers)).status_code == 503

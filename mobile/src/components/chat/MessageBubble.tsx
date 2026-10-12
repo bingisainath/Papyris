@@ -232,7 +232,7 @@ function statusIcon(status: Message['status']) {
     case 'sending': return <Clock size={13} color={muted} />;
     case 'sent': return <Check size={14} color={muted} />;
     case 'delivered': return <CheckCheck size={14} color={muted} />;
-    case 'read': return <CheckCheck size={14} color="#c9bfe6" />;
+    case 'read': return <CheckCheck size={14} color="#7dd3fc" />;
     case 'failed': return <XCircle size={13} color="#f6c3cb" />;
   }
 }

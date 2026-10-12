@@ -13,6 +13,10 @@ import type { Reaction, ReplyPreview } from '../../../redux/slices/chatSlice';
 
 type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
+const STATUS_LABELS: Record<MessageStatus, string> = {
+  sending: 'Sending', sent: 'Sent', delivered: 'Delivered', read: 'Read', failed: 'Not sent',
+};
+
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 interface MessageBubbleProps {
@@ -125,7 +129,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     sending: <Icon name="clock" size={14} className="text-white/70 animate-pulse" />,
     sent: <Icon name="check" size={14} className="text-white/70" />,
     delivered: <Icon name="checkDouble" size={14} className="text-white/70" />,
-    read: <Icon name="checkDouble" size={14} className="text-secondary-300" />,
+    read: <Icon name="checkDouble" size={14} className="text-sky-300" />,
     failed: <Icon name="xCircle" size={14} className="text-accent-400" />
   };
 
@@ -335,7 +339,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
                   {timeOnMedia && uploadProgress === undefined && (
                     <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/45 text-white pointer-events-none">
                       <span className="text-[10px]">{formatMessageTime(timestamp)}</span>
-                      {isSent && status && <span className={`flex-shrink-0 ${status === 'read' ? '' : '[&_svg]:!text-white'}`}>{statusIcons[status]}</span>}
+                      {isSent && status && <span role="img" aria-label={STATUS_LABELS[status]} title={STATUS_LABELS[status]} className={`flex-shrink-0 ${status === 'read' ? '' : '[&_svg]:!text-white'}`}>{statusIcons[status]}</span>}
                     </div>
                   )}
                 </div>
@@ -359,7 +363,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
               {formatMessageTime(timestamp)}
             </span>
             {isSent && status && !isDeleted && (
-              <span className="flex-shrink-0">
+              <span role="img" aria-label={STATUS_LABELS[status]} title={STATUS_LABELS[status]} className="flex-shrink-0">
                 {statusIcons[status]}
               </span>
             )}

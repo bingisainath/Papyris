@@ -10,13 +10,13 @@ import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
 import type { ActivityFilters, ActivityItem, Balances, CurrencySummary, ExpenseSummary } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
-import { decimalsFor, parseMajor, toMajorString } from '../../utils/money';
+import { decimalsFor, formatMinor, parseMajor, toMajorString } from '../../utils/money';
 import { payOptions } from '../../utils/pay';
 import type { PayHandles } from '../../utils/pay';
-import { ArrowLeft, ArrowRightLeft, BellRing, CheckCircle2, Download, Lock, MessageSquareText, Plus, Receipt, ScrollText, Wallet } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, BellRing, CheckCircle2, Download, Lock, MessageSquareText, PenLine, Plus, Receipt, ScrollText, Wallet } from 'lucide-react';
 import { Avatar } from '../atoms';
 import CategoryIcon from './CategoryIcon';
-import { displayName, Money, MoneyInput, Sheet, useExpenseChanges } from './shared';
+import { Approx, displayName, Money, MoneyInput, Sheet, useExpenseChanges } from './shared';
 
 interface Props {
   conversationId: string;
@@ -26,12 +26,12 @@ interface Props {
   isGroup: boolean;
   onBack: () => void;
   onOpenChat: () => void;
-  onOpenExpense: (expenseId: string) => void;
+  onOpenExpense: (expenseId: string, edit?: boolean) => void;
   onAddExpense: () => void;
 }
 
 type Tab = 'you' | 'balances' | 'summary' | 'history';
-type SettleDraft = { from: string; to: string; currency: string; amount: string };
+type SettleDraft = { from: string; to: string; currency: string; amount: string; editing?: string; note?: string | null };
 
 const CATEGORIES = ['groceries', 'food', 'drinks', 'transport', 'travel', 'rent', 'utilities', 'household', 'entertainment', 'shopping', 'health', 'gifts', 'other'];
 const label = (category: string) => category.charAt(0).toUpperCase() + category.slice(1);
@@ -89,12 +89,32 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
     }
   };
 
+  const undoPayment = async (id: string) => {
+    try {
+      await expenseService.removeSettlement(id);
+      toast.info('Payment undone');
+      load();
+    } catch (error) {
+      toast.error(parseApiError(error));
+    }
+  };
+
   const recordPayment = async () => {
     if (!settle) return;
     setSaving(true);
     try {
-      await expenseService.settle(conversationId, { from_user: settle.from, to_user: settle.to, currency: settle.currency, amount: settle.amount });
-      toast.success('Payment recorded');
+      if (settle.editing) {
+        await expenseService.updateSettlement(settle.editing, { amount: settle.amount, note: settle.note });
+        toast.success('Payment updated');
+      } else {
+        const saved = await expenseService.settle(conversationId, { from_user: settle.from, to_user: settle.to, currency: settle.currency, amount: settle.amount }) as { id: string };
+        toast.success(
+          <span className="flex items-center justify-between gap-3">
+            Payment recorded
+            <button type="button" onClick={() => undoPayment(saved.id)} className="font-bold text-primary-700 hover:underline">Undo</button>
+          </span>,
+        );
+      }
       setSettle(null);
       load();
     } catch (error) {
@@ -204,29 +224,36 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
           ) : tab === 'summary' ? (
             <SummaryTab summary={summary} name={name} users={users} />
           ) : (
-            <HistoryTab conversationId={conversationId} me={currentUserId} name={name} users={users} version={version} onOpenExpense={onOpenExpense} onChanged={load} />
+            <HistoryTab conversationId={conversationId} me={currentUserId} name={name} users={users} version={version} onOpenExpense={onOpenExpense} onChanged={load}
+              onEditPayment={(it) => setSettle({ from: it.from_user, to: it.to_user, currency: it.currency, amount: toMajorString(it.amount_minor, it.currency), editing: it.id, note: it.note })} />
           )}
         </>
       )}
 
       {settle && (
-        <Sheet title={settle.from === currentUserId ? `Pay ${name(settle.to)}` : `${name(settle.from)} paid you`} eyebrow="Settle up" onClose={() => setSettle(null)}>
+        <Sheet
+          title={settle.editing ? 'Edit payment' : settle.from === currentUserId ? `Pay ${name(settle.to)}` : settle.to === currentUserId ? `${name(settle.from)} paid you` : `${name(settle.from)} paid ${name(settle.to)}`}
+          eyebrow={settle.editing ? 'Fix the amount' : 'Settle up'}
+          onClose={() => setSettle(null)}
+        >
           <div className="space-y-4">
             <p className="text-sm text-muted-700">
-              Record that <b>{name(settle.from)}</b> paid <b>{name(settle.to)}</b>. Papyris doesn’t move money; pay however you like, then record it here.
+              {settle.editing
+                ? <>Change how much <b>{settle.from === currentUserId ? 'you' : name(settle.from)}</b> paid <b>{settle.to === currentUserId ? 'you' : name(settle.to)}</b>. Everyone in the chat is told about the change.</>
+                : <>Record that <b>{settle.from === currentUserId ? 'you' : name(settle.from)}</b> paid <b>{settle.to === currentUserId ? 'you' : name(settle.to)}</b>. Papyris doesn’t move money; pay however you like, then record it here.</>}
             </p>
             <label className="block">
               <span className="block mb-1.5 text-xs font-bold text-muted-500">Amount paid · {settle.currency}</span>
               <MoneyInput value={settle.amount} currency={settle.currency} onChange={(amount) => setSettle({ ...settle, amount })} className="w-full h-14 text-2xl font-bold" ariaLabel="Amount paid" />
             </label>
-            {settle.from === currentUserId && (
+            {settle.from === currentUserId && !settle.editing && (
               <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-primary-50 text-sm text-primary-800">
                 <span>Pay in your payment app first, then record it here.</span>
                 <PayMenu pay={users[settle.to]?.pay} minor={parseMajor(settle.amount, settle.currency) ?? 0} currency={settle.currency} payee={displayName(users[settle.to])} />
               </div>
             )}
             <button type="button" onClick={recordPayment} disabled={saving} className="w-full h-12 rounded-xl bg-primary-700 hover:bg-primary-800 text-white font-bold disabled:opacity-50">
-              {saving ? 'Saving…' : 'Record payment'}
+              {saving ? 'Saving…' : settle.editing ? 'Save changes' : 'Record payment'}
             </button>
           </div>
         </Sheet>
@@ -339,6 +366,7 @@ const PositionCard: React.FC<{
             </>
           )}
         </h3>
+        {net !== 0 && <Approx minor={Math.abs(net)} currency={main.currency} className="block text-sm font-semibold text-primary-100" />}
         <p className="mt-1.5 text-xs text-primary-100">
           {count} expense{count === 1 ? '' : 's'}{withWhom ? ` with ${withWhom}` : ''}
           {ordered.length > 1 && ` · also ${ordered.slice(1).map((c) => c.currency).join(', ')}`}
@@ -472,79 +500,188 @@ const BalancesTab: React.FC<TabProps> = ({ summary, balances, me, name, users, o
 
 // ---------------------------------------------------------------- Summary (6.3)
 
-const Bar: React.FC<{ part: number; whole: number }> = ({ part, whole }) => (
-  <div className="h-2 rounded-full bg-muted-100 overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${whole ? Math.max(2, (part / whole) * 100) : 0}%` }} /></div>
-);
+// Category colours, in a fixed order (validated for colour-blind separation); the rest fold into "Other"
+const SLICE_COLORS = ['#4a3aa7', '#2a78d6', '#1baf7a', '#eda100', '#e87ba4'];
+const OTHER_COLOR = '#94a3b8';
+const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
 
-const SummaryTab: React.FC<{ summary: ExpenseSummary; name: (id: string) => string; users: Users }> = ({ summary, name, users }) => (
-  <div className="space-y-4">
-    {summary.currencies.map((c: CurrencySummary) => {
-      const topPaid = Math.max(...c.members.map((m) => Math.max(m.paid_minor, m.share_minor)), 1);
-      const topMonth = Math.max(...c.by_month.map((m) => m.total_minor), 1);
-      return (
-        <section key={c.currency} className="card p-5 space-y-6" aria-label={`${c.currency} summary`}>
-          <div>
-            <p className="text-sm text-muted-500">Total spent · {c.currency}</p>
-            <p className="text-3xl font-bold text-muted-900"><Money minor={c.total_minor} currency={c.currency} /></p>
-            <p className="text-xs text-muted-500">{c.count} expense{c.count === 1 ? '' : 's'}</p>
-          </div>
+/** Donut of spending by category: thin ring, 2px gaps between slices, total in the middle. */
+const Donut: React.FC<{ slices: { label: string; value: number; color: string }[]; total: React.ReactNode; active: number | null; onHover: (i: number | null) => void }> = ({
+  slices, total, active, onHover,
+}) => {
+  const size = 180;
+  const stroke = 22;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const sum = slices.reduce((a, x) => a + x.value, 0) || 1;
+  const gap = slices.length > 1 ? 2 : 0;
+  let offset = 0;
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} className="w-44 h-44 flex-shrink-0" role="img" aria-label="Spending by category">
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f1f0f5" strokeWidth={stroke} />
+      {slices.map((sl, i) => {
+        const len = (sl.value / sum) * c;
+        const dash = Math.max(len - gap, 0.5);
+        const el = (
+          <circle
+            key={sl.label}
+            cx={size / 2} cy={size / 2} r={r} fill="none"
+            stroke={sl.color}
+            strokeWidth={active === i ? stroke + 6 : stroke}
+            strokeDasharray={`${dash} ${c - dash}`}
+            strokeDashoffset={-offset}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            className="transition-[stroke-width] cursor-pointer"
+            opacity={active === null || active === i ? 1 : 0.35}
+            onMouseEnter={() => onHover(i)}
+            onMouseLeave={() => onHover(null)}
+          >
+            <title>{`${sl.label}: ${pct(sl.value, sum)}%`}</title>
+          </circle>
+        );
+        offset += len;
+        return el;
+      })}
+      <foreignObject x={stroke} y={stroke} width={size - stroke * 2} height={size - stroke * 2}>
+        <div className="w-full h-full flex flex-col items-center justify-center text-center">{total}</div>
+      </foreignObject>
+    </svg>
+  );
+};
 
-          <div>
-            <h3 className="text-sm font-semibold text-muted-900 mb-2">By category</h3>
-            <ul className="space-y-2.5">
-              {c.by_category.map((cat) => (
-                <li key={cat.category} className="flex items-center gap-3">
-                  <CategoryIcon category={cat.category} size="sm" />
-                  <span className="flex-1 min-w-0">
-                    <span className="flex justify-between text-sm"><span className="text-muted-800">{label(cat.category)} <span className="text-xs text-muted-400">· {cat.count}</span></span>
-                      <span className="font-medium"><Money minor={cat.total_minor} currency={c.currency} /> <span className="text-xs text-muted-400">{Math.round((cat.total_minor / c.total_minor) * 100)}%</span></span></span>
-                    <Bar part={cat.total_minor} whole={c.total_minor} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+const SummaryTab: React.FC<{ summary: ExpenseSummary; name: (id: string) => string; users: Users }> = ({ summary, name, users }) => {
+  const [hover, setHover] = useState<{ currency: string; index: number } | null>(null);
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  return (
+    <div className="space-y-4">
+      {summary.currencies.map((c: CurrencySummary) => {
+        const cats = [...c.by_category].sort((a, b) => b.total_minor - a.total_minor);
+        const top = cats.slice(0, SLICE_COLORS.length);
+        const rest = cats.slice(SLICE_COLORS.length);
+        const slices = [
+          ...top.map((cat, i) => ({ label: label(cat.category), value: cat.total_minor, color: SLICE_COLORS[i], count: cat.count, category: cat.category })),
+          ...(rest.length ? [{ label: 'Other', value: rest.reduce((a, x) => a + x.total_minor, 0), color: OTHER_COLOR, count: rest.reduce((a, x) => a + x.count, 0), category: 'other' }] : []),
+        ];
+        const active = hover?.currency === c.currency ? hover.index : null;
+        const months = [...c.by_month].reverse().slice(-6); // oldest → newest, last six
+        const topMonth = Math.max(...months.map((m) => m.total_minor), 1);
+        const monthNow = c.by_month.find((m) => m.month === thisMonth)?.total_minor || 0;
+        const spenders = c.members.filter((m) => m.paid_minor || m.share_minor);
+        const topMember = Math.max(...spenders.map((m) => Math.max(m.paid_minor, m.share_minor)), 1);
+        return (
+          <section key={c.currency} className="space-y-4" aria-label={`${c.currency} summary`}>
+            {/* Headline numbers */}
+            <div className="card p-5 sm:p-6">
+              <p className="text-xs font-bold uppercase tracking-[0.1em] text-muted-500">Total spent · {c.currency}</p>
+              <p className="mt-1 font-display text-4xl font-bold tracking-tight text-muted-900"><Money minor={c.total_minor} currency={c.currency} /></p>
+              <Approx minor={c.total_minor} currency={c.currency} className="text-sm text-muted-500" />
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {[
+                  { k: 'Expenses', v: String(c.count) },
+                  { k: 'Average', v: <Money minor={c.count ? Math.round(c.total_minor / c.count) : 0} currency={c.currency} /> },
+                  { k: 'This month', v: <Money minor={monthNow} currency={c.currency} /> },
+                  { k: 'Top category', v: cats[0] ? label(cats[0].category) : '—' },
+                ].map((t) => (
+                  <div key={t.k} className="rounded-xl bg-[#f6f4fa] px-3.5 py-3">
+                    <p className="text-[11px] font-semibold text-muted-500">{t.k}</p>
+                    <p className="mt-0.5 font-bold text-muted-900 truncate tabular-nums">{t.v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-          <div>
-            <h3 className="text-sm font-semibold text-muted-900 mb-2">By member <span className="font-normal text-xs text-muted-500">paid · share</span></h3>
-            <ul className="space-y-2.5">
-              {c.members.filter((m) => m.paid_minor || m.share_minor).map((m) => (
-                <li key={m.user_id} className="flex items-center gap-3">
-                  <Avatar src={users[m.user_id]?.avatar} alt={displayName(users[m.user_id])} size="sm" />
-                  <span className="flex-1 min-w-0 space-y-1">
-                    <span className="flex justify-between text-sm"><span className="truncate text-muted-800">{name(m.user_id)}</span>
-                      <span><Money minor={m.paid_minor} currency={c.currency} className="font-medium" /> · <Money minor={m.share_minor} currency={c.currency} className="text-muted-500" /></span></span>
-                    <Bar part={m.paid_minor} whole={topPaid} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* By category: donut + legend (the legend carries every label and amount) */}
+              <div className="card p-5">
+                <h3 className="font-display font-semibold text-muted-900">By category</h3>
+                <div className="mt-4 flex flex-col sm:flex-row items-center gap-5">
+                  <Donut
+                    slices={slices}
+                    active={active}
+                    onHover={(i) => setHover(i === null ? null : { currency: c.currency, index: i })}
+                    total={<>
+                      <span className="text-[11px] text-muted-500">{active !== null ? slices[active].label : 'Total'}</span>
+                      <span className="font-display text-lg font-bold text-muted-900 leading-tight">
+                        {active !== null ? `${pct(slices[active].value, c.total_minor)}%` : <Money minor={c.total_minor} currency={c.currency} />}
+                      </span>
+                    </>}
+                  />
+                  <ul className="flex-1 w-full space-y-1">
+                    {slices.map((sl, i) => (
+                      <li key={sl.label}
+                        onMouseEnter={() => setHover({ currency: c.currency, index: i })}
+                        onMouseLeave={() => setHover(null)}
+                        className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm ${active === i ? 'bg-muted-50' : ''}`}>
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: sl.color }} aria-hidden />
+                        <span className="flex-1 min-w-0 truncate text-muted-800">{sl.label} <span className="text-xs text-muted-400">· {sl.count}</span></span>
+                        <Money minor={sl.value} currency={c.currency} className="font-semibold text-muted-900" />
+                        <span className="w-9 text-right text-xs text-muted-500 tabular-nums">{pct(sl.value, c.total_minor)}%</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
 
-          <div>
-            <h3 className="text-sm font-semibold text-muted-900 mb-2">By month</h3>
-            <ul className="space-y-2">
-              {c.by_month.map((m) => (
-                <li key={m.month} className="grid grid-cols-[8rem_1fr_auto] items-center gap-3 text-sm">
-                  <span className="text-muted-700">{monthLabel(m.month)}</span>
-                  <Bar part={m.total_minor} whole={topMonth} />
-                  <Money minor={m.total_minor} currency={c.currency} className="font-medium" />
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      );
-    })}
-  </div>
-);
+              {/* By month: thin bars, newest highlighted */}
+              <div className="card p-5">
+                <h3 className="font-display font-semibold text-muted-900">By month</h3>
+                <p className="text-xs text-muted-500">Last {months.length} month{months.length === 1 ? '' : 's'} with spending</p>
+                <div className="mt-4 h-44 flex items-end gap-3" role="img" aria-label="Spending by month">
+                  {months.map((m, i) => {
+                    const latest = i === months.length - 1;
+                    return (
+                      <div key={m.month} className="group relative flex-1 h-full flex flex-col justify-end items-center gap-1.5" title={`${monthLabel(m.month)}: ${formatMinor(m.total_minor, c.currency)}`}>
+                        <span className={`text-[10px] font-semibold tabular-nums ${latest ? 'text-primary-700' : 'text-muted-400 opacity-0 group-hover:opacity-100'}`}>
+                          {formatMinor(m.total_minor, c.currency)}
+                        </span>
+                        <div className={`w-full max-w-[28px] rounded-t ${latest ? 'bg-primary-600' : 'bg-primary-200 group-hover:bg-primary-300'}`}
+                          style={{ height: `${Math.max(4, (m.total_minor / topMonth) * 100)}%` }} />
+                        <span className="text-[11px] text-muted-500">{new Date(`${m.month}-01T12:00:00`).toLocaleDateString([], { month: 'short' })}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* By member: what each paid against their share */}
+            <div className="card p-5">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-display font-semibold text-muted-900">By member</h3>
+                <span className="flex items-center gap-3 text-xs text-muted-500">
+                  <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full bg-primary-600" /> Paid</span>
+                  <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full bg-primary-200" /> Share</span>
+                </span>
+              </div>
+              <ul className="mt-3 space-y-3">
+                {spenders.map((m) => (
+                  <li key={m.user_id} className="flex items-center gap-3">
+                    <Avatar src={users[m.user_id]?.avatar} alt={displayName(users[m.user_id])} size="sm" />
+                    <span className="flex-1 min-w-0 space-y-1">
+                      <span className="flex justify-between gap-2 text-sm">
+                        <span className="truncate text-muted-800">{name(m.user_id)}</span>
+                        <span className="text-muted-500 tabular-nums"><Money minor={m.paid_minor} currency={c.currency} className="font-semibold text-muted-900" /> · <Money minor={m.share_minor} currency={c.currency} /></span>
+                      </span>
+                      <span className="block h-1.5 rounded-full bg-muted-100 overflow-hidden"><span className="block h-full rounded-full bg-primary-600" style={{ width: `${(m.paid_minor / topMember) * 100}%` }} /></span>
+                      <span className="block h-1.5 rounded-full bg-muted-100 overflow-hidden"><span className="block h-full rounded-full bg-primary-200" style={{ width: `${(m.share_minor / topMember) * 100}%` }} /></span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------- History with filters (6.4)
 
 const HistoryTab: React.FC<{
   conversationId: string; me: string; name: (id: string) => string; users: Users; version: number;
-  onOpenExpense: (id: string) => void; onChanged: () => void;
-}> = ({ conversationId, me, name, users, version, onOpenExpense, onChanged }) => {
+  onOpenExpense: (id: string, edit?: boolean) => void; onChanged: () => void; onEditPayment: (payment: Extract<ActivityItem, { kind: 'settlement' }>) => void;
+}> = ({ conversationId, me, name, users, version, onOpenExpense, onChanged, onEditPayment }) => {
   const [range, setRange] = useState<DateRange>('all');
   const [category, setCategory] = useState('');
   const [member, setMember] = useState('');
@@ -563,7 +700,7 @@ const HistoryTab: React.FC<{
   }, [conversationId, filters, version]);
 
   const removePayment = async (id: string) => {
-    if (!window.confirm('Remove this payment? Balances go back to how they were before it.')) return;
+    if (!window.confirm('Undo this payment? Balances go back to how they were before it, and the chat is told.')) return;
     try {
       await expenseService.removeSettlement(id);
       onChanged();
@@ -621,8 +758,11 @@ const HistoryTab: React.FC<{
                     <span className="block text-xs text-muted-500">Payment · {when}{it.note ? ` · ${it.note}` : ''}</span>
                   </span>
                   <Money minor={it.amount_minor} currency={it.currency} className="text-sm font-medium" />
-                  {(it.created_by === me) && (
-                    <button type="button" onClick={() => removePayment(it.id)} className="text-xs text-muted-500 hover:text-accent-600" aria-label="Remove payment">Remove</button>
+                  {!it.deleted && [it.created_by, it.from_user, it.to_user].includes(me) && (
+                    <span className="flex items-center gap-1">
+                      <button type="button" onClick={() => onEditPayment(it)} className="px-2 py-1 rounded-md text-xs font-semibold text-primary-700 hover:bg-primary-50" aria-label="Edit payment">Edit</button>
+                      <button type="button" onClick={() => removePayment(it.id)} className="px-2 py-1 rounded-md text-xs font-semibold text-muted-500 hover:bg-accent-50 hover:text-accent-600" aria-label="Undo payment">Undo</button>
+                    </span>
                   )}
                 </li>
               );
@@ -630,8 +770,8 @@ const HistoryTab: React.FC<{
             const net = (it.payers.find((p) => p.user_id === me)?.amount_minor || 0) - (it.shares.find((s) => s.user_id === me)?.amount_minor || 0);
             const payer = it.payers.length > 1 ? `${it.payers.length} people` : name(it.payers[0]?.user_id || '');
             return (
-              <li key={`e-${it.id}`}>
-                <button type="button" onClick={() => onOpenExpense(it.id)} className={`w-full flex items-center gap-3 py-2.5 text-left ${it.deleted ? 'opacity-50' : ''}`}>
+              <li key={`e-${it.id}`} className="group flex items-center gap-1">
+                <button type="button" onClick={() => onOpenExpense(it.id)} className={`flex-1 min-w-0 flex items-center gap-3 py-2.5 text-left ${it.deleted ? 'opacity-50' : ''}`}>
                   <CategoryIcon category={it.category} size="sm" />
                   <span className="flex-1 min-w-0">
                     <span className={`block text-sm font-medium text-muted-900 truncate ${it.deleted ? 'line-through' : ''}`}>
@@ -643,8 +783,15 @@ const HistoryTab: React.FC<{
                   </span>
                   <span className={`text-sm font-medium ${net > 0 ? 'text-success-700' : net < 0 ? 'text-accent-600' : 'text-muted-400'}`} title={net > 0 ? 'You lent' : net < 0 ? 'You borrowed' : 'Not involved'}>
                     {net === 0 ? '—' : <>{net > 0 ? '+' : '−'}<Money minor={Math.abs(net)} currency={it.currency} /></>}
+                    {net !== 0 && <Approx minor={Math.abs(net)} currency={it.currency} className="block text-[11px] font-normal text-muted-400" />}
                   </span>
                 </button>
+                {it.can_edit && !it.deleted && !it.locked && (
+                  <button type="button" onClick={() => onOpenExpense(it.id, true)} title="Edit" aria-label={`Edit ${it.description}`}
+                    className="flex-shrink-0 p-2 rounded-lg text-muted-400 hover:text-primary-700 hover:bg-primary-50 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100">
+                    <PenLine size={15} />
+                  </button>
+                )}
               </li>
             );
           })}

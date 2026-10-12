@@ -7,7 +7,7 @@ jest.mock('../websocket/socket', () => ({
     on: (l: any) => { listeners.push(l); return () => undefined; },
     onStatus: () => () => undefined,
     sendMessage: (...args: any[]) => { sent.push(args); return true; },
-    join: jest.fn(), leave: jest.fn(), read: jest.fn(), typing: jest.fn(),
+    join: jest.fn(), leave: jest.fn(), read: jest.fn(), delivered: jest.fn(), typing: jest.fn(),
   },
 }));
 jest.mock('../api/chat', () => ({
@@ -15,6 +15,7 @@ jest.mock('../api/chat', () => ({
 }));
 
 import { typingNames, useChat } from './chat';
+import { socket } from '../websocket/socket';
 
 const emit = (e: any) => listeners.forEach((l) => l(e));
 // Sending first checks whether the chat is end-to-end encrypted (async)
@@ -48,6 +49,19 @@ test('messages from others count as unread unless the chat is open', () => {
   useChat.setState({ activeId: 'c1' });
   emit({ type: 'message', roomId: 'c1', messageId: 'm3', senderId: 'bob', text: 'again', timestamp: new Date().toISOString() });
   expect(useChat.getState().conversations[0].unreadCount).toBe(1);
+});
+
+test('a message from someone else is acknowledged, and delivered receipts give our messages two ticks', () => {
+  emit({ type: 'message', roomId: 'c1', messageId: 'm9', senderId: 'bob', text: 'yo', timestamp: new Date().toISOString() });
+  expect(socket.delivered).toHaveBeenCalledWith('c1', 'm9');
+
+  const t = new Date(Date.now() - 1000).toISOString();
+  useChat.setState({ messages: { c1: [
+    { id: 'm1', conversationId: 'c1', senderId: 'me', text: 'hi', timestamp: t, status: 'sent', reactions: [] },
+    { id: 'm2', conversationId: 'c1', senderId: 'me', text: 'later', timestamp: new Date(Date.now() + 60000).toISOString(), status: 'sent', reactions: [] },
+  ] } as any });
+  emit({ type: 'delivered', roomId: 'c1', deliveredUpTo: new Date().toISOString() });
+  expect(useChat.getState().messages.c1.map((m) => m.status)).toEqual(['delivered', 'sent']);
 });
 
 test('read receipts, reactions, edits, deletes, typing and presence', () => {
