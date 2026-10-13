@@ -1,20 +1,15 @@
 // src/components/expenses/ExpenseSettingsSections.tsx
-// Settings page: receipt-scanning model and own API keys, store discounts, and (app admins) model management.
-// API keys are write-only: once saved, only the last 4 characters ever come back.
+// Settings page: display currency and store discounts; chat expense settings; and (admin console) which
+// AI model reads receipts and the monthly scan limit. ShareEven picks the model, not each person.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { expenseService } from '../../services/expense.service';
-import type { AdminAI, AISettings, AIModelOption, StoreDiscount } from '../../services/expense.service';
+import type { AdminAI, AIModelOption, StoreDiscount } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { Switch, useDisplayCurrency } from './shared';
 import { useAuth } from '../../app/AuthProvider';
 import type { CurrencyInfo } from '../../utils/money';
-
-const PROVIDERS: { id: 'anthropic' | 'openai'; name: string; hint: string; url: string }[] = [
-  { id: 'anthropic', name: 'Claude (Anthropic)', hint: 'sk-ant-…', url: 'https://console.anthropic.com/settings/keys' },
-  { id: 'openai', name: 'OpenAI', hint: 'sk-…', url: 'https://platform.openai.com/api-keys' },
-];
 
 /** "Show totals in": expense amounts in other currencies also appear converted to this one (≈). */
 export const DisplayCurrencySettings: React.FC = () => {
@@ -61,115 +56,6 @@ export const DisplayCurrencySettings: React.FC = () => {
         </select>
       </div>
     </div>
-  );
-};
-
-export const ReceiptScanningSettings: React.FC = () => {
-  const [settings, setSettings] = useState<AISettings | null>(null);
-  const [keyDraft, setKeyDraft] = useState<{ provider: 'anthropic' | 'openai'; value: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    expenseService.aiSettings().then(setSettings).catch((e) => toast.error(parseApiError(e)));
-  }, []);
-
-  const run = async (action: () => Promise<AISettings>, done: string) => {
-    setBusy(true);
-    try {
-      setSettings(await action());
-      toast.success(done);
-    } catch (error) {
-      toast.error(parseApiError(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!settings) return null;
-  const { usage } = settings;
-
-  return (
-    <>
-    <div className="card p-4 sm:p-6 space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold text-muted-900">Receipt scanning</h2>
-        <p className="text-sm text-muted-500">
-          {usage.scans_this_month} of {usage.monthly_limit} free scans used this month. Scans with your own key don’t count.
-        </p>
-      </div>
-
-      <label className="block">
-        <span className="text-sm font-medium text-muted-700">AI model</span>
-        <select
-          value={settings.preferred_model_id ?? ''}
-          disabled={busy}
-          onChange={(e) => run(() => expenseService.setPreferredModel(e.target.value ? Number(e.target.value) : null), 'Model saved')}
-          className="mt-1 w-full px-3 py-2 rounded-lg border border-muted-300 bg-white"
-        >
-          <option value="">App default ({settings.models.find((m) => m.is_default)?.label || 'none'})</option>
-          {settings.models.map((m) => (
-            <option key={m.id} value={m.id} disabled={!m.available}>
-              {m.label}{m.available ? '' : ' (add a key to use)'}
-            </option>
-          ))}
-        </select>
-        <span className="block mt-1 text-xs text-muted-500">A group admin can also pick a model for one chat.</span>
-      </label>
-
-      <div className="space-y-3">
-        <p className="text-sm font-medium text-muted-700">Your own API keys (optional)</p>
-        {PROVIDERS.map((p) => {
-          const saved = settings.keys[p.id];
-          const editing = keyDraft?.provider === p.id;
-          return (
-            <div key={p.id} className="p-3 rounded-xl border border-muted-200">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-muted-900">{p.name}</p>
-                  <p className="text-xs text-muted-500">{saved ? `Saved key ${saved}` : 'Not added'}</p>
-                </div>
-                {saved ? (
-                  <button type="button" disabled={busy} onClick={() => run(() => expenseService.removeOwnKey(p.id), 'Key removed')} className="text-sm text-accent-600 hover:underline">
-                    Remove
-                  </button>
-                ) : !editing && (
-                  <button type="button" onClick={() => setKeyDraft({ provider: p.id, value: '' })} className="text-sm text-primary-700 hover:underline">Add key</button>
-                )}
-              </div>
-              {editing && (
-                <form
-                  className="mt-2 flex gap-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    run(() => expenseService.setOwnKey(p.id, keyDraft!.value.trim()), 'Key saved').then(() => setKeyDraft(null));
-                  }}
-                >
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={keyDraft!.value}
-                    onChange={(e) => setKeyDraft({ provider: p.id, value: e.target.value })}
-                    placeholder={p.hint}
-                    aria-label={`${p.name} API key`}
-                    className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-muted-300 font-mono text-sm"
-                  />
-                  <button type="submit" disabled={busy || keyDraft!.value.trim().length < 20} className="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50">Save</button>
-                  <button type="button" onClick={() => setKeyDraft(null)} className="px-2 text-sm text-muted-500">Cancel</button>
-                </form>
-              )}
-              {editing && (
-                <p className="mt-1 text-xs text-muted-500">
-                  Create one at <a href={p.url} target="_blank" rel="noreferrer" className="text-primary-700 underline">{p.url.replace('https://', '')}</a>.
-                  It’s stored encrypted, used only on our server, and billed to your account.
-                </p>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-    {settings.is_app_admin && <AdminAISettings />}
-    </>
   );
 };
 
@@ -280,9 +166,12 @@ export const AdminAISettings: React.FC = () => {
   };
 
   return (
-    <div className="card p-4 sm:p-6 space-y-4 border-2 border-warning-200">
+    <div className="card p-4 sm:p-6 space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-muted-900">App admin · receipt AI</h2>
+        <h2 className="text-lg font-semibold text-muted-900">Receipt AI</h2>
+        <p className="text-sm text-muted-500">
+          The default model reads every receipt, on the app’s key. People can’t pick a model or add their own keys.
+        </p>
         <p className="text-sm text-muted-500">
           Server keys: Claude {data.app_keys.anthropic ? 'set' : 'not set'} · OpenAI {data.app_keys.openai ? 'set' : 'not set'}.
           Keys are set in the server’s environment, never here.
@@ -356,12 +245,10 @@ export const AdminAISettings: React.FC = () => {
 /** Expense settings for one chat (inside the chat info panel). */
 export const ChatExpenseSettings: React.FC<{ conversationId: string; onOpenExpenses: () => void }> = ({ conversationId, onOpenExpenses }) => {
   const [settings, setSettings] = useState<Awaited<ReturnType<typeof expenseService.settings>> | null>(null);
-  const [models, setModels] = useState<AIModelOption[]>([]);
   const [currencies, setCurrencies] = useState<{ code: string; name: string }[]>([]);
 
   useEffect(() => {
     expenseService.settings(conversationId).then(setSettings).catch(() => undefined);
-    expenseService.aiSettings().then((s) => setModels(s.models)).catch(() => undefined);
     expenseService.currencies().then(setCurrencies).catch(() => undefined);
   }, [conversationId]);
 
@@ -391,13 +278,6 @@ export const ChatExpenseSettings: React.FC<{ conversationId: string; onOpenExpen
         <span>Simplify debts <span className="block text-xs text-muted-500">Fewest payments to settle up</span></span>
         <Switch checked={settings.simplify_debts} disabled={disabled} label="Simplify debts" onChange={(simplify_debts) => update({ simplify_debts })} />
       </div>
-      <label className="flex items-center justify-between gap-3 text-sm">
-        <span>Receipt AI for this chat</span>
-        <select value={settings.receipt_model_id ?? 0} disabled={disabled} onChange={(e) => update({ receipt_model_id: Number(e.target.value) })} className="max-w-[55%] px-2 py-1 rounded-lg border border-muted-300 bg-white disabled:opacity-60">
-          <option value={0}>Each person’s choice</option>
-          {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-        </select>
-      </label>
       {disabled && <p className="text-xs text-muted-500">Only group admins can change these.</p>}
     </div>
   );

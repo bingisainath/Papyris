@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ban, Bell, ChevronRight, Coins, Download, FileText, HelpCircle, Info, LifeBuoy, LockKeyhole, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
+import { Ban, Bell, ChevronRight, Coins, Download, FileText, HelpCircle, Info, LifeBuoy, LockKeyhole, LogOut, Mail, MonitorSmartphone, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
 import { openInfoPage } from '../../components/common/InfoLinks';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
 import { authApi, saveMyData } from '../../api/auth';
@@ -98,8 +98,6 @@ const SettingsScreen: React.FC = () => {
 
         <Text style={styles.sectionTitle}>Expenses</Text>
         <View style={styles.section}>
-          <Row icon={ScanLine} label="Receipt scanning" hint="AI model and your own keys" onPress={() => navigation.navigate('ReceiptScanning')} />
-          <Divider />
           <Row icon={Store} label="Store discounts" hint="Staff or member discounts" onPress={() => navigation.navigate('StoreDiscounts')} />
           <Divider />
           <Row icon={Coins} label="Show totals in" hint="Also show amounts converted at today's rate" onPress={displayCurrency}

@@ -41,7 +41,7 @@ api_router.include_router(expenses_router)
 # Receipt scanning
 api_router.include_router(receipts_router)
 
-# AI model choice, own keys, store discounts, app admin
+# Scans used this month, store discounts, app admin (receipt model and limit)
 api_router.include_router(ai_settings_router)
 
 # Media, links and docs shared in a chat

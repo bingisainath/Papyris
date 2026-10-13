@@ -72,7 +72,6 @@ async def export_data(db: AsyncSession, user: User) -> dict:
         .order_by(Settlement.created_at)
     )).scalars().all()
     receipts = (await db.execute(select(Receipt).where(Receipt.uploaded_by == uid).order_by(Receipt.created_at))).scalars().all()
-    ai = await db.get(UserAISettings, uid)
     discounts = (await db.execute(select(StoreDiscountRule).where(StoreDiscountRule.owner_id == uid))).scalars().all()
 
     def message_view(m: Message) -> dict:
@@ -119,9 +118,6 @@ async def export_data(db: AsyncSession, user: User) -> dict:
             "read_by_model": r.model,
         } for r in receipts],
         "settings": {
-            "receipt_model_id": ai.preferred_model_id if ai else None,
-            "own_api_keys_saved": {"anthropic": bool(ai and ai.anthropic_key_encrypted),
-                                   "openai": bool(ai and ai.openai_key_encrypted)},
             "store_discounts": [{"store": d.store_name, "percent": float(d.percent)} for d in discounts],
         },
     }

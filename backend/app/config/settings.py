@@ -51,7 +51,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     # Encrypts the AI keys people add themselves; falls back to one derived from JWT_SECRET_KEY
     AI_KEY_ENCRYPTION_SECRET: str = ""
-    RECEIPT_SCANS_PER_MONTH: int = 50  # per person on the app's key; admins can change it in the app
+    RECEIPT_SCANS_PER_MONTH: int = 100  # per person; admins can change it in the admin console
+    # Measured on real receipts (2026-10): Opus 5 at medium read all 7 right, cheaper and faster than at high
+    RECEIPT_AI_EFFORT: str = "medium"
     RECEIPT_AI_TIMEOUT_SECONDS: int = 120
     RECEIPT_MAX_IMAGES: int = 4
 

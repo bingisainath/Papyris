@@ -37,7 +37,7 @@ import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
 import ConnectionBanner from '../../components/molecules/ConnectionBanner';
-import { DisplayCurrencySettings, ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
+import { DisplayCurrencySettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
 import SessionsSettings from '../../components/organisms/SessionsSettings';
 import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
@@ -608,7 +608,6 @@ const SettingsPage: React.FC<{
 
           <DisplayCurrencySettings />
 
-          <ReceiptScanningSettings />
 
           <StoreDiscountSettings />
 

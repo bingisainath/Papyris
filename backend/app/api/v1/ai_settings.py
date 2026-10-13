@@ -2,20 +2,17 @@
 
 """
 Receipt-scanning settings:
-- /ai/...              each person's model choice, own API keys (write-only), usage this month
+- /ai/settings         each person's scans used this month (ShareEven picks the model; no own keys)
 - /store-discounts     each person's store discounts ("Tesco 10%, not on reduced items")
-- /admin/ai/...        app admins: which models are offered, the default, the monthly limit
+- /admin/ai/...        app admins: which model scans receipts, and the monthly limit
 
 Server API keys are only ever read from the server's environment; nothing here exposes them.
 """
 
 import logging
-import re
 from datetime import datetime, timezone
 from decimal import Decimal
 
-import anthropic
-import openai
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,14 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user
 from app.config.settings import settings
 from app.db.session import get_db
-from app.models.ai import AIModel, AppSetting, UserAISettings
+from app.models.ai import AIModel, AppSetting
 from app.models.receipt import StoreDiscountRule
 from app.models.user import User
-from app.services import secrets
+from app.services import admin as admin_service
 from app.services.receipt_ai import pipeline
-from app.services.receipt_ai.claude import is_workspace_error
 from app.schemas.ai_settings import (
-    Provider, PreferenceRequest, KeyRequest, StoreDiscountRequest, ModelRequest, ScanLimitRequest,
+    StoreDiscountRequest, ModelRequest, ScanLimitRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,17 +42,8 @@ def _app_has_key(provider: str) -> bool:
     return bool(settings.ANTHROPIC_API_KEY if provider == "anthropic" else settings.OPENAI_API_KEY)
 
 
-async def _prefs(db: AsyncSession, user: User) -> UserAISettings:
-    prefs = await db.get(UserAISettings, user.id)
-    if prefs is None:
-        prefs = UserAISettings(user_id=user.id)
-        db.add(prefs)
-        await db.flush()
-    return prefs
-
-
-def _serialize_model(model: AIModel, own_keys: dict[str, bool] | None = None) -> dict:
-    data = {
+def _serialize_model(model: AIModel) -> dict:
+    return {
         "id": model.id,
         "provider": model.provider,
         "model_id": model.model_id,
@@ -64,113 +51,17 @@ def _serialize_model(model: AIModel, own_keys: dict[str, bool] | None = None) ->
         "description": model.description,
         "is_default": model.is_default,
     }
-    if own_keys is not None:
-        data["available"] = _app_has_key(model.provider) or own_keys.get(model.provider, False)
-    return data
-
-
-async def _settings_payload(db: AsyncSession, user: User) -> dict:
-    prefs = await db.get(UserAISettings, user.id)
-    anthropic_key = secrets.decrypt(prefs.anthropic_key_encrypted) if prefs else None
-    openai_key = secrets.decrypt(prefs.openai_key_encrypted) if prefs else None
-    own = {"anthropic": bool(anthropic_key), "openai": bool(openai_key)}
-    models = (await db.execute(
-        select(AIModel).where(AIModel.enabled.is_(True)).order_by(AIModel.sort_order, AIModel.id)
-    )).scalars().all()
-    return {
-        "models": [_serialize_model(m, own) for m in models],
-        "preferred_model_id": prefs.preferred_model_id if prefs else None,
-        "keys": {
-            "anthropic": secrets.mask(anthropic_key),
-            "openai": secrets.mask(openai_key),
-        },
-        "app_keys": {"anthropic": _app_has_key("anthropic"), "openai": _app_has_key("openai")},
-        "usage": {
-            "scans_this_month": await pipeline.scans_used(db, user.id),
-            "monthly_limit": await pipeline.scan_limit(db),
-        },
-        "is_app_admin": bool(user.is_app_admin),
-    }
-
-
-_KEY_FORMATS = {"anthropic": re.compile(r"^sk-ant-[A-Za-z0-9_\-]+$"), "openai": re.compile(r"^sk-[A-Za-z0-9_\-]+$")}
-
-
-async def verify_key(provider: str, api_key: str) -> None:
-    """Cheap check that the key works (lists models; costs nothing)."""
-    try:
-        if provider == "anthropic":
-            await anthropic.AsyncAnthropic(api_key=api_key, timeout=15, max_retries=0).models.list(limit=1)
-        else:
-            await openai.AsyncOpenAI(api_key=api_key, timeout=15, max_retries=0).models.list()
-    except (anthropic.AuthenticationError, openai.AuthenticationError):
-        raise HTTPException(status_code=400, detail="That key was rejected. Check you copied all of it")
-    except (anthropic.PermissionDeniedError, openai.PermissionDeniedError):
-        raise HTTPException(status_code=400, detail="That key doesn't have permission to use the API")
-    except anthropic.BadRequestError as e:
-        if is_workspace_error(e):
-            raise HTTPException(status_code=400, detail="That key isn't tied to a workspace. Create a key inside a workspace in the Anthropic Console")
-        raise HTTPException(status_code=400, detail="That key couldn't be used")
-    except (anthropic.APIError, openai.APIError):
-        logger.warning("Couldn't verify a %s key", provider)
-        raise HTTPException(status_code=502, detail="Couldn't check the key right now. Try again")
 
 
 @router.get("/ai/settings")
 async def get_ai_settings(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    return _ok(await _settings_payload(db, current_user))
-
-
-@router.put("/ai/settings")
-async def update_ai_settings(
-    body: PreferenceRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    prefs = await _prefs(db, current_user)
-    if body.preferred_model_id is not None:
-        model = await db.get(AIModel, body.preferred_model_id)
-        if model is None or not model.enabled:
-            raise HTTPException(status_code=400, detail="That model isn't available")
-    prefs.preferred_model_id = body.preferred_model_id
-    await db.commit()
-    return _ok(await _settings_payload(db, current_user), "Saved")
-
-
-@router.put("/ai/keys/{provider}")
-async def set_own_key(
-    provider: Provider,
-    body: KeyRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    key = body.api_key.strip()
-    if not _KEY_FORMATS[provider].match(key):
-        raise HTTPException(status_code=400, detail="That doesn't look like an API key")
-    await verify_key(provider, key)
-    prefs = await _prefs(db, current_user)
-    if provider == "anthropic":
-        prefs.anthropic_key_encrypted = secrets.encrypt(key)
-    else:
-        prefs.openai_key_encrypted = secrets.encrypt(key)
-    await db.commit()
-    logger.info("User %s saved their own %s key", current_user.id, provider)
-    return _ok(await _settings_payload(db, current_user), "Key saved")
-
-
-@router.delete("/ai/keys/{provider}")
-async def remove_own_key(
-    provider: Provider,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    prefs = await _prefs(db, current_user)
-    if provider == "anthropic":
-        prefs.anthropic_key_encrypted = None
-    else:
-        prefs.openai_key_encrypted = None
-    await db.commit()
-    return _ok(await _settings_payload(db, current_user), "Key removed")
+    """How many receipt scans this person used this month, out of how many. ShareEven picks the model."""
+    return _ok({
+        "usage": {
+            "scans_this_month": await pipeline.scans_used(db, current_user.id),
+            "monthly_limit": await pipeline.scan_limit(db),
+        },
+    })
 
 
 # ------------------------------------------------------------------ store discounts
@@ -299,6 +190,7 @@ async def admin_add_model(
     model = AIModel()
     await _save_model(db, model, body)
     db.add(model)
+    await admin_service.log(db, current_user, "ai_model_added", None, None, model=body.model_id, default=body.is_default)
     await db.commit()
     logger.info("App admin %s added model %s/%s", current_user.id, body.provider, body.model_id)
     return _ok(await _admin_payload(db), "Model added")
@@ -316,6 +208,8 @@ async def admin_update_model(
     if model is None:
         raise HTTPException(status_code=404, detail="Model not found")
     await _save_model(db, model, body)
+    await admin_service.log(db, current_user, "ai_model_changed", None, None, model=body.model_id,
+                            enabled=body.enabled, default=body.is_default)
     await db.commit()
     logger.info("App admin %s updated model %s", current_user.id, model_id)
     return _ok(await _admin_payload(db), "Model saved")
@@ -333,6 +227,7 @@ async def admin_scan_limit(
         db.add(AppSetting(key=pipeline.SCAN_LIMIT_KEY, value=str(body.receipt_scans_per_month)))
     else:
         row.value = str(body.receipt_scans_per_month)
+    await admin_service.log(db, current_user, "scan_limit_changed", None, None, scans_per_month=body.receipt_scans_per_month)
     await db.commit()
     logger.info("App admin %s set the scan limit to %s", current_user.id, body.receipt_scans_per_month)
     return _ok(await _admin_payload(db), "Limit saved")

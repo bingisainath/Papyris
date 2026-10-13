@@ -27,7 +27,6 @@ import ScanReceiptScreen from '../screens/expenses/ScanReceiptScreen';
 import ExpenseDetailScreen from '../screens/expenses/ExpenseDetailScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import ProfileScreen from '../screens/settings/ProfileScreen';
-import ReceiptScanningScreen from '../screens/settings/ReceiptScanningScreen';
 import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
 import E2EGate from '../screens/auth/E2EGate';
 import SessionsScreen from '../screens/settings/SessionsScreen';
@@ -194,11 +193,6 @@ const RootNavigator: React.FC = () => {
             name="Profile"
             component={ProfileScreen}
             options={{ title: 'Profile' }}
-          />
-          <AppStack.Screen
-            name="ReceiptScanning"
-            component={ReceiptScanningScreen}
-            options={{ title: 'Receipt scanning' }}
           />
           <AppStack.Screen
             name="StoreDiscounts"

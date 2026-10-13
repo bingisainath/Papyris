@@ -238,20 +238,19 @@ async def scan_limit_one(db):
     await db.commit()
 
 
-async def test_monthly_limit_and_own_key(client, make_user, make_dm, fake_ai, db, scan_limit_one):
+async def test_monthly_limit(client, make_user, make_dm, fake_ai, db, scan_limit_one):
     a, b = await make_user(), await make_user()
     dm = await make_dm(a, b)
     await scan(client, a, dm)
     url = (await upload(client, a)).json()["data"]["url"]
     r = await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=a.headers)
-    assert r.status_code == 429 and "own AI key" in r.json()["message"]
+    assert r.status_code == 429 and "reset on the 1st" in r.json()["message"]
 
-    # With their own key there is no app limit, and their key is used
+    # A key saved before own keys were removed is ignored: the app's key and limit apply
     db.add(UserAISettings(user_id=uuid.UUID(a.id), anthropic_key_encrypted=secrets.encrypt("sk-ant-users-own-key")))
     await db.commit()
-    receipt = await scan(client, a, dm)
-    assert receipt["key_source"] == "user"
-    assert fake_ai.calls[-1]["api_key"] == "sk-ant-users-own-key"
+    r = await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=a.headers)
+    assert r.status_code == 429
 
 
 async def test_no_server_key_and_access(client, make_user, make_dm, fake_ai, monkeypatch):
@@ -271,17 +270,20 @@ async def test_no_server_key_and_access(client, make_user, make_dm, fake_ai, mon
     assert r.status_code == 400
 
 
-async def test_chat_model_override_and_store_rule_matching(client, six, fake_ai, db):
+async def test_app_model_only_and_store_rule_matching(client, six, fake_ai, db):
     people, group = await six()
     owner = people[0]
-    r = await client.put(f"/api/v1/conversations/{group}/expense-settings", json={"receipt_model_id": 3}, headers=people[1].headers)
-    assert r.status_code == 403  # not a group admin
-    r = await client.put(f"/api/v1/conversations/{group}/expense-settings", json={"receipt_model_id": 3}, headers=owner.headers)
-    assert r.status_code == 200
+    # Chats can't pick a model any more: the old setting is ignored and the app default is used
+    from app.models.expense import ConversationSettings
+    settings_row = await db.get(ConversationSettings, uuid.UUID(group))
+    if settings_row is None:
+        settings_row = ConversationSettings(conversation_id=uuid.UUID(group))
+        db.add(settings_row)
+    settings_row.receipt_model_id = 3
     db.add(StoreDiscountRule(owner_id=uuid.UUID(owner.id), store_name="Lidl", store_key="lidl", percent=5))
     await db.commit()
     receipt = await scan(client, owner, group)
-    assert fake_ai.calls[-1]["model"] == "claude-haiku-4-5"
+    assert fake_ai.calls[-1]["model"] == "claude-opus-5"
     assert not any(a["source"] == "store_rule" for a in receipt["adjustments"])  # Lidl rule, Tesco receipt
 
 

@@ -1,20 +1,11 @@
 """Request bodies for the ai settings routes (app/api/v1/ai_settings.py)."""
 
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
 Provider = Literal["anthropic", "openai"]
-
-
-class PreferenceRequest(BaseModel):
-    # None = use the app default
-    preferred_model_id: Optional[int] = None
-
-
-class KeyRequest(BaseModel):
-    api_key: str = Field(..., min_length=20, max_length=300)
 
 
 class StoreDiscountRequest(BaseModel):

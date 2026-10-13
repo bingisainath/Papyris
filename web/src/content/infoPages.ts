@@ -223,7 +223,7 @@ const privacy: InfoPage = {
         'Hosting and storage, where our servers and your files are kept.',
         'Google Firebase Cloud Messaging, to deliver notifications. Notifications show who sent a message and the chat name, not what encrypted messages say.',
         'Our email provider, to send sign-in codes and password resets.',
-        'Anthropic or OpenAI, when you scan a receipt: the receipt photo is sent to read it. They don\'t use it to train their models. If you add your own API key, your agreement with that provider applies.',
+        'Anthropic, when you scan a receipt: the receipt photo is sent to its AI to read it. It doesn\'t use it to train its models.',
       ], 'We share data with authorities only when the law requires it, and we can only hand over what we have. That never includes the content of encrypted messages.'],
     },
     {
