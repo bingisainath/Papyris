@@ -19,6 +19,7 @@ from app.models.conversation_member import ConversationMember
 from app.models.message import Message
 from app.models.safety import Report, UserBlock
 from app.models.user import User
+from app.services import admin as admin_service
 from app.services import media_storage
 from app.websocket.routes import publish_users
 
@@ -167,5 +168,6 @@ async def resolve_report(
     if r is None:
         raise HTTPException(status_code=404, detail="Report not found")
     r.status, r.resolution, r.resolved_by, r.resolved_at = "resolved", body.resolution.strip(), current_user.id, datetime.now(timezone.utc)
+    await admin_service.log(db, current_user, "resolve_report", r.reported_user_id, r.resolution, report_id=str(r.id))
     await db.commit()
     return {"success": True, "message": "Report resolved", "data": {"id": str(r.id)}}

@@ -14,6 +14,7 @@ from uuid import UUID
 from app.schemas.response import APIResponse
 from app.services.auth_service import AuthService
 from app.services import sessions
+from app.services import admin as admin_service
 from app.services.email_service import email_service
 from app.config.settings import settings
 from app.api.dependencies import get_current_user
@@ -58,6 +59,7 @@ async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncS
     await rl.enforce((rl.VERIFY_EMAIL_PER_IP, rl.client_ip(request)))
     user = await AuthService.verify_email_code(db, payload.identifier, payload.code)
     logger.info("Email verified for user %s", user.id)
+    admin_service.refuse_sign_in_if_suspended(user)
     session_id = await sessions.start(db, user.id, request.headers.get("user-agent"))
     await db.commit()
     return APIResponse(success=True, message="Email verified", data=AuthService.issue_tokens(user, session_id))
@@ -116,6 +118,8 @@ async def refresh(payload: RefreshTokenRequest, request: Request, db: AsyncSessi
     user = await db.get(User, UUID(claims["sub"]))
     if user is None or not user.is_active or claims.get("pwd") != password_fingerprint(user.hashed_password):
         raise invalid
+    if user.suspended_now():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=admin_service.SUSPENDED)
     # Same sign-in as before; logged out (here or from another device) means signing in again
     if not await sessions.is_active(db, claims.get("sid"), user.id):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=sessions.LOGGED_OUT)
@@ -208,8 +212,14 @@ async def delete_my_account(
     if not verify_password(payload.password, current_user.hashed_password):
         raise HTTPException(status_code=401, detail="Wrong password")
 
-    user_id = str(current_user.id)
-    result = await account.delete_account(db, current_user)
+    await delete_and_announce(db, current_user)
+    return APIResponse(success=True, message="Your account has been deleted", data={"deleted": True})
+
+
+async def delete_and_announce(db: AsyncSession, user: User) -> None:
+    """Delete the account (services/account.py), then sign out its devices and tell its groups."""
+    user_id = str(user.id)
+    result = await account.delete_account(db, user)
     account.remove_files(await account.unused_files(db, result["files"]))
 
     # Every device of this account signs out and wipes its keys; groups see a note
@@ -217,12 +227,11 @@ async def delete_my_account(
     for conversation_id, member_ids in result["left_groups"]:
         try:
             note = await MessageService.post_system_message(
-                db, conversation_id, current_user, f"{result['old_name']} deleted their account")
+                db, conversation_id, user, f"{result['old_name']} deleted their account")
             await publish_users(member_ids, note)
             await publish_users(member_ids, {"type": "conversation_updated", "conversationId": str(conversation_id)})
         except Exception:
             logger.exception("Couldn't tell group %s about a deleted account", conversation_id)
-    return APIResponse(success=True, message="Your account has been deleted", data={"deleted": True})
 
 
 # ============================================

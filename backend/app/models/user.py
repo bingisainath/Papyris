@@ -67,6 +67,11 @@ class User(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     # App-wide admin (manages AI models and limits). Set with scripts/make_admin.py
     is_app_admin = Column(Boolean, default=False, server_default="false", nullable=False)
+    # Suspended by an app admin: can't sign in or use the app until suspended_until (None = until
+    # an admin lifts it). Local keys stay on their devices, so a lifted suspension loses nothing.
+    suspended_at = Column(DateTime(timezone=True), nullable=True)
+    suspended_until = Column(DateTime(timezone=True), nullable=True)
+    suspension_reason = Column(String(500), nullable=True)
     status = Column(SQLEnum(UserStatus, name="user_status_enum"), default=UserStatus.ACTIVE)
     
     # Email verification: a 6-digit code is emailed after sign-up (only its hash is stored)
@@ -88,6 +93,13 @@ class User(Base):
     # Online Status (can be moved to Redis for real-time)
     is_online = Column(Boolean, default=False)
     last_seen = Column(DateTime(timezone=True), nullable=True)
+
+    def suspended_now(self, now=None) -> bool:
+        """Suspended, and the suspension hasn't run out."""
+        from datetime import datetime, timezone
+        if self.suspended_at is None:
+            return False
+        return self.suspended_until is None or self.suspended_until > (now or datetime.now(timezone.utc))
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, email={self.email})>"

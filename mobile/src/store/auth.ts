@@ -10,6 +10,7 @@ import { socket } from '../websocket/socket';
 import { disablePush, enablePush } from '../notifications/push';
 import { e2eSession } from '../crypto/session';
 import { stopV2, v2Runtime } from '../crypto/v2-platform/runtime';
+import { showAlert } from '../components/common/Dialog';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -63,6 +64,17 @@ export const useAuth = create<AuthState>((set) => {
   // The account was deleted from one of its devices: every device signs out and wipes itself
   socket.on((e) => {
     if (e.type === 'account_deleted') tokens.clear().then(loggedOutElsewhere).catch(() => undefined);
+  });
+
+  // Suspended by an admin: sign out but keep this phone's keys (nothing is lost if it's lifted);
+  // signing in again says why and until when
+  socket.on((e) => {
+    if (e.type !== 'account_suspended') return;
+    tokens.clear().then(() => {
+      socket.stop();
+      set({ user: null, status: 'signedOut' });
+      showAlert('Your account was suspended', 'Try signing in to see why and until when.');
+    }).catch(() => undefined);
   });
 
   // Online when it happens: the server says which device was logged out

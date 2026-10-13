@@ -12,6 +12,7 @@ from jose import JWTError, jwt
 from app.db.session import get_db
 from app.models.user import User
 from app.services import sessions
+from app.services.admin import SUSPENDED
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -69,10 +70,20 @@ async def get_current_user(
     # A deleted account signs out like a logged-out session (apps sign out on 401)
     if user.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This account was deleted", headers={"WWW-Authenticate": "Bearer"})
+    # Suspended by an app admin: the apps sign out (without wiping keys) and the next sign-in says why
+    if user.suspended_now():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=SUSPENDED, headers={"WWW-Authenticate": "Bearer"})
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     # Logged out (here or from another device): the sign-in's tokens no longer work
     if not await sessions.is_active(db, payload.get("sid"), user.id):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=sessions.LOGGED_OUT, headers={"WWW-Authenticate": "Bearer"})
+    return user
+
+
+async def get_app_admin(user: User = Depends(get_current_user)) -> User:
+    """App admins only (the admin console). Set with scripts/make_admin.py."""
+    if not user.is_app_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only app admins can do this")
     return user
 

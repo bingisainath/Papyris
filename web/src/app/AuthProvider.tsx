@@ -17,7 +17,7 @@ import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
 import { e2eSession } from "../crypto/session";
 import { stopV2 } from "../crypto/v2-platform/runtime";
-import { ACCOUNT_DELETED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
+import { ACCOUNT_DELETED_EVENT, ACCOUNT_SUSPENDED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
@@ -123,7 +123,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       toast.info("Your ShareEven account was deleted.");
     };
     window.addEventListener(ACCOUNT_DELETED_EVENT, onDeleted);
+    const onSuspended = () => {
+      tokenStore.clear();
+      logout();
+      toast.error("Your account was suspended. Try logging in to see why and until when.", { autoClose: false });
+    };
+    window.addEventListener(ACCOUNT_SUSPENDED_EVENT, onSuspended);
     return () => {
+      window.removeEventListener(ACCOUNT_SUSPENDED_EVENT, onSuspended);
       window.removeEventListener(ACCOUNT_DELETED_EVENT, onDeleted);
       window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
       window.removeEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);

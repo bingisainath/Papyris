@@ -17,9 +17,11 @@ from app.models.device import DeviceToken
 from app.models.e2e_key import KeyLinkRequest, PreviousUserKeys, UserKeys
 from app.models.auth_session import AuthSession
 from app.models.safety import Report, UserBlock
+from app.models.admin import AdminAction
 from app.models.e2e_v2 import E2EBackup, E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequest, E2EOneTimePreKey, E2ESignedPreKey
 
 __all__ = [
+    "AdminAction",
     "AuthSession",
     "Report",
     "UserBlock",

@@ -54,7 +54,8 @@ export const BlockedPeopleSettings: React.FC = () => {
 
 const reasonLabel = (r: string) => REPORT_REASONS.find((x) => x.value === r)?.label || r;
 
-export const ReportsReview: React.FC = () => {
+/** Report review (admin console). onOpenUser opens the reported person's account. */
+export const ReportsReview: React.FC<{ onOpenUser?: (id: string) => void }> = ({ onOpenUser }) => {
   const [status, setStatus] = useState<'open' | 'resolved'>('open');
   const [reports, setReports] = useState<ReportView[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -96,7 +97,11 @@ export const ReportsReview: React.FC = () => {
             </div>
             <p className="text-sm text-muted-700">
               <b>{nameOf(r.reporter)}</b> reported{' '}
-              {r.reported_user ? <><b>{nameOf(r.reported_user)}</b> (@{r.reported_user.username}, reported {r.times_reported}×)</> : 'a chat'}
+              {r.reported_user ? <>
+                <b>{nameOf(r.reported_user)}</b> (@{r.reported_user.username}, reported {r.times_reported}×)
+                {onOpenUser && <button type="button" onClick={() => onOpenUser(r.reported_user!.id)}
+                  className="ml-1.5 text-xs font-semibold text-primary-700 hover:underline">Open account</button>}
+              </> : 'a chat'}
               {r.conversation && <> in {r.conversation.kind === 'group' ? `the group "${r.conversation.title}"` : 'a direct chat'}</>}
               {r.message_id && ' about a message'}.
             </p>

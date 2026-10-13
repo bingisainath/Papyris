@@ -135,6 +135,11 @@ async def ws_chat(ws: WebSocket):
             logger.info("WebSocket rejected: signed out session")
             await ws.close(code=1008, reason="Signed out")
             return
+        account = await db.get(User, user_id)
+        if account is None or account.suspended_now():
+            logger.info("WebSocket rejected: suspended account")
+            await ws.close(code=1008, reason="Suspended")
+            return
 
     # 2. Accept connection and track presence
     await manager.accept(ws)
@@ -195,6 +200,11 @@ async def ws_chat(ws: WebSocket):
                 # A block stops direct messages both ways
                 try:
                     async with async_session_maker() as db:
+                        # Suspended while connected: nothing more gets sent
+                        account = await db.get(User, user_id)
+                        if account is None or account.suspended_now():
+                            await ws.close(code=1008, reason="Suspended")
+                            break
                         refusal = await safety.direct_message_refusal(db, uuid.UUID(room_id), user_id)
                 except ValueError:
                     refusal = None

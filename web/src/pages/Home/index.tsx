@@ -5,7 +5,7 @@ import { LogOut, MessageSquareText, Settings as SettingsIcon, Users, Wallet } fr
 import { Avatar } from '../../components/atoms';
 import { isMuted } from '../../components/molecules/ChatListItem';
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAuth } from '../../app/AuthProvider';
 import {
@@ -43,7 +43,7 @@ import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
 import AccountDataSettings from '../../components/organisms/AccountDataSettings';
 import InfoLinks from '../../components/molecules/InfoLinks';
-import { BlockedPeopleSettings, ReportsReview } from '../../components/organisms/SafetySettings';
+import { BlockedPeopleSettings } from '../../components/organisms/SafetySettings';
 import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
 import type { LogoutRisk } from '../../components/organisms/LogoutWarning';
 
@@ -614,7 +614,17 @@ const SettingsPage: React.FC<{
 
           <BlockedPeopleSettings />
 
-          {user.is_app_admin && <ReportsReview />}
+          {user.is_app_admin && (
+            <div className="card p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-muted-900">Admin console</h2>
+                <p className="text-sm text-muted-500">Overview, people, reports and the admin log. Only app admins see this.</p>
+              </div>
+              <Link to="/admin" className="flex-shrink-0 inline-flex items-center gap-2 h-10 px-4 text-sm font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-[11px]">
+                Open admin console
+              </Link>
+            </div>
+          )}
 
           <AccountDataSettings />
 

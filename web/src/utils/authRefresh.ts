@@ -7,6 +7,9 @@ import { tokenStore } from './token';
 
 /** Fired on window when the session can't be renewed; AuthProvider logs the user out. */
 export const SESSION_EXPIRED_EVENT = 'papyris:session-expired';
+/** An app admin suspended this account: sign out; signing in again says why. */
+export const ACCOUNT_SUSPENDED_EVENT = 'papyris:account-suspended';
+const SUSPENDED = 'This account is suspended';
 /** Another of your devices logged this browser out (Settings → Sessions). */
 export const LOGGED_OUT_ELSEWHERE_EVENT = 'papyris:logged-out-elsewhere';
 /** This account was deleted (here or on another device): sign out and wipe this browser. */
@@ -38,7 +41,8 @@ export function refreshAccessToken(): Promise<string | null> {
       // Only a rejected refresh token ends the session; network errors may be temporary
       if (error.response && [400, 401, 403].includes(error.response.status)) {
         tokenStore.clear();
-        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+        const message = (error.response.data as { message?: unknown } | undefined)?.message;
+        window.dispatchEvent(new Event(message === SUSPENDED ? ACCOUNT_SUSPENDED_EVENT : SESSION_EXPIRED_EVENT));
       }
       return null;
     })

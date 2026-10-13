@@ -17,6 +17,7 @@ from app.core.security import hash_password, verify_password, create_access_toke
 # Checked against when the account doesn't exist, so both failures take about as long
 _DUMMY_HASH = hash_password("not-a-real-password")
 from app.services import sessions
+from app.services import admin as admin_service
 from app.config.settings import settings
 
 
@@ -122,6 +123,7 @@ class AuthService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User account is inactive",
             )
+        admin_service.refuse_sign_in_if_suspended(user)
 
         return user
 
