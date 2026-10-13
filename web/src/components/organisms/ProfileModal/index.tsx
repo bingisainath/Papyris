@@ -158,7 +158,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onChanged 
               label="About"
               help="A short line about you, like a status."
               value={user.bio || ''}
-              placeholder="Hey there! I'm using Papyris."
+              placeholder="Hey there! I'm using ShareEven."
               maxLength={140}
               multiline
               onSave={(bio) => save({ bio }, 'About updated')}
@@ -179,7 +179,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onChanged 
           {/* Payment details: a "Pay" button for people who owe you opens these with the amount */}
           <div className="mt-2 border-t border-muted-200">
             <p className="px-6 pt-4 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-500">Payment details</p>
-            <p className="px-6 pb-2 text-xs text-muted-500">Optional. People in your chats who owe you see a Pay button for these. Papyris never moves money.</p>
+            <p className="px-6 pb-2 text-xs text-muted-500">Optional. People in your chats who owe you see a Pay button for these. ShareEven never moves money.</p>
             <div className="divide-y divide-muted-100">
               <EditableField
                 icon={Wallet}

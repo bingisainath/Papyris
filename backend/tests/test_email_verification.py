@@ -95,7 +95,7 @@ def test_email_goes_out_over_smtp_when_configured(monkeypatch):
     service.smtp_user, service.smtp_password, service.from_email = "papyris@gmail.com", "app-password", "papyris@gmail.com"
     assert service.send_verification_code("new@example.com", "new", "123456")
     assert ("login", "papyris@gmail.com") in sent
-    assert ("send", "new@example.com", "123456 is your Papyris code") in sent
+    assert ("send", "new@example.com", "123456 is your ShareEven code") in sent
 
     unconfigured = module.EmailService()
     unconfigured.smtp_user = unconfigured.smtp_password = ""

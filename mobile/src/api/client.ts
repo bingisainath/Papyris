@@ -73,7 +73,7 @@ export function errorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const message = (error.response?.data as { message?: unknown } | undefined)?.message;
     if (typeof message === 'string' && message) return message;
-    if (!error.response) return "Can't reach Papyris. Check your connection.";
+    if (!error.response) return "Can't reach ShareEven. Check your connection.";
     return `Something went wrong (${error.response.status}). Please try again.`;
   }
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';

@@ -1,6 +1,6 @@
-# Papyris: system design and security
+# ShareEven: system design and security
 
-Last updated October 2026 (branch `feature/e2e-v2`). Each topic says what Papyris does today, how
+Last updated October 2026 (branch `feature/e2e-v2`). Each topic says what ShareEven does today, how
 WhatsApp, Signal and Splitwise handle the same thing, and whether it's **Done**, **Next** (planned) or
 **Before production** (must be done before real users).
 
@@ -30,7 +30,7 @@ Related documents:
    Worker (python -m app.worker): saves chat messages from the Redis stream, sends push notifications
 ```
 
-| Topic | Papyris today | WhatsApp / Signal / Splitwise | Status |
+| Topic | ShareEven today | WhatsApp / Signal / Splitwise | Status |
 |---|---|---|---|
 | Real-time delivery | WebSocket per device. Messages go to Redis pub/sub at once, are saved by the worker from a Redis stream, and are pushed to offline phones. | WhatsApp: custom XMPP-based protocol (Erlang). Signal: WebSocket plus push. Splitwise: REST with polling and push. | Done |
 | Ordering and duplicates | The server sets each message's id and timestamp; the apps keep a client id until the server confirms. Encrypted packets have replay guards. | Same idea in all of them. | Done |
@@ -41,7 +41,7 @@ Related documents:
 
 ## 2. Accounts and sign-in
 
-| Topic | Papyris today | Real apps | Status |
+| Topic | ShareEven today | Real apps | Status |
 |---|---|---|---|
 | Identity | Username or email plus password. The email is verified with a 6-digit code (5 tries, resend wait). | WhatsApp and Signal: phone number plus SMS code (Signal adds a PIN). Splitwise: email plus password or Google/Apple sign-in. | Done |
 | Passwords | bcrypt hashes; changing the password invalidates refresh tokens. Reset by emailed link. | Splitwise: the same. WhatsApp and Signal have no passwords. | Done |
@@ -56,7 +56,7 @@ Related documents:
 
 Full detail: [encryption-design-v2.md](encryption-design-v2.md).
 
-| Topic | Papyris today | WhatsApp / Signal | Status |
+| Topic | ShareEven today | WhatsApp / Signal | Status |
 |---|---|---|---|
 | Protocol | X3DH key agreement, Double Ratchet for direct chats, Sender Keys for groups, on X25519, Ed25519, HKDF-SHA256 and ChaCha20-Poly1305 (audited `@noble` libraries). An in-house implementation of the published Signal specs. | Both use the Signal Protocol (libsignal). | Done (outside review: Before production) |
 | What's encrypted | Message text, photos, videos, voice notes, files, edits, replies' content. | The same. | Done |
@@ -72,11 +72,11 @@ Full detail: [encryption-design-v2.md](encryption-design-v2.md).
 
 ## 4. Server-side data protection
 
-| Topic | Papyris today | Real apps | Status |
+| Topic | ShareEven today | Real apps | Status |
 |---|---|---|---|
 | Media at rest | AES-256-GCM, key from `MEDIA_ENCRYPTION_KEY`. | All of them encrypt storage. | Done (set a real key and keep it in a secret manager: Before production) |
 | Users' own AI keys | Encrypted with Fernet (`AI_KEY_ENCRYPTION_SECRET`); only the last 4 characters are ever shown. The phone and web never see the server's keys. | n/a | Done |
-| Payment details | Only usernames (Revolut, PayPal.me, UPI), shown only to people who share a chat with you. Papyris never moves money. | Splitwise: payment integrations through Venmo and PayPal. | Done |
+| Payment details | Only usernames (Revolut, PayPal.me, UPI), shown only to people who share a chat with you. ShareEven never moves money. | Splitwise: payment integrations through Venmo and PayPal. | Done |
 | Access control | Every chat, expense, receipt, file and key request checks membership. Group changes are admin-only. Encryption keys and device lists are only shown to chat partners. | Same principle. | Done (tested) |
 | User directory | Search needs 2+ characters and matches username, name or exact email; with no search text it lists only people you already share a chat with. | WhatsApp and Signal: contact discovery by phone number. | Done (review what search results reveal: Next) |
 | Database | Postgres in Docker with a dev password. | Managed, encrypted, backed-up databases. | Before production: managed Postgres, encryption at rest, daily backups with restore tests, least-privilege DB user |
@@ -84,7 +84,7 @@ Full detail: [encryption-design-v2.md](encryption-design-v2.md).
 
 ## 5. Network and API hardening
 
-| Topic | Papyris today | Status |
+| Topic | ShareEven today | Status |
 |---|---|---|
 | HTTPS | Not set up (dev runs on http). | Before production: TLS everywhere (HSTS), the WebSocket over wss |
 | CORS | Allowed origins come from settings. | Before production: only the real web domain |
@@ -96,7 +96,7 @@ Full detail: [encryption-design-v2.md](encryption-design-v2.md).
 
 ## 6. Reliability and operations
 
-| Topic | Papyris today | Status |
+| Topic | ShareEven today | Status |
 |---|---|---|
 | Tests | Backend ~150, web ~125, phone ~110, and browser tests in `e2e/`. Crypto: RFC test vectors, known answers checked against Python, a hostile-network test. | Done |
 | CI | None: tests are run by hand. | Before production: run every suite on each push |

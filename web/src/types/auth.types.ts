@@ -45,7 +45,7 @@ export interface UserResponse {
   };
 }
 
-/** Where people in your chats can pay you (usernames only; Papyris never moves money). */
+/** Where people in your chats can pay you (usernames only; ShareEven never moves money). */
 export interface PaymentHandles {
   revolut?: string; // revolut.me/<name>
   paypal?: string; // paypal.me/<name>

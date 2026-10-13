@@ -114,7 +114,7 @@ export const authService = new AuthService();
 /** Everything the server holds about you, saved by the browser as a JSON file. */
 export async function downloadMyData(): Promise<void> {
   const res = await api.get("/api/v1/auth/me/export", { responseType: "blob" });
-  const name = /filename="([^"]+)"/.exec(res.headers["content-disposition"] || "")?.[1] || "papyris-data.json";
+  const name = /filename="([^"]+)"/.exec(res.headers["content-disposition"] || "")?.[1] || "shareeven-data.json";
   const url = URL.createObjectURL(res.data);
   const a = document.createElement("a");
   a.href = url;

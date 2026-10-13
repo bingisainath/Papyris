@@ -58,7 +58,7 @@ export async function enablePush(): Promise<void> {
 
 /**
  * For Settings: 'unavailable' when this build has no Firebase config, otherwise whether the phone
- * allows Papyris notifications ('off' = turned off in the phone's settings or never allowed).
+ * allows ShareEven notifications ('off' = turned off in the phone's settings or never allowed).
  */
 export async function pushStatus(): Promise<'unavailable' | 'on' | 'off'> {
   if (!configured()) return 'unavailable';

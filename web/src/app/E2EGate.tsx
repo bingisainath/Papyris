@@ -197,7 +197,7 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
       </div>
       <h1 className="text-2xl font-semibold text-muted-900 text-center">Link this browser</h1>
       <p className="mt-2 text-center text-sm text-muted-600">
-        Your chats are end-to-end encrypted. To read them here, open Papyris on your phone (or another signed-in
+        Your chats are end-to-end encrypted. To read them here, open ShareEven on your phone (or another signed-in
         browser), go to <span className="font-medium text-muted-800">Settings → End-to-end encryption → Link a device</span>,
         and scan this code.
       </p>

@@ -41,7 +41,7 @@ const VerifyEmail: React.FC = () => {
     setError('');
     try {
       await verifyEmail(email, code);
-      toast.success('Email verified. Welcome to Papyris');
+      toast.success('Email verified. Welcome to ShareEven');
       navigate('/', { replace: true });
     } catch (err: any) {
       setError(err.message || 'That code isn’t right');

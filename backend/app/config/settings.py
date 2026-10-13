@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     ENV: str = "local"  # local, staging, production
     
     # Application
-    APP_NAME: str = "Papyris API"
+    APP_NAME: str = "ShareEven API"
     DEBUG: bool = True
     LOG_LEVEL: str = "INFO"  # DEBUG shows every WebSocket event and worker step
     SQL_ECHO: bool = False  # log every SQL statement (very noisy)
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     FROM_EMAIL: str = ""  # defaults to SMTP_USER
-    FROM_NAME: str = "Papyris"
+    FROM_NAME: str = "ShareEven"
     FRONTEND_URL: str = "http://localhost:3000"  # used in password-reset links
 
     # Push notifications (Firebase Cloud Messaging). Path to the service-account JSON downloaded

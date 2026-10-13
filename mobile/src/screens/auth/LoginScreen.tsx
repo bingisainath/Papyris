@@ -34,7 +34,7 @@ const LoginScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'Login'>> = 
   };
 
   return (
-    <AuthLayout eyebrow="Welcome back" title="Log in to Papyris" subtitle="Your people and shared moments are waiting.">
+    <AuthLayout eyebrow="Welcome back" title="Log in to ShareEven" subtitle="Your people and shared moments are waiting.">
       {error && <Banner text={error} />}
       <TextField label="Username or email" icon={UserRound} placeholder="Username or email" value={identifier} onChangeText={setIdentifier} autoCapitalize="none" autoCorrect={false}
         keyboardType="email-address" textContentType="username" autoComplete="username" returnKeyType="next" />
@@ -45,7 +45,7 @@ const LoginScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'Login'>> = 
       </Pressable>
       <Button title="Log in" icon={ArrowRight} onPress={submit} loading={busy} />
       <View style={styles.footer}>
-        <Text style={styles.muted}>New to Papyris? </Text>
+        <Text style={styles.muted}>New to ShareEven? </Text>
         <Pressable onPress={() => navigation.navigate('SignUp')} hitSlop={8}><Text style={styles.link}>Create an account</Text></Pressable>
       </View>
     </AuthLayout>

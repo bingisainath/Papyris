@@ -82,7 +82,7 @@ async def unblock(user_id: uuid.UUID, current_user: User = Depends(get_current_u
 
 @router.post("/reports")
 async def report(body: ReportRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Report a person, a message or a group to the Papyris team. Optionally block the person too."""
+    """Report a person, a message or a group to the ShareEven team. Optionally block the person too."""
     await rl.enforce((rl.REPORTS_PER_USER, str(current_user.id)))
     if not (body.user_id or body.conversation_id or body.message_id):
         raise HTTPException(status_code=400, detail="Say who or what you're reporting")

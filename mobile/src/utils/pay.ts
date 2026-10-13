@@ -1,6 +1,6 @@
 // src/utils/pay.ts (same as web/src/utils/pay.ts)
 // "Pay" buttons: open the payee's payment app with the amount filled in where the app allows it.
-// Papyris never moves money; the payer records the payment afterwards.
+// ShareEven never moves money; the payer records the payment afterwards.
 
 export interface PayHandles { revolut?: string; paypal?: string; upi?: string }
 

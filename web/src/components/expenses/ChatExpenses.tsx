@@ -190,7 +190,7 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
               </span>
               <h3 className="font-display text-xl font-semibold text-muted-900">Start sharing expenses</h3>
               <p className="mt-2 max-w-sm mx-auto text-sm text-muted-500">
-                Add the first expense for {chatName}, or scan a receipt, and Papyris keeps everyone’s balance fair.
+                Add the first expense for {chatName}, or scan a receipt, and ShareEven keeps everyone’s balance fair.
               </p>
               <button type="button" onClick={onAddExpense} className="mt-6 inline-flex items-center gap-2 h-11 px-5 rounded-[11px] bg-primary-700 hover:bg-primary-800 text-white text-sm font-bold shadow-[0_5px_14px_rgba(84,63,125,0.18)]">
                 <Plus size={17} /> Add first expense
@@ -240,7 +240,7 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
             <p className="text-sm text-muted-700">
               {settle.editing
                 ? <>Change how much <b>{settle.from === currentUserId ? 'you' : name(settle.from)}</b> paid <b>{settle.to === currentUserId ? 'you' : name(settle.to)}</b>. Everyone in the chat is told about the change.</>
-                : <>Record that <b>{settle.from === currentUserId ? 'you' : name(settle.from)}</b> paid <b>{settle.to === currentUserId ? 'you' : name(settle.to)}</b>. Papyris doesn’t move money; pay however you like, then record it here.</>}
+                : <>Record that <b>{settle.from === currentUserId ? 'you' : name(settle.from)}</b> paid <b>{settle.to === currentUserId ? 'you' : name(settle.to)}</b>. ShareEven doesn’t move money; pay however you like, then record it here.</>}
             </p>
             <label className="block">
               <span className="block mb-1.5 text-xs font-bold text-muted-500">Amount paid · {settle.currency}</span>
@@ -274,7 +274,7 @@ const PayMenu: React.FC<{ pay?: PayHandles; minor: number; currency: string; pay
     window.addEventListener('click', close); // a click anywhere else closes the menu
     return () => window.removeEventListener('click', close);
   }, [open]);
-  const options = payOptions(pay, minor, currency, decimalsFor(currency), payee, 'Papyris');
+  const options = payOptions(pay, minor, currency, decimalsFor(currency), payee, 'ShareEven');
   if (!options.length) return null;
   const go = async (o: (typeof options)[number]) => {
     setOpen(false);

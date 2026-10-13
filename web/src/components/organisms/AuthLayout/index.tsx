@@ -10,8 +10,8 @@ export const BrandMark: React.FC<{ inverted?: boolean }> = ({ inverted }) => (
   <div className="flex items-center gap-2.5">
     <span className={`w-[42px] h-[42px] rounded-[13px] grid place-items-center font-display font-bold text-xl ${
       inverted ? 'bg-white text-primary-700' : 'bg-primary-700 text-white'
-    }`}>P</span>
-    <span className={`font-display font-bold text-xl ${inverted ? 'text-white' : 'text-muted-900'}`}>Papyris</span>
+    }`}>S</span>
+    <span className={`font-display font-bold text-xl ${inverted ? 'text-white' : 'text-muted-900'}`}>ShareEven</span>
   </div>
 );
 

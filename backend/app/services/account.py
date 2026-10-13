@@ -88,7 +88,7 @@ async def export_data(db: AsyncSession, user: User) -> dict:
     return {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "about": (
-            "Everything Papyris's server holds about you. End-to-end encrypted messages can't be read by "
+            "Everything ShareEven's server holds about you. End-to-end encrypted messages can't be read by "
             "the server, so their text is only on your devices. Media links work for a limited time."
         ),
         "account": {

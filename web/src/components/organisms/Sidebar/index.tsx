@@ -55,11 +55,11 @@ const Sidebar: React.FC<SidebarProps> = ({
       <button
         type="button"
         onClick={() => onNavigate('/chat')}
-        title="Papyris"
-        aria-label="Papyris home"
+        title="ShareEven"
+        aria-label="ShareEven home"
         className="w-[42px] h-[42px] mb-8 rounded-[13px] bg-white text-primary-700 font-display font-bold text-xl grid place-items-center shadow-[0_6px_18px_rgba(40,29,70,0.33)]"
       >
-        P
+        S
       </button>
 
       <nav className="w-full flex flex-col gap-2" aria-label="Main">

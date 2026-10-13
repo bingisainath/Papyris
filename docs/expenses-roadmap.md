@@ -1,12 +1,12 @@
 # Expenses: ideas for future enhancements
 
-Collected October 2026 by comparing Papyris with Splitwise (free and Pro). Each idea says what it would
-look like in Papyris and roughly how much work it is. Status: **Done**, **Building** (in progress) or
+Collected October 2026 by comparing ShareEven with Splitwise (free and Pro). Each idea says what it would
+look like in ShareEven and roughly how much work it is. Status: **Done**, **Building** (in progress) or
 **Idea**.
 
-## What Papyris already has
+## What ShareEven already has
 
-| Feature | In Splitwise | In Papyris |
+| Feature | In Splitwise | In ShareEven |
 |---|---|---|
 | Groups and one-to-one chats with expenses | Free | Yes: every chat has expenses |
 | Equal, exact, percentage and share splits | Free | Yes |
@@ -35,7 +35,7 @@ spam. *Effort: small.*
 ### 3. Payment links: **Building**
 People add their payment details once in their profile (Revolut, PayPal.me, UPI). Someone who owes
 them then sees a "Pay" button that opens that app with the amount filled in, and records the payment
-afterwards. Papyris never moves money itself. *Effort: small to medium.*
+afterwards. ShareEven never moves money itself. *Effort: small to medium.*
 
 ### 4. Recurring expenses: Idea
 For rent, bills and subscriptions: an expense repeats weekly, monthly or yearly. The server adds it on

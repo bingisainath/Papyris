@@ -26,7 +26,7 @@ class RatesUnavailable(Exception):
 
 
 async def usd_rates() -> tuple[dict[str, float], str | None]:
-    """{currency: units per 1 USD} for the currencies Papyris supports, and when they were published."""
+    """{currency: units per 1 USD} for the currencies ShareEven supports, and when they were published."""
     now = time.time()
     fresh = _cache["rates"] is not None and now - _cache["fetched_at"] < CACHE_SECONDS
     if fresh or (_cache["rates"] is not None and now - _cache["failed_at"] < RETRY_SECONDS):

@@ -212,7 +212,7 @@ const uploads = new Map<string, {
  *
  * The message is shown immediately with a temporary id (its clientId). The
  * server echoes the clientId back, which is how the optimistic copy is replaced.
- * Attachments are uploaded to the Papyris server first, then sent by URL.
+ * Attachments are uploaded to the ShareEven server first, then sent by URL.
  * An upload can be cancelled while running and retried if it fails.
  */
 export const sendMessage = (

@@ -1,6 +1,6 @@
-# Papyris mobile (React Native)
+# ShareEven mobile (React Native)
 
-Android and iPhone app for Papyris: sign-in with email code, chats (DMs and groups) and shared
+Android and iPhone app for ShareEven: sign-in with email code, chats (DMs and groups) and shared
 expenses with receipt scanning. It talks to the same backend as the web app.
 
 ## Run on an Android phone (USB)

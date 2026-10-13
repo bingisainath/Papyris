@@ -1,4 +1,4 @@
-# Papyris end-to-end encryption, version 2: Signal-level design
+# ShareEven end-to-end encryption, version 2: Signal-level design
 
 Status: proposal. Version 1 (what's built: `web/src/crypto/e2e.ts`, shared with mobile) stays in
 place until this is implemented and audited.
@@ -534,7 +534,7 @@ Signal and WhatsApp groups use **Sender Keys** instead:
 
 Trade-off: sender keys have forward secrecy (the chain is one-way) but only heal after rotation,
 not on every round trip. That's why direct chats use the full Double Ratchet. For large groups,
-MLS (RFC 9420) is the modern alternative. It's not needed at Papyris's group sizes.
+MLS (RFC 9420) is the modern alternative. It's not needed at ShareEven's group sizes.
 
 ```ts
 // crypto/v2/senderKeys.ts

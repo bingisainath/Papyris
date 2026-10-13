@@ -81,11 +81,11 @@ class EmailService:
         username: str,
         reset_link: str
     ) -> bool:
-        """Send password reset email with beautiful Papyris branding"""
+        """Send password reset email with beautiful ShareEven branding"""
         
-        subject = "Reset Your Papyris Password"
+        subject = "Reset Your ShareEven Password"
         
-        # HTML email template with Papyris purple/indigo theme
+        # HTML email template with ShareEven purple/indigo theme
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -168,12 +168,12 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>🔐 Papyris</h1>
+                    <h1>🔐 ShareEven</h1>
                 </div>
                 <div class="content">
                     <h2>Reset Your Password</h2>
                     <p>Hi {username},</p>
-                    <p>We received a request to reset your password for your Papyris account.</p>
+                    <p>We received a request to reset your password for your ShareEven account.</p>
                     <p>Click the button below to create a new password:</p>
                     <div style="text-align: center;">
                         <a href="{reset_link}" class="button">Reset Password</a>
@@ -187,7 +187,7 @@ class EmailService:
                 <div class="footer">
                     <p>If the button doesn't work, copy and paste this link:</p>
                     <p style="word-break: break-all; color: #7e22ce;">{reset_link}</p>
-                    <p style="margin-top: 20px;">© 2024 Papyris. All rights reserved.</p>
+                    <p style="margin-top: 20px;">© 2026 ShareEven. All rights reserved.</p>
                 </div>
             </div>
         </body>
@@ -196,11 +196,11 @@ class EmailService:
         
         # Plain text version
         text_content = f"""
-        Reset Your Papyris Password
+        Reset Your ShareEven Password
         
         Hi {username},
         
-        We received a request to reset your password for your Papyris account.
+        We received a request to reset your password for your ShareEven account.
         
         Click the link below to create a new password:
         {reset_link}
@@ -209,7 +209,7 @@ class EmailService:
         
         If you didn't request this password reset, you can safely ignore this email.
         
-        © 2024 Papyris
+        © 2026 ShareEven
         """
         
         return self.send_email(to_email, subject, html_content, text_content)
@@ -218,16 +218,16 @@ class EmailService:
 # Create singleton instance
     def send_verification_code(self, to_email: str, username: str, code: str) -> bool:
         """The 6-digit code that confirms a new account's email address."""
-        subject = f"{code} is your Papyris code"
+        subject = f"{code} is your ShareEven code"
         text_content = (
-            f"Hi {username},\n\nYour Papyris verification code is {code}.\n"
+            f"Hi {username},\n\nYour ShareEven verification code is {code}.\n"
             "It expires in 10 minutes. If you didn't create an account, you can ignore this email."
         )
         html_content = f"""
         <!DOCTYPE html>
         <html><body style="margin:0;padding:24px;background:#f6f6f8;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b">
           <div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:32px">
-            <h1 style="margin:0 0 16px;font-size:20px;color:#543f7d">Papyris</h1>
+            <h1 style="margin:0 0 16px;font-size:20px;color:#543f7d">ShareEven</h1>
             <p style="margin:0 0 16px">Hi {username}, use this code to finish creating your account:</p>
             <p style="margin:0 0 16px;font-size:32px;font-weight:700;letter-spacing:8px;color:#1e293b">{code}</p>
             <p style="margin:0;color:#64748b;font-size:14px">It expires in 10 minutes. If you didn't create an account, you can ignore this email.</p>

@@ -187,7 +187,7 @@ async def export_my_data(current_user: User = Depends(get_current_user), db: Asy
     """Everything the server holds about you, as a JSON file (GDPR / DPDP data access)"""
     await rl.enforce((rl.DATA_EXPORTS_PER_USER, str(current_user.id)))
     data = await account.export_data(db, current_user)
-    filename = f"papyris-data-{current_user.username}-{date.today().isoformat()}.json"
+    filename = f"shareeven-data-{current_user.username}-{date.today().isoformat()}.json"
     return JSONResponse(content=data, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 

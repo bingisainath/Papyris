@@ -182,7 +182,7 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
               <Text style={styles.sheetText}>
                 {settle.editing
                   ? `Change how much ${settle.from === me.id ? 'you' : name(settle.from)} paid ${settle.to === me.id ? 'you' : name(settle.to)}. Everyone in the chat is told.`
-                  : `Record that ${settle.from === me.id ? 'you' : name(settle.from)} paid ${settle.to === me.id ? 'you' : name(settle.to)}. Papyris doesn't move money: pay however you like, then record it here.`}
+                  : `Record that ${settle.from === me.id ? 'you' : name(settle.from)} paid ${settle.to === me.id ? 'you' : name(settle.to)}. ShareEven doesn't move money: pay however you like, then record it here.`}
               </Text>
               <TextInput value={settle.amount} onChangeText={(amount) => setSettle({ ...settle, amount })} keyboardType="decimal-pad" style={styles.amount} accessibilityLabel="Amount paid" />
               <Button title={settle.editing ? 'Save changes' : 'Record payment'} onPress={record} loading={saving} />
@@ -247,7 +247,7 @@ interface TabProps { summary: ExpenseSummary; balances: Balances; me: string; na
 
 /** "Pay": choose one of the payee's payment apps; it opens with the amount (copied first for Revolut). */
 function pay(handles: PayHandles | undefined, minor: number, currency: string, payee: string) {
-  const options = payOptions(handles, minor, currency, decimalsFor(currency), payee, 'Papyris');
+  const options = payOptions(handles, minor, currency, decimalsFor(currency), payee, 'ShareEven');
   const open = (o: (typeof options)[number]) => {
     if (o.copyAmount) Clipboard.setString(toMajorString(minor, currency));
     Linking.openURL(o.url).catch(() => showAlert(`Couldn't open ${o.label}`, 'Is the app installed?'));

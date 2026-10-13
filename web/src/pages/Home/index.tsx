@@ -82,15 +82,15 @@ const Home: React.FC = () => {
   const [creatingConversation, setCreatingConversation] = useState(false);  // ✅ NEW
 
   // Active route
-  // Unread count in the browser tab title, e.g. "(3) Papyris"
+  // Unread count in the browser tab title, e.g. "(3) ShareEven"
   // Muted and archived chats don't count (like WhatsApp)
   const counted = conversations.filter(c => !c.isArchived && !isMuted(c.mutedUntil));
   const totalUnread = counted.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
   useEffect(() => {
-    document.title = totalUnread > 0 ? `(${totalUnread}) Papyris` : 'Papyris';
+    document.title = totalUnread > 0 ? `(${totalUnread}) ShareEven` : 'ShareEven';
     setUnreadBadge(totalUnread);
   }, [totalUnread]);
-  useEffect(() => () => { document.title = 'Papyris'; setUnreadBadge(0); }, []);
+  useEffect(() => () => { document.title = 'ShareEven'; setUnreadBadge(0); }, []);
   // A chat that's been read (here or on another device) shouldn't keep its notifications up
   useEffect(() => {
     conversations.forEach(c => { if (!c.unreadCount) clearNotifications(c.id); });
@@ -527,8 +527,8 @@ const NotificationSettings: React.FC = () => {
   };
 
   const description: Record<NotificationStatus, string> = {
-    on: 'You get a desktop notification for new messages when Papyris is in the background.',
-    off: 'Turn on to get a desktop notification for new messages when Papyris is in the background.',
+    on: 'You get a desktop notification for new messages when ShareEven is in the background.',
+    off: 'Turn on to get a desktop notification for new messages when ShareEven is in the background.',
     denied: 'Notifications are blocked for this site. Allow them in your browser\'s site settings, then reload.',
     unsupported: 'This browser does not support desktop notifications.',
   };
@@ -621,7 +621,7 @@ const SettingsPage: React.FC<{
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-muted-900">Log out</h2>
-                <p className="text-sm text-muted-500">Sign out of Papyris on this device.</p>
+                <p className="text-sm text-muted-500">Sign out of ShareEven on this device.</p>
               </div>
               <button
                 onClick={onLogout}

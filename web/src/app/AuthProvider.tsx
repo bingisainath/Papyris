@@ -120,7 +120,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const onDeleted = () => {
       tokenStore.clear();
       logout();
-      toast.info("Your Papyris account was deleted.");
+      toast.info("Your ShareEven account was deleted.");
     };
     window.addEventListener(ACCOUNT_DELETED_EVENT, onDeleted);
     return () => {

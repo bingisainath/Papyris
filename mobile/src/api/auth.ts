@@ -40,7 +40,7 @@ export const authApi = {
 /** Everything the server holds about you, saved to Downloads as a JSON file. Returns its name. */
 export async function saveMyData(): Promise<string> {
   const url = `${API_V1_URL}/auth/me/export`;
-  const path = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/papyris-data.json`;
+  const path = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/shareeven-data.json`;
   const get = () => ReactNativeBlobUtil.config({ path }).fetch('GET', url, { Authorization: `Bearer ${tokens.access}` });
   let res = await get();
   if (res.info().status === 401 && (await refreshAccessToken())) res = await get();
@@ -49,7 +49,7 @@ export async function saveMyData(): Promise<string> {
     throw new Error(res.info().status === 429 ? "You've downloaded your data a few times already. Try again later." : "Couldn't prepare your data. Try again.");
   }
   const header = Object.entries(res.info().headers).find(([k]) => k.toLowerCase() === 'content-disposition')?.[1] || '';
-  const name = /filename="([^"]+)"/.exec(String(header))?.[1] || 'papyris-data.json';
+  const name = /filename="([^"]+)"/.exec(String(header))?.[1] || 'shareeven-data.json';
   await saveLocalFile(path, name, 'application/json');
   return name;
 }

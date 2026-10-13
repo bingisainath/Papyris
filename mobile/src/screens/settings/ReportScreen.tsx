@@ -1,5 +1,5 @@
 // src/screens/settings/ReportScreen.tsx
-// Report a person, a message or a group to the Papyris team, and optionally block the person.
+// Report a person, a message or a group to the ShareEven team, and optionally block the person.
 // Encrypted messages can't be read by the server, so a reported message's text reaches the team
 // only if the reporter chooses to share it here.
 import React, { useLayoutEffect, useState } from 'react';
@@ -52,7 +52,7 @@ const ReportScreen: React.FC<Props> = ({ route, navigation }) => {
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.head}>
         <View style={styles.headIcon}><Flag size={20} color={colors.danger600} /></View>
-        <Text style={styles.lead}>The Papyris team reviews reports.{target.userName ? ` ${target.userName} isn't told.` : ''}</Text>
+        <Text style={styles.lead}>The ShareEven team reviews reports.{target.userName ? ` ${target.userName} isn't told.` : ''}</Text>
       </View>
 
       <Text style={styles.label}>What's wrong?</Text>
@@ -72,7 +72,7 @@ const ReportScreen: React.FC<Props> = ({ route, navigation }) => {
         style={{ minHeight: 80, textAlignVertical: 'top' }} />
 
       {!!target.messageText && (
-        <Toggle value={shareText} onChange={setShareText} title="Share this message's text with the Papyris team"
+        <Toggle value={shareText} onChange={setShareText} title="Share this message's text with the ShareEven team"
           hint="Messages are end-to-end encrypted, so the team can only see it if you share it." />
       )}
       {!!target.userId && (

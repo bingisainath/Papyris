@@ -20,9 +20,9 @@ const AuthLayout: React.FC<{
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.brandRow}>
             <View style={styles.logo}>
-              <Text style={styles.logoText}>P</Text>
+              <Text style={styles.logoText}>S</Text>
             </View>
-            <Text style={styles.brand}>Papyris</Text>
+            <Text style={styles.brand}>ShareEven</Text>
           </View>
           <View style={styles.body}>
             {eyebrow && <Text style={styles.eyebrow}>{eyebrow.toUpperCase()}</Text>}

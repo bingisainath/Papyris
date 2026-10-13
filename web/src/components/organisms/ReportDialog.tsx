@@ -1,5 +1,5 @@
 // src/components/organisms/ReportDialog.tsx
-// Report a person, a message or a group to the Papyris team, and optionally block the person.
+// Report a person, a message or a group to the ShareEven team, and optionally block the person.
 // Encrypted messages can't be read by the server, so a reported message's text reaches the team
 // only if the reporter chooses to share it here.
 
@@ -57,7 +57,7 @@ const ReportDialog: React.FC<{ target: ReportTarget; onClose: () => void }> = ({
           <span className="w-10 h-10 rounded-xl bg-accent-50 text-accent-600 grid place-items-center"><Flag className="w-5 h-5" /></span>
           <div>
             <h2 className="font-display text-lg font-semibold text-muted-900">{target.title}</h2>
-            <p className="text-xs text-muted-500">The Papyris team reviews reports. {target.userName ? `${target.userName} isn't told.` : ''}</p>
+            <p className="text-xs text-muted-500">The ShareEven team reviews reports. {target.userName ? `${target.userName} isn't told.` : ''}</p>
           </div>
         </div>
 
@@ -83,7 +83,7 @@ const ReportDialog: React.FC<{ target: ReportTarget; onClose: () => void }> = ({
           <label className="flex items-start gap-2.5 text-sm text-muted-700">
             <input type="checkbox" checked={shareText} onChange={(e) => setShareText(e.target.checked)} className="mt-1 accent-accent-600" />
             <span>
-              Share this message's text with the Papyris team
+              Share this message's text with the ShareEven team
               <span className="block text-xs text-muted-500">Messages are end-to-end encrypted, so the team can only see it if you share it.</span>
             </span>
           </label>

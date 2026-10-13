@@ -1,4 +1,4 @@
-# Papyris
+# ShareEven
 
 Chat & split: real-time messaging (direct chats and groups, photos, videos, files) and
 shared expenses: add a bill by hand or photograph the receipt, and AI reads the items so the

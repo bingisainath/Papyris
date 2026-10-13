@@ -28,7 +28,7 @@ const AccountDataSettings: React.FC = () => {
     <div className="card p-4 sm:p-6 space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-muted-900">Your data</h2>
-        <p className="text-sm text-muted-500">Download a copy of what Papyris holds about you, or delete your account.</p>
+        <p className="text-sm text-muted-500">Download a copy of what ShareEven holds about you, or delete your account.</p>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
