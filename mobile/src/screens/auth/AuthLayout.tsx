@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Lock } from 'lucide-react-native';
 import { colors, space } from '../../theme';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
+import InfoLinks from '../../components/common/InfoLinks';
 
 const AuthLayout: React.FC<{
   eyebrow?: string;
@@ -34,6 +35,7 @@ const AuthLayout: React.FC<{
             <Lock size={13} color={colors.muted400} />
             <Text style={styles.footerText}>Messages and media are end-to-end encrypted</Text>
           </View>
+          <InfoLinks />
         </ScrollView>
       </View>
     </SafeAreaView>

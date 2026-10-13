@@ -3,7 +3,8 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ban, Bell, ChevronRight, Coins, Download, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
+import { Ban, Bell, ChevronRight, Coins, Download, FileText, HelpCircle, Info, LifeBuoy, LockKeyhole, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
+import { openInfoPage } from '../../components/common/InfoLinks';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
 import { authApi, saveMyData } from '../../api/auth';
 import { errorMessage } from '../../api/client';
@@ -106,6 +107,19 @@ const SettingsScreen: React.FC = () => {
         </View>
         <CurrencyPicker visible={pickingCurrency} value={user.display_currency || ''} onClose={() => setPickingCurrency(false)}
           onPick={(code) => { setPickingCurrency(false); setDisplayCurrency(code); }} />
+
+        <Text style={styles.sectionTitle}>More</Text>
+        <View style={styles.section}>
+          <Row icon={Info} label="About ShareEven" onPress={() => openInfoPage('about')} />
+          <Divider />
+          <Row icon={HelpCircle} label="FAQ" onPress={() => openInfoPage('faq')} />
+          <Divider />
+          <Row icon={LifeBuoy} label="Contact us" onPress={() => openInfoPage('contact')} />
+          <Divider />
+          <Row icon={FileText} label="Terms of Service" onPress={() => openInfoPage('terms')} />
+          <Divider />
+          <Row icon={LockKeyhole} label="Privacy Policy" onPress={() => openInfoPage('privacy')} />
+        </View>
 
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.section}>

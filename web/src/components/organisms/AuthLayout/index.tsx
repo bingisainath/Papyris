@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import InfoLinks from '../../molecules/InfoLinks';
 
 export const BrandMark: React.FC<{ inverted?: boolean }> = ({ inverted }) => (
   <div className="flex items-center gap-2.5">
@@ -73,6 +74,7 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ eyebrow, title, subtitle, icon:
         {!subtitle && <div className="mb-7" />}
         {children}
       </div>
+      <InfoLinks className="px-5 pb-6" />
     </section>
   </main>
 );

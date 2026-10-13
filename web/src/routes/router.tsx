@@ -5,6 +5,8 @@ import Home from '../pages/Home';
 import ForgotPassword from '../pages/ForgotPassword';
 import ResetPassword from '../pages/ResetPassword';
 import VerifyEmail from '../pages/VerifyEmail';
+import InfoPage from '../pages/Info';
+import { INFO_PAGES } from '../content/infoPages';
 import { RequireAuth } from '../app/RequireAuth';
 
 export const router = createBrowserRouter([
@@ -28,6 +30,8 @@ export const router = createBrowserRouter([
     path: '/verify-email',
     element: <VerifyEmail />,
   },
+  // About, FAQ, Contact, Terms, Privacy: public
+  ...INFO_PAGES.map((page) => ({ path: `/${page.slug}`, element: <InfoPage /> })),
   {
     path: '/',
     element: (

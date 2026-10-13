@@ -15,3 +15,9 @@ export const mediaUrl = (url?: string | null): string | undefined => {
   if (!url) return undefined;
   return url.startsWith('/') ? `${API_BASE_URL}${url}` : url;
 };
+
+// The website: About, FAQ, Contact, Terms and Privacy live there (web/src/content/infoPages.ts).
+// On a USB phone in development, `adb reverse tcp:3000 tcp:3000` makes localhost:3000 work.
+const DEV_WEB = 'http://localhost:3000';
+const PROD_WEB = 'https://shareeven.com';
+export const WEB_URL = __DEV__ ? DEV_WEB : PROD_WEB;

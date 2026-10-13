@@ -114,6 +114,11 @@ const AuthenticationPage: React.FC = () => {
           <AuthSubmit className="mt-3" disabled={busy || !registerUsername.trim() || !registerEmail.trim() || !registerPassword}>
             {busy ? "Creating account…" : <>Create account <ArrowRight size={17} /></>}
           </AuthSubmit>
+          <p className="mt-3 text-center text-xs text-muted-500">
+            By creating an account you agree to the{" "}
+            <Link to="/terms" className="font-semibold text-primary-700 hover:underline">Terms of Service</Link> and{" "}
+            <Link to="/privacy" className="font-semibold text-primary-700 hover:underline">Privacy Policy</Link>, and confirm you're 18 or older.
+          </p>
         </form>
         <p className="mt-6 text-center text-muted-500">
           Already have an account?{" "}

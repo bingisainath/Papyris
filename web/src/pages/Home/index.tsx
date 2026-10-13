@@ -42,6 +42,7 @@ import SessionsSettings from '../../components/organisms/SessionsSettings';
 import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
 import AccountDataSettings from '../../components/organisms/AccountDataSettings';
+import InfoLinks from '../../components/molecules/InfoLinks';
 import { BlockedPeopleSettings, ReportsReview } from '../../components/organisms/SafetySettings';
 import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
 import type { LogoutRisk } from '../../components/organisms/LogoutWarning';
@@ -632,6 +633,8 @@ const SettingsPage: React.FC<{
               </button>
             </div>
           </div>
+
+          <InfoLinks className="pt-2 pb-4" />
         </div>
       </div>
     </div>
