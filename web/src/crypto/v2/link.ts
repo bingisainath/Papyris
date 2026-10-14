@@ -51,6 +51,31 @@ export function linkCodeV2(o: Pick<LinkOffer, 'ek' | 'identitySign' | 'identityD
   return out;
 }
 
+/**
+ * One-tap approval: the new device shows a two-digit number (10-99) and the linked device offers
+ * three, one of them right. Both work it out from the new device's keys, so picking the number on
+ * the new device's screen confirms those are the keys being approved (a server that substituted its
+ * own keys would match by chance about 1 time in 90; the 16-character code is the stronger option).
+ */
+export function linkNumber(o: Pick<LinkOffer, 'ek' | 'identitySign' | 'identityDh'>): number {
+  const h = sha256(concatBytes(utf8('ShareEvenLinkNumber.v2'), o.ek, o.identitySign, o.identityDh));
+  return 10 + (((h[0] << 8) | h[1]) % 90);
+}
+
+/** The three numbers to pick from on the linked device: the right one and two others, in a fixed shuffled order. */
+export function linkNumberChoices(o: Pick<LinkOffer, 'ek' | 'identitySign' | 'identityDh'>): number[] {
+  const right = linkNumber(o);
+  const h = sha256(concatBytes(utf8('ShareEvenLinkChoices.v2'), o.ek, o.identitySign, o.identityDh));
+  const choices = [right];
+  for (let i = 0; choices.length < 3; i += 2) {
+    const n = 10 + (((h[i % 32] << 8) | h[(i + 1) % 32]) + i) % 90;
+    if (!choices.includes(n)) choices.push(n);
+  }
+  const slot = h[31] % 3; // where the right answer goes
+  [choices[0], choices[slot]] = [choices[slot], choices[0]];
+  return choices;
+}
+
 /** What the primary sends (decrypted only by the new device). */
 export interface GrantPayload {
   // Like Signal, every linked device holds the account key, so any of them can link the next one

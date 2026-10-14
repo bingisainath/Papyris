@@ -16,6 +16,7 @@ export class Server {
   mail = new Map<string, IncomingEnvelope[]>();
   links = new Map<string, { id: string; user: string; device_id: number; ek: string; code: string; grant?: unknown }>();
   removed = new Set<string>();
+  denied = new Set<string>();
   seq = 0;
 
   private linkView(r: { id: string; user: string; device_id: number; ek: string; code: string }) {
@@ -49,6 +50,9 @@ export class Server {
         if (path === '/e2e/v2/devices/me') {
           return { devices: [...this.devices].filter(([k]) => k.startsWith(`${user}:`) && !this.removed.has(k)).map(([k, d]) => ({ device_id: Number(k.split(':')[1]), ...d })) } as T;
         }
+        if (path === '/e2e/v2/link-requests/pending') {
+          return [...this.links.values()].filter((x) => x.user === user && !x.grant && !this.denied.has(x.id)).reverse().map((x) => this.linkView(x)) as T;
+        }
         if (path === '/e2e/v2/link-requests') {
           const r = [...this.links.values()].find((x) => x.user === user && x.code === params?.code && !x.grant);
           if (!r) throw fail(404);
@@ -58,6 +62,7 @@ export class Server {
         if (m) {
           const r = this.links.get(m[1]);
           if (!r || r.user !== user) throw fail(404);
+          if (this.denied.has(r.id)) return { ...this.linkView(r), status: 'denied' } as T;
           if (!r.grant) return { ...this.linkView(r), status: 'waiting' } as T;
           this.links.delete(m[1]); // handed over once
           return { ...this.linkView(r), status: 'approved', grant: JSON.parse(JSON.stringify(r.grant)) } as T;
@@ -77,6 +82,13 @@ export class Server {
           const id = `req-${++this.seq}`;
           this.links.set(id, { id, user, device_id: body.device_id, ek: body.ek, code: linkCodeV2({ ek: unb64(body.ek), identitySign: unb64(d.sign), identityDh: unb64(d.dh) }) });
           return this.linkView(this.links.get(id)!) as T;
+        }
+        const d = path.match(/^\/e2e\/v2\/link-requests\/([^/]+)\/deny$/);
+        if (d) {
+          const r = this.links.get(d[1]);
+          if (!r || r.user !== user) throw fail(404);
+          this.denied.add(r.id);
+          return {} as T;
         }
         const g = path.match(/^\/e2e\/v2\/link-requests\/([^/]+)\/grant$/);
         if (g) {

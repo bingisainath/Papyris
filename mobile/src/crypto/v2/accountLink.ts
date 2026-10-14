@@ -10,7 +10,7 @@
 import { b64, CryptoError, ed25519, eq, fromUtf8, KeyPair, newX25519, unb64, utf8 } from './primitives';
 import type { DeviceList, DevicePublic } from './identity';
 import { certifyDevice, loadDeviceIdentity, newAccountIdentity, signDeviceList, verifyDeviceList } from './identity';
-import { linkCodeV2, linkQrText, openGrant, parseLinkQr, sealGrant } from './link';
+import { linkCodeV2, linkNumber, linkNumberChoices, linkQrText, openGrant, parseLinkQr, sealGrant } from './link';
 import type { GrantPayload, LinkGrant, LinkOffer } from './link';
 import type { E2EHttp } from './device';
 import { httpStatus } from './device';
@@ -29,7 +29,7 @@ export interface LinkRequestView {
   dhSig: string;
   code: string;
   expires_at: string;
-  status?: 'waiting' | 'approved';
+  status?: 'waiting' | 'approved' | 'denied';
   grant?: LinkGrant;
 }
 
@@ -148,6 +148,7 @@ export interface PendingDeviceLink {
   request: LinkRequestView;
   qrText: string;
   code: string; // 16 characters
+  number: number; // 10-99: picked on the other device for one-tap approval
   ek: KeyPair; // one-off; only this device can open the grant with it
 }
 
@@ -156,17 +157,17 @@ export async function startDeviceLink(store: EncryptedStore, http: E2EHttp): Pro
   const ek = newX25519();
   const request = await http.post<LinkRequestView>('/e2e/v2/link-requests', { device_id: device.deviceId, ek: b64(ek.pub) });
   const offer: LinkOffer = { requestId: request.id, ek: ek.pub, identitySign: identity.sign.pub, identityDh: identity.dh.pub };
-  return { request, qrText: linkQrText(offer), code: linkCodeV2(offer), ek };
+  return { request, qrText: linkQrText(offer), code: linkCodeV2(offer), number: linkNumber(offer), ek };
 }
 
 /**
  * Wait until another device approves, then check and keep what it sent. Resolves with the grant
- * (the caller restores the version 1 keys and the history from it), or null if the request expired
- * or `cancelled()` became true.
+ * (the caller restores the version 1 keys and the history from it), 'denied' if the other device
+ * said "Not me", or null if the request expired or `cancelled()` became true.
  */
 export async function waitForGrant(
   store: EncryptedStore, http: E2EHttp, user: string, link: PendingDeviceLink, cancelled: () => boolean, intervalMs = 2000,
-): Promise<GrantPayload | null> {
+): Promise<GrantPayload | 'denied' | null> {
   while (!cancelled()) {
     let status: LinkRequestView;
     try {
@@ -176,6 +177,7 @@ export async function waitForGrant(
       await sleep(intervalMs); // offline for a moment
       continue;
     }
+    if (status.status === 'denied') return 'denied';
     if (status.status === 'approved' && status.grant) {
       const payload = openGrant(status.grant, link.ek);
       link.ek.priv.fill(0);
@@ -250,6 +252,20 @@ export async function findLinkByCode(http: E2EHttp, typed: string): Promise<Foun
   const offer = offerOf(request);
   if (linkCodeV2(offer) !== code) throw new CryptoError('bad_signature', "This code doesn't match. Start again on the new device.");
   return { request, offer };
+}
+
+/** Devices waiting to be approved, for the "Is this you?" prompt (each with its keys and number choices). */
+export async function pendingDeviceLinks(http: E2EHttp): Promise<(FoundDeviceLink & { choices: number[]; number: number })[]> {
+  const requests = await http.get<LinkRequestView[]>('/e2e/v2/link-requests/pending');
+  return requests.map((request) => {
+    const offer = offerOf(request);
+    return { request, offer, choices: linkNumberChoices(offer), number: linkNumber(offer) };
+  });
+}
+
+/** "Not me" (or the wrong number): the new device is told and gets nothing. */
+export async function denyDeviceLink(http: E2EHttp, requestId: string): Promise<void> {
+  await http.post(`/e2e/v2/link-requests/${requestId}/deny`);
 }
 
 /**

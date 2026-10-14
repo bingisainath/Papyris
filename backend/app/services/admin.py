@@ -7,7 +7,7 @@ counts, and reports, where a reporter may have chosen to share a message's text.
 """
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import Date, cast, func, or_, select, update
@@ -69,7 +69,7 @@ async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> int:
 # ------------------------------------------------------------------ overview
 
 async def _per_day(db: AsyncSession, column, since: datetime, *where, count=None) -> dict[str, int]:
-    day = cast(column, Date)
+    day = cast(func.timezone("UTC", column), Date)  # UTC days, same as _series (not the DB or server time zone)
     rows = (await db.execute(
         select(day, count if count is not None else func.count()).where(column >= since, *where).group_by(day)
     )).all()
@@ -77,7 +77,7 @@ async def _per_day(db: AsyncSession, column, since: datetime, *where, count=None
 
 
 def _series(counts: dict[str, int], days: int) -> list[dict]:
-    today = date.today()
+    today = _now().date()  # UTC
     return [{"day": (d := (today - timedelta(days=days - 1 - i)).isoformat()), "count": counts.get(d, 0)} for i in range(days)]
 
 

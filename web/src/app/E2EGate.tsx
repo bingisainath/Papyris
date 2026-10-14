@@ -129,6 +129,8 @@ export const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => void }> = ({ mine, userId, onDone }) => {
   const [link, setLink] = useState<LinkHere | null>(null);
   const [expired, setExpired] = useState(false);
+  const [denied, setDenied] = useState(false);
+  const [showCode, setShowCode] = useState(false); // the QR / 16-character code instead of one-tap approval
   const [error, setError] = useState('');
   const [confirmFresh, setConfirmFresh] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -158,6 +160,7 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
   const begin = useCallback(async () => {
     const mineAttempt = ++attempt.current;
     setExpired(false);
+    setDenied(false);
     setError('');
     setLink(null);
     try {
@@ -168,6 +171,10 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
       if (mineAttempt !== attempt.current) return;
       if (result === 'expired') {
         setExpired(true);
+        return;
+      }
+      if (result === 'denied') {
+        setDenied(true);
         return;
       }
       onDone();
@@ -204,23 +211,43 @@ const LinkThisDevice: React.FC<{ mine: MyKeys; userId: string; onDone: () => voi
       </div>
       <h1 className="text-2xl font-semibold text-muted-900 text-center">Link this browser</h1>
       <p className="mt-2 text-center text-sm text-muted-600">
-        Your chats are end-to-end encrypted. To read them here, open ShareEven on your phone (or another signed-in
-        browser), go to <span className="font-medium text-muted-800">Settings → End-to-end encryption → Link a device</span>,
-        and scan this code.
+        {link?.number && !showCode
+          ? <>Your chats are end-to-end encrypted. Your phone (or other signed-in browser) is asking <b className="text-muted-800">“Is this you?”</b>. Tap this number there:</>
+          : <>Your chats are end-to-end encrypted. On a signed-in device, go to <span className="font-medium text-muted-800">Settings → Linked devices → Link a device</span>, and scan this code or type the code below.</>}
       </p>
 
       <div className="mt-6 flex flex-col items-center">
-        {link && !expired ? (
+        {link && !expired && !denied ? (
           <>
-            <div className="p-3 bg-white border border-muted-200 rounded-xl" aria-label="Link code QR">
-              <QRCodeSVG value={link.qrText} size={200} level="M" />
-            </div>
-            <p className="mt-4 text-xs text-muted-500">Or type this code on the other device</p>
-            <p className="mt-1 font-mono text-lg tracking-wider text-muted-900" data-testid="link-code">{link.code}</p>
+            {link.number && !showCode ? (
+              <>
+                <p className="w-28 h-28 rounded-3xl bg-primary-50 border border-primary-100 grid place-items-center font-display text-6xl font-bold text-primary-700 tabular-nums"
+                  aria-label={`Number to pick on your other device: ${link.number}`} data-testid="link-number">{link.number}</p>
+                <p className="mt-3 text-xs text-muted-500 text-center">Don't see it? Open ShareEven on your other device.</p>
+              </>
+            ) : (
+              <>
+                <div className="p-3 bg-white border border-muted-200 rounded-xl" aria-label="Link code QR">
+                  <QRCodeSVG value={link.qrText} size={200} level="M" />
+                </div>
+                <p className="mt-4 text-xs text-muted-500">Or type this code on the other device</p>
+                <p className="mt-1 font-mono text-lg tracking-wider text-muted-900" data-testid="link-code">{link.code}</p>
+              </>
+            )}
             <p className="mt-3 flex items-center gap-2 text-xs text-muted-500">
               <span className="w-3 h-3 rounded-full border-2 border-primary-200 border-t-primary-700 animate-spin" /> Waiting for your other device…
             </p>
+            {link.number && (
+              <button type="button" onClick={() => setShowCode((s) => !s)} className="mt-3 text-sm font-semibold text-primary-700 hover:underline">
+                {showCode ? 'Approve with one tap instead' : 'Use a code instead'}
+              </button>
+            )}
           </>
+        ) : denied ? (
+          <div className="text-center">
+            <p className="text-sm text-muted-600">This was turned down on your other device.</p>
+            <button type="button" onClick={begin} className="mt-3 px-4 py-2 rounded-lg bg-primary-700 text-white text-sm font-medium">Try again</button>
+          </div>
         ) : expired ? (
           <div className="text-center">
             <p className="text-sm text-muted-600">The code expired.</p>

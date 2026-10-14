@@ -9,7 +9,7 @@ import {
   importHistory, startDeviceLink, startFreshAccount, unb64, waitForGrant,
 } from '../v2';
 import type { DeviceList, FoundDeviceLink, GrantPayload, KeyPair } from '../v2';
-import { b64, httpStatus, loadDeviceIdentity } from '../v2';
+import { b64, denyDeviceLink, httpStatus, loadDeviceIdentity, pendingDeviceLinks } from '../v2';
 import { http, startV2 } from './runtime';
 import * as v1 from '../linking';
 import { formatLinkCode, fromBase64, keysFromSecret, keysToSecret, publicKeysOf, toBase64 } from '../e2e';
@@ -47,12 +47,34 @@ export async function listStatus(userId: string): Promise<'listed' | 'not_listed
 export interface LinkHere {
   qrText: string;
   code: string; // formatted, e.g. ABCD-EFGH-IJKL-MNOP
-  /** Resolves 'done' once the keys (and history) are in, 'expired' when the code ran out. */
-  wait: (cancelled: () => boolean) => Promise<'done' | 'expired'>;
+  /** One-tap approval: the number to pick on the other device (version 2 only). */
+  number?: number;
+  /** Resolves 'done' once the keys (and history) are in, 'expired' when the code ran out, 'denied' on "Not me". */
+  wait: (cancelled: () => boolean) => Promise<'done' | 'expired' | 'denied'>;
 }
 
 /** Show a code on this browser for another of the account's devices to approve. */
-export async function linkHere(userId: string, encPublic: string, deviceName: string): Promise<LinkHere> {
+export function linkHere(userId: string, encPublic: string, deviceName: string): Promise<LinkHere> {
+  // The screen can ask more than once while it loads. Each ask would be a separate request, and the
+  // other device's "Is this you?" would show the numbers of whichever came last, so share one.
+  inFlight[userId] ??= startLinkHere(userId, encPublic, deviceName).finally(() => { delete inFlight[userId]; });
+  return inFlight[userId];
+}
+
+const inFlight: Record<string, Promise<LinkHere>> = {};
+
+/** One poll however many screens wait on it; it stops once all of them have gone. */
+function sharedWait(wait: LinkHere['wait']): LinkHere['wait'] {
+  const watchers: Array<() => boolean> = [];
+  let running: ReturnType<LinkHere['wait']> | null = null;
+  return (cancelled) => {
+    watchers.push(cancelled);
+    running ??= wait(() => watchers.every((c) => c()));
+    return running;
+  };
+}
+
+async function startLinkHere(userId: string, encPublic: string, deviceName: string): Promise<LinkHere> {
   const rt = await startV2(userId);
   if ((await listStatus(userId)) !== 'not_listed') {
     // No version 2 device list to join (this browser just became the account's first v2 device): version 1 linking
@@ -60,24 +82,26 @@ export async function linkHere(userId: string, encPublic: string, deviceName: st
     return {
       qrText: pending.qrText,
       code: formatLinkCode(pending.code),
-      wait: async (cancelled) => {
+      wait: sharedWait(async (cancelled) => {
         const keys = await v1.waitForKeys(pending, encPublic, cancelled);
         if (!keys) return 'expired';
         await e2eSession.set(userId, keys);
         return 'done';
-      },
+      }),
     };
   }
   const pending = await startDeviceLink(rt.store, http);
   return {
     qrText: pending.qrText,
     code: formatLinkCode(pending.code),
-    wait: async (cancelled) => {
+    number: pending.number,
+    wait: sharedWait(async (cancelled) => {
       const grant = await waitForGrant(rt.store, http, userId, pending, cancelled);
+      if (grant === 'denied') return 'denied';
       if (!grant) return 'expired';
       await applyGrant(userId, encPublic, grant);
       return 'done';
-    },
+    }),
   };
 }
 
@@ -135,6 +159,39 @@ function v2Found(userId: string, found: FoundDeviceLink): FoundDevice {
 
 function v1Found(found: v1.FoundLink): FoundDevice {
   return { name: found.request.device_name, approve: () => v1.approve(found) };
+}
+
+/** A device waiting for this one to say "Is this you?" (one-tap approval). */
+export interface LinkApproval {
+  id: string;
+  name: string;
+  choices: number[]; // three two-digit numbers; one is on the new device's screen
+  /** The right number approves (sending the history if asked); a wrong one turns the device down. True if right. */
+  answer: (picked: number, sendHistory: boolean) => Promise<boolean>;
+  deny: () => Promise<void>;
+}
+
+/** Devices waiting for approval. Empty on a device that can't approve (it hasn't got the account key yet). */
+export async function pendingApprovals(userId: string): Promise<LinkApproval[]> {
+  const rt = await startV2(userId);
+  if (!rt.state.listed || !(await rt.store.accountKey())) return [];
+  const waiting = await pendingDeviceLinks(http);
+  return waiting
+    .filter((w) => w.request.device_id !== rt.state.deviceId)
+    .map((w) => ({
+      id: w.request.id,
+      name: w.request.name,
+      choices: w.choices,
+      answer: async (picked, sendHistory) => {
+        if (picked !== w.number) {
+          await denyDeviceLink(http, w.request.id); // a guess, or someone else's device: never a second try
+          return false;
+        }
+        await v2Found(userId, w).approve(sendHistory);
+        return true;
+      },
+      deny: () => denyDeviceLink(http, w.request.id),
+    }));
 }
 
 /** Typed 16-character code shown by the new device. */

@@ -122,6 +122,8 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
   const { logout } = useAuth();
   const [link, setLink] = useState<LinkHere | null>(null);
   const [expired, setExpired] = useState(false);
+  const [denied, setDenied] = useState(false);
+  const [showCode, setShowCode] = useState(false); // the QR / 16-character code instead of one-tap approval
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [noDevice, setNoDevice] = useState(false);
@@ -173,6 +175,7 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
   const begin = useCallback(async () => {
     const mineAttempt = ++attempt.current;
     setExpired(false);
+    setDenied(false);
     setError('');
     setLink(null);
     try {
@@ -181,6 +184,10 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
       setLink(pending);
       const result = await pending.wait(() => mineAttempt !== attempt.current);
       if (mineAttempt !== attempt.current) return;
+      if (result === 'denied') {
+        setDenied(true);
+        return;
+      }
       if (result === 'expired') {
         setExpired(true);
         return;
@@ -252,19 +259,42 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
     <AuthLayout
       onBack={goBack}
       title="Link this phone"
-      subtitle="Your chats are end-to-end encrypted. On a device that's already signed in (your laptop's browser works), open Settings → Linked devices → Link a device, then type the 16-character code below. No camera needed; scanning the QR works too."
+      subtitle={link?.number && !showCode
+        ? 'Your chats are end-to-end encrypted. Your laptop or other signed-in device is asking "Is this you?". Tap this number there:'
+        : "Your chats are end-to-end encrypted. On a device that's already signed in, open Settings → Linked devices → Link a device, then type the 16-character code below or scan the QR."}
     >
       {!!error && <Banner text={error} />}
       <View style={styles.qrBox}>
-        {link && !expired ? (
+        {link && !expired && !denied ? (
           <>
-            <View style={styles.qr}><QRCode value={link.qrText} size={200} /></View>
-            <Text style={styles.small}>Type this code on the other device</Text>
-            <Text style={styles.code} selectable>{link.code}</Text>
+            {link.number && !showCode ? (
+              <>
+                <View style={styles.numberBox} accessibilityLabel={`Number to pick on your other device: ${link.number}`}>
+                  <Text style={styles.number}>{link.number}</Text>
+                </View>
+                <Text style={styles.small}>Don't see it? Open ShareEven on your other device.</Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.qr}><QRCode value={link.qrText} size={200} /></View>
+                <Text style={styles.small}>Type this code on the other device</Text>
+                <Text style={styles.code} selectable>{link.code}</Text>
+              </>
+            )}
             <View style={styles.waiting}>
               <ActivityIndicator size="small" color={colors.primary700} />
               <Text style={styles.small}>Waiting for your other device…</Text>
             </View>
+            {!!link.number && (
+              <Pressable onPress={() => setShowCode((v) => !v)} hitSlop={8} style={{ marginTop: space(3) }}>
+                <Text style={styles.link}>{showCode ? 'Approve with one tap instead' : 'Use a code instead'}</Text>
+              </Pressable>
+            )}
+          </>
+        ) : denied ? (
+          <>
+            <Text style={styles.small}>This was turned down on your other device.</Text>
+            <Button title="Try again" onPress={begin} compact style={{ marginTop: space(3) }} />
           </>
         ) : expired ? (
           <>
@@ -318,6 +348,9 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '600', color: colors.muted700 },
   link: { color: colors.primary700, fontWeight: '600' },
   qrBox: { alignItems: 'center', paddingVertical: space(2) },
+  numberBox: { width: 120, height: 120, borderRadius: 28, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.primary50, borderWidth: 1, borderColor: colors.primary100 },
+  number: { fontSize: 60, fontWeight: '800', color: colors.primary700, fontVariant: ['tabular-nums'] },
   qr: { padding: space(3), backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.muted200 },
   small: { marginTop: space(3), fontSize: 12, color: colors.muted500, textAlign: 'center' },
   code: { marginTop: space(1), fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 18, letterSpacing: 1.5, color: colors.muted900 },

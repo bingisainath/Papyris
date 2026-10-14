@@ -172,9 +172,13 @@ def main():
         second_ctx, second = new_page("bob-second-browser")
         login(second, "qa_bob")
         expect(second.get_by_role("heading", name="Link this browser")).to_be_visible(timeout=15000)
+        expect(second.get_by_test_id("link-number")).to_be_visible(timeout=15000)  # one-tap approval is the default now
+        second.get_by_role("button", name="Use a code instead").click()
         code = second.get_by_test_id("link-code").inner_text()
         second.screenshot(path=SHOTS / "c3-link-qr.png")
         bob.goto(f"{WEB}/settings")
+        # Bob's browser asks "Is this you?" too; close it to approve with the code instead
+        bob.get_by_role("alertdialog", name="Is this you?").get_by_role("button", name="Not now").click()
         bob.get_by_role("button", name="Link a device").click()
         bob.get_by_label("Link code").fill("WRONGCODEWRONGCO")
         bob.get_by_role("button", name="Continue").click()
