@@ -125,6 +125,12 @@ class TestUser:
 
 
 @pytest.fixture(autouse=True)
+def no_email_dns(monkeypatch):
+    """Tests sign up with @example.com, which (correctly) can't receive mail: skip the DNS check."""
+    monkeypatch.setattr(_settings, "EMAIL_DOMAIN_CHECK", False)
+
+
+@pytest.fixture(autouse=True)
 def no_real_email(monkeypatch):
     """Tests never send mail, whatever SMTP settings the developer's .env has (emails go to the log)."""
     from app.services.email_service import email_service

@@ -91,7 +91,9 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   loadMessages: async (conversationId) => {
-    const { messages, hasMore } = await chatApi.messages(conversationId);
+    const page = await chatApi.messages(conversationId);
+    const messages = await resolveV2(page.messages);
+    const { hasMore } = page;
     // keep messages still being sent
     const pending = (get().messages[conversationId] || []).filter((m) => m.id.startsWith('temp-'));
     set((s) => ({
@@ -99,21 +101,21 @@ export const useChat = create<ChatState>((set, get) => ({
       hasMore: { ...s.hasMore, [conversationId]: hasMore },
     }));
     flagUnverified(conversationId, messages);
-    fillV2(conversationId, messages);
   },
 
   loadOlder: async (conversationId) => {
     const current = get().messages[conversationId] || [];
     const oldest = current.find((m) => !m.id.startsWith('temp-'));
     if (!oldest) return;
-    const { messages, hasMore } = await chatApi.messages(conversationId, oldest.id);
+    const page = await chatApi.messages(conversationId, oldest.id);
+    const messages = await resolveV2(page.messages);
+    const { hasMore } = page;
     const known = new Set(current.map((m) => m.id));
     set((s) => ({
       messages: { ...s.messages, [conversationId]: [...messages.filter((m) => !known.has(m.id)), ...current] },
       hasMore: { ...s.hasMore, [conversationId]: hasMore },
     }));
     flagUnverified(conversationId, messages);
-    fillV2(conversationId, messages);
   },
 
   open: (conversationId) => {
@@ -302,28 +304,32 @@ function applyV2(r: Received) {
 /** Process this phone's v2 mailbox (after starting or reconnecting). */
 export const syncV2 = () => drainMailbox((r) => applyV2(r)).catch(() => undefined);
 
-/** v2 rows (and quoted v2 messages): fill from this phone's local database. */
-function fillV2(conversationId: string, messages: Message[]) {
-  const set = useChat.setState as unknown as Setter;
-  for (const m of messages) {
+/**
+ * v2 rows (and quoted v2 messages): fill from this phone's local database before they're shown,
+ * all at once. Showing "Waiting for this message…" placeholders first and filling them one by
+ * one made every opened chat flash (a column of purple placeholder bubbles) and re-render per message.
+ */
+async function resolveV2(messages: Message[]): Promise<Message[]> {
+  let joined: Promise<number | null> | null = null;
+  const joinedOnce = () => (joined ??= joinedAt().catch(() => null));
+  return Promise.all(messages.map(async (m) => {
+    let out = m;
     if (m.e2eVersion === 2 && m.e2e === 'pending') {
-      localFor(m.id).then(async (local) => {
-        if (local) {
-          updateMessage(set, conversationId, m.id, fromLocal(local));
-        } else {
-          const joined = await joinedAt();
-          // Sent before this phone was linked (both times from the server's clock): it will never arrive here
-          if (joined && Date.parse(m.timestamp) < joined) updateMessage(set, conversationId, m.id, { e2e: 'unreadable' });
-        }
-      }).catch(() => undefined);
+      const local = await localFor(m.id).catch(() => null);
+      if (local) {
+        out = { ...out, ...fromLocal(local) };
+      } else {
+        // Sent before this phone was linked (both times from the server's clock): it will never arrive here
+        const since = await joinedOnce();
+        if (since && Date.parse(m.timestamp) < since) out = { ...out, e2e: 'unreadable' };
+      }
     }
     if (m.replyTo && isV2Marker(m.replyTo.text)) {
-      const reply = m.replyTo;
-      localFor(reply.id).then((local) => {
-        updateMessage(set, conversationId, m.id, { replyTo: { ...reply, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } });
-      }).catch(() => undefined);
+      const local = await localFor(m.replyTo.id).catch(() => null);
+      out = { ...out, replyTo: { ...m.replyTo, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } };
     }
-  }
+    return out;
+  }));
 }
 
 /** Send a text message, end-to-end encrypted when everyone in the chat has set up encryption. */

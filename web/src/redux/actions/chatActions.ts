@@ -125,26 +125,32 @@ const toMessage = (msg: any) => (isV2Marker(msg.text) ? (m: Message) => ({ ...m,
 } as Message));
 
 /** v2 rows (and quoted v2 messages): fill from this device's local database. */
-function fillV2(dispatch: AppDispatch, conversationId: string, messages: Message[]) {
-  for (const m of messages) {
+/**
+ * Fill in encrypted (v2) messages from this browser's local store before they're shown, all at once:
+ * showing "Waiting for this message…" placeholders first and filling them one by one made every
+ * opened chat flicker (and re-render once per message).
+ */
+async function resolveV2(messages: Message[]): Promise<Message[]> {
+  let joined: Promise<number | null> | null = null;
+  const joinedOnce = () => (joined ??= joinedAt().catch(() => null));
+  return Promise.all(messages.map(async (m) => {
+    let out = m;
     if (m.e2eVersion === 2 && m.e2e === 'pending') {
-      localFor(m.id).then(async (local) => {
-        if (local) {
-          dispatch(updateMessage({ conversationId, messageId: m.id, updates: fromLocal(local) }));
-        } else {
-          const joined = await joinedAt();
-          // Sent before this browser was linked (both times from the server's clock): it will never arrive here
-          if (joined && Date.parse(m.timestamp) < joined) dispatch(updateMessage({ conversationId, messageId: m.id, updates: { e2e: 'unreadable' } }));
-        }
-      }).catch(() => undefined);
+      const local = await localFor(m.id).catch(() => null);
+      if (local) {
+        out = { ...out, ...fromLocal(local) };
+      } else {
+        // Sent before this browser was linked (both times from the server's clock): it will never arrive here
+        const since = await joinedOnce();
+        if (since && Date.parse(m.timestamp) < since) out = { ...out, e2e: 'unreadable' };
+      }
     }
     if (m.replyTo && isV2Marker(m.replyTo.text)) {
-      const reply = m.replyTo;
-      localFor(reply.id).then((local) => {
-        dispatch(updateMessage({ conversationId, messageId: m.id, updates: { replyTo: { ...reply, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } } }));
-      }).catch(() => undefined);
+      const local = await localFor(m.replyTo.id).catch(() => null);
+      out = { ...out, replyTo: { ...m.replyTo, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } };
     }
-  }
+    return out;
+  }));
 }
 
 /** Mark encrypted messages whose signature isn't from their sender's key (checked in the background). */
@@ -164,10 +170,9 @@ export const fetchMessages = (conversationId: string) => async (dispatch: AppDis
     const response = await chatService.getMessages(conversationId);
 
     if (response.success && response.data) {
-      const messages = response.data.map(toMessage);
+      const messages = await resolveV2(response.data.map(toMessage));
       dispatch(setMessages({ conversationId, messages, hasMore: !!response.has_more }));
       flagUnverified(dispatch, conversationId, messages);
-      fillV2(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch messages:', error);
@@ -190,10 +195,9 @@ export const fetchOlderMessages = (conversationId: string) => async (
   try {
     const response = await chatService.getMessages(conversationId, 50, oldest.id);
     if (response.success && response.data) {
-      const messages = response.data.map(toMessage);
+      const messages = await resolveV2(response.data.map(toMessage));
       dispatch(prependMessages({ conversationId, messages, hasMore: !!response.has_more }));
       flagUnverified(dispatch, conversationId, messages);
-      fillV2(dispatch, conversationId, messages);
     }
   } catch (error: any) {
     console.error('Failed to fetch older messages:', error);

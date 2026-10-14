@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     FROM_EMAIL: str = ""  # defaults to SMTP_USER
     FROM_NAME: str = "ShareEven"
     REPLY_TO: str = "support@shareeven.com"  # replies to noreply@ reach a person
+    # Sign-up: refuse email domains that can't receive mail, and suggest fixes for typos (gmial.com)
+    EMAIL_DOMAIN_CHECK: bool = True
     FRONTEND_URL: str = "http://localhost:3000"  # used in password-reset links
 
     # Push notifications (Firebase Cloud Messaging). Path to the service-account JSON downloaded

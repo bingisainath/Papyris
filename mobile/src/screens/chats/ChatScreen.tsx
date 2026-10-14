@@ -4,7 +4,7 @@ import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, Te
 import Clipboard from '@react-native-clipboard/clipboard';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Ban, Copy, CornerUpLeft, Download, Flag, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Search, ShieldAlert, Trash2, X } from 'lucide-react-native';
+import { Ban, ChevronDown, Copy, CornerUpLeft, Download, Flag, Forward as ForwardIcon, Info, Lock, LockOpen, Pencil, ReceiptText, Search, ShieldAlert, Trash2, X } from 'lucide-react-native';
 import ChatSearch from './ChatSearch';
 import { useKeyChanges, useTrustActions } from '../../crypto/v2-platform/trust';
 import { useChatEncryption } from '../../crypto/useChatEncryption';
@@ -19,6 +19,7 @@ import { saveToPhone } from '../../utils/save';
 import { chatApi, Message, ReplyPreview } from '../../api/chat';
 import { errorMessage } from '../../api/client';
 import { safetyApi } from '../../api/safety';
+import { chatDrafts } from '../../utils/drafts';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
 import { mediaPayloadOf, typingNames, useChat } from '../../store/chat';
@@ -35,7 +36,7 @@ const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const TYPING_REPEAT_MS = 2500;
 const EMPTY: Message[] = [];
 
-type Row = { kind: 'message'; message: Message } | { kind: 'album'; messages: Message[] } | { kind: 'day'; label: string; key: string };
+type Row = { kind: 'message'; message: Message } | { kind: 'album'; messages: Message[] } | { kind: 'day'; label: string; key: string } | { kind: 'unread' };
 
 const preview = (m: Message) =>
   m.text || (m.mediaType === 'image' ? 'Photo' : m.mediaType === 'video' ? 'Video' : m.mediaType === 'audio' ? 'Voice message' : m.mediaFilename || 'File');
@@ -51,6 +52,38 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   const { open, loadMessages, loadOlder, send, retry, sendMedia, cancelUpload, retryUpload, forward } = useChat.getState();
 
   const [text, setText] = useState('');
+  // Unsent text for this chat comes back when you return to it
+  useEffect(() => {
+    let alive = true;
+    chatDrafts.get(conversationId).then((draft) => { if (alive && draft) setText((t) => t || draft); });
+    return () => { alive = false; };
+  }, [conversationId]);
+  const restoreDraft = () => { chatDrafts.get(conversationId).then(setText); };
+
+  // The "New messages" line: above the oldest message that was unread when this chat opened
+  const unreadAtOpen = useRef(conversation?.unreadCount || 0);
+  const firstUnread = useRef<string | null>(null);
+  if (!firstUnread.current && unreadAtOpen.current > 0 && messages.length) {
+    const fromOthers = messages.filter((m) => m.senderId !== me.id && m.messageType !== 'system' && !m.id.startsWith('temp-'));
+    firstUnread.current = fromOthers[Math.max(0, fromOthers.length - unreadAtOpen.current)]?.id ?? null;
+  }
+  const firstUnreadId = firstUnread.current;
+
+  // Newer messages while reading further up: counted on a "new messages" button instead of a jump
+  const offsetY = useRef(0);
+  const openedAtLine = useRef(false);
+  const [newBelow, setNewBelow] = useState(0);
+  const [farFromNewest, setFarFromNewest] = useState(false);
+  const newestId = messages[messages.length - 1]?.id;
+  const lastNewestId = useRef(newestId);
+  useEffect(() => {
+    const newest = messages[messages.length - 1];
+    if (!newest || newest.id === lastNewestId.current) return;
+    const wasKnown = lastNewestId.current !== undefined;
+    lastNewestId.current = newest.id;
+    if (wasKnown && offsetY.current > 160 && newest.senderId !== me.id) setNewBelow((n) => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newestId]);
   const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [selected, setSelected] = useState<Message | null>(null);
@@ -127,6 +160,9 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i];
       out.push(item);
+      // (newest first: pushed after the message, so it's drawn just above it)
+      const ids = item.kind === 'album' ? item.messages.map((x) => x.id) : [item.message.id];
+      if (firstUnreadId && ids.includes(firstUnreadId)) out.push({ kind: 'unread' });
       const m = firstOf(item);
       const older = items[i - 1] ? firstOf(items[i - 1]) : null;
       if (!older || new Date(older.timestamp).toDateString() !== new Date(m.timestamp).toDateString()) {
@@ -134,7 +170,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       }
     }
     return out;
-  }, [messages]);
+  }, [messages, firstUnreadId]);
 
   // Photos and videos of this chat, for the full-screen viewer
   const media = useMemo<ViewerItem[]>(() => messages
@@ -159,6 +195,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   const onChangeText = (value: string) => {
     setText(value);
+    if (!editing) chatDrafts.set(conversationId, value);
     const now = Date.now();
     if (now - lastTypingSent.current > TYPING_REPEAT_MS) {
       socket.typing(conversationId, true);
@@ -176,7 +213,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     if (editing) {
       const original = editing;
       setEditing(null);
-      setText('');
+      restoreDraft(); // back to what they were typing before editing
       if (!value || value === original.text) return;
       try {
         if (original.e2eVersion === 2) {
@@ -196,6 +233,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     if (!value) return;
     send(conversationId, value, { id: me.id, username: me.username }, replyTo);
     setText('');
+    chatDrafts.clear(conversationId);
     setReplyTo(null);
   };
 
@@ -250,6 +288,13 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
 
   const renderRow = ({ item }: { item: Row }) => {
     if (item.kind === 'day') return <Text style={styles.day}>{item.label}</Text>;
+    if (item.kind === 'unread') {
+      return (
+        <View style={styles.unreadLine} accessibilityRole="text" accessibilityLabel="New messages">
+          <View style={styles.unreadRule} /><Text style={styles.unreadText}>NEW MESSAGES</Text><View style={styles.unreadRule} />
+        </View>
+      );
+    }
     if (item.kind === 'album') {
       return <AlbumGrid messages={item.messages} mine={item.messages[0].senderId === me.id} showSender={!!conversation?.isGroup} onOpen={openMedia} />;
     }
@@ -327,7 +372,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             ref={list}
             data={rows}
             inverted
-            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'album' ? `album-${r.messages[0].id}` : r.message.id)}
+            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'unread' ? 'unread-line' : r.kind === 'album' ? `album-${r.messages[0].id}` : r.message.id)}
             renderItem={renderRow}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
@@ -340,7 +385,34 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             ListEmptyComponent={<Text style={styles.day}>No messages yet. Say hello.</Text>}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
+            // Reading older messages: new ones don't move what you're looking at; near the newest, they scroll in
+            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 160 }}
+            onScroll={(e) => {
+              offsetY.current = e.nativeEvent.contentOffset.y; // inverted: 0 is the newest message
+              const far = offsetY.current > e.nativeEvent.layoutMeasurement.height;
+              if (far !== farFromNewest) setFarFromNewest(far);
+              if (offsetY.current < 160 && newBelow) setNewBelow(0);
+            }}
+            scrollEventThrottle={100}
+            onLayout={() => {
+              // Opened with lots unread: start at the "New messages" line instead of the newest message
+              if (openedAtLine.current) return;
+              openedAtLine.current = true;
+              const index = rows.findIndex((r) => r.kind === 'unread');
+              if (index > 8) setTimeout(() => list.current?.scrollToIndex({ index, viewPosition: 0.75, animated: false }), 50);
+            }}
           />
+        )}
+        {(newBelow > 0 || farFromNewest) && !loading && (
+          <Pressable
+            onPress={() => { list.current?.scrollToOffset({ offset: 0, animated: true }); setNewBelow(0); }}
+            style={styles.newBelow}
+            accessibilityRole="button"
+            accessibilityLabel={newBelow > 0 ? `${newBelow} new message${newBelow === 1 ? '' : 's'}, go to the newest` : 'Go to the newest message'}
+          >
+            <ChevronDown size={18} color={colors.primary700} />
+            {newBelow > 0 && <Text style={styles.newBelowText}>{newBelow} new</Text>}
+          </Pressable>
         )}
 
         {(replyTo || editing) && (
@@ -349,7 +421,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
               <Text style={styles.bannerTitle}>{editing ? 'Editing message' : `Replying to ${replyTo?.senderName || 'message'}`}</Text>
               {!editing && <Text style={styles.bannerText} numberOfLines={1}>{replyTo?.text}</Text>}
             </View>
-            <Pressable onPress={() => { setReplyTo(null); if (editing) { setEditing(null); setText(''); } }} hitSlop={10} accessibilityLabel="Cancel">
+            <Pressable onPress={() => { setReplyTo(null); if (editing) { setEditing(null); restoreDraft(); } }} hitSlop={10} accessibilityLabel="Cancel">
               <X size={18} color={colors.muted500} />
             </Pressable>
           </View>
@@ -457,6 +529,16 @@ const SheetAction: React.FC<{ icon: React.ComponentType<{ size?: number; color?:
 
 const styles = StyleSheet.create({
   highlight: { backgroundColor: colors.primary100, borderRadius: radius.md },
+  unreadLine: { flexDirection: 'row', alignItems: 'center', gap: space(2), marginHorizontal: space(4), marginVertical: space(2) },
+  unreadRule: { flex: 1, height: StyleSheet.hairlineWidth * 2, backgroundColor: colors.primary300 },
+  unreadText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, color: colors.primary600 },
+  newBelow: {
+    position: 'absolute', right: space(4), bottom: space(20), flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: space(3), height: 38, borderRadius: 19, backgroundColor: colors.white,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.muted200, elevation: 4,
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
+  },
+  newBelowText: { fontSize: 13, fontWeight: '700', color: colors.primary700 },
   safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },

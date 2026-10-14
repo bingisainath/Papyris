@@ -9,6 +9,7 @@ import { Button, TextField } from '../common/ui';
 import { formatRecoveryKey, isRecoveryKey, newRecoveryKey } from '../../crypto/backup';
 import { adoptRecoveryKey, backupStatus, runBackup, turnOffBackup, turnOnBackup } from '../../crypto/backupRuntime';
 import type { BackupStatus } from '../../crypto/backupRuntime';
+import { forgetRecoveryKey, hasSavedRecoveryKey, saveErrorMessage, saveRecoveryKey } from '../../crypto/savedRecoveryKey';
 import { errorMessage } from '../../api/client';
 import { formatSize } from '../../utils/time';
 import { colors, radius, space } from '../../theme';
@@ -21,10 +22,30 @@ const BackupSection: React.FC<{ userId: string }> = ({ userId }) => {
   const [typed, setTyped] = useState('');
   const [entering, setEntering] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [keepOnPhone, setKeepOnPhone] = useState(true);
+  const [keySaved, setKeySaved] = useState(false);
 
   const load = useCallback(() => {
     backupStatus(userId).then(setStatus).catch(() => setStatus(null));
+    hasSavedRecoveryKey(userId).then(setKeySaved);
   }, [userId]);
+
+  /** After turning backup on (or adopting the key): keep the key on this phone if asked to. */
+  const keepKey = async (key: string) => {
+    if (!keepOnPhone) return;
+    try {
+      await saveRecoveryKey(userId, key);
+    } catch (e) {
+      showAlert("The key wasn't saved on this phone", saveErrorMessage(e));
+    }
+  };
+
+  const keepRow = (
+    <Pressable style={styles.check} onPress={() => setKeepOnPhone((k) => !k)}>
+      <Switch value={keepOnPhone} onValueChange={setKeepOnPhone} trackColor={{ true: colors.primary600, false: colors.muted300 }} thumbColor={colors.white} />
+      <Text style={styles.checkText}>Also keep it on this phone, unlocked with your fingerprint or screen PIN, so signing in again can restore your chats</Text>
+    </Pressable>
+  );
   useEffect(load, [load]);
 
   const act = async (fn: () => Promise<void>, done: string) => {
@@ -70,10 +91,11 @@ const BackupSection: React.FC<{ userId: string }> = ({ userId }) => {
             <Switch value={saved} onValueChange={setSaved} trackColor={{ true: colors.primary600, false: colors.muted300 }} thumbColor={colors.white} />
             <Text style={styles.checkText}>I've saved my recovery key</Text>
           </Pressable>
+          {keepRow}
           <View style={styles.row}>
             <Button title="Cancel" variant="secondary" compact onPress={() => setNewKey(null)} />
             <Button title={busy ? 'Backing up…' : 'Turn on and back up'} compact loading={busy} disabled={!saved}
-              onPress={() => act(() => turnOnBackup(userId, newKey), 'Backup turned on')} />
+              onPress={() => act(async () => { await turnOnBackup(userId, newKey); await keepKey(newKey); }, 'Backup turned on')} />
           </View>
         </View>
       ) : (
@@ -82,23 +104,35 @@ const BackupSection: React.FC<{ userId: string }> = ({ userId }) => {
             On. Last backup {status.created_at ? new Date(status.created_at).toLocaleString() : '—'}{status.size ? ` · ${formatSize(status.size)}` : ''}.
             {status.thisDevice ? ' This phone backs up once a day.' : ''}
           </Text>
-          {!status.thisDevice && !entering && (
+          <Text style={[styles.text, styles.top]}>
+            {keySaved ? 'Your recovery key is saved on this phone (fingerprint or screen PIN to unlock). ' : 'Your recovery key isn\'t saved on this phone. '}
+            {keySaved && (
+              <Text style={styles.link} onPress={() => showAlert('Remove the saved key?', 'Signing in again on this phone will need the key typed in, or another device.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Remove', style: 'destructive', onPress: () => { forgetRecoveryKey(userId).then(load); } },
+              ])}>Remove</Text>
+            )}
+          </Text>
+          {(!status.thisDevice || !keySaved) && !entering && (
             <Pressable onPress={() => setEntering(true)} style={styles.top}>
-              <Text style={styles.link}>Back up from this phone too (needs your recovery key)</Text>
+              <Text style={styles.link}>
+                {status.thisDevice ? 'Save the key on this phone (type it once)' : 'Back up from this phone too (needs your recovery key)'}
+              </Text>
             </Pressable>
           )}
           {entering && (
             <View style={styles.top}>
               <TextField label="64-digit recovery key" value={typed} onChangeText={setTyped} keyboardType="number-pad" />
+              {keepRow}
               <Button title="Use key" compact disabled={!isRecoveryKey(typed) || busy}
-                onPress={() => act(() => adoptRecoveryKey(userId, typed), 'This phone will back up too')} />
+                onPress={() => act(async () => { await adoptRecoveryKey(userId, typed); await keepKey(typed); }, 'This phone will back up too')} />
             </View>
           )}
           <View style={[styles.row, styles.top]}>
             {status.thisDevice && <Button title={busy ? 'Backing up…' : 'Back up now'} variant="secondary" compact loading={busy} onPress={() => act(() => runBackup(userId), 'Backed up')} />}
             <Button title="Turn off" variant="danger" compact onPress={() => showAlert('Turn off backups?', 'The backup is deleted. Without it, losing every device means losing your encrypted chats.', [
               { text: 'Cancel', style: 'cancel' },
-              { text: 'Turn off', style: 'destructive', onPress: () => act(() => turnOffBackup(userId), 'Backup turned off') },
+              { text: 'Turn off', style: 'destructive', onPress: () => act(async () => { await turnOffBackup(userId); await forgetRecoveryKey(userId); }, 'Backup turned off') },
             ])} />
           </View>
         </View>

@@ -19,6 +19,7 @@ import { e2eSession } from "../crypto/session";
 import { stopV2 } from "../crypto/v2-platform/runtime";
 import { ACCOUNT_DELETED_EVENT, ACCOUNT_SUSPENDED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
+import { chatDrafts } from "../utils/drafts";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
 import type { AppDispatch } from "../redux/store";
@@ -38,7 +39,8 @@ type AuthContextType = {
   error: string | null;
   // login: (email: string, password: string) => Promise<void>;
   login: (identifier: string, password: string) => Promise<void>;
-  register: (u: string, e: string, p: string) => Promise<void>;
+  /** Rejects with error.suggestion set when the email looks mistyped ("Did you mean …?"). */
+  register: (u: string, e: string, p: string, emailTypoChecked?: boolean) => Promise<void>;
   verifyEmail: (identifier: string, code: string) => Promise<void>;
   resendCode: (identifier: string) => Promise<void>;
   /** Resolves to the account's partly hidden email (where the link went). */
@@ -82,6 +84,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     await stopV2().catch(() => undefined);
     tokenStore.clear();
     e2eSession.clear(); // signing in here again means linking it again
+    chatDrafts.clearAll(); // unsent text stays with the person, not the browser
     setUser(null);
     setError(null);
   }, [dispatch]);
@@ -255,7 +258,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const register = useCallback(
-    async (username: string, email: string, password: string): Promise<void> => {
+    async (username: string, email: string, password: string, emailTypoChecked = false): Promise<void> => {
       setError(null);
       setIsLoading(true);
 
@@ -278,7 +281,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         const res = unwrap<User>(
-          await registerUser({ username, email, password })
+          await registerUser({ username, email, password, email_typo_checked: emailTypoChecked })
         );
 
         if (!res.success) {
@@ -293,7 +296,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const msg = parseApiError(err);
         setError(msg);
         console.error("[AUTH] ❌ REGISTER ERROR:", msg);
-        throw new Error(msg);
+        const body = (err as any)?.response?.data;
+        throw Object.assign(new Error(msg), body?.code === "email_typo" ? { suggestion: body.data?.suggestion as string } : {});
       } finally {
         setIsLoading(false);
       }

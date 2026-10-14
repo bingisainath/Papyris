@@ -71,6 +71,7 @@ const MessageBubble: React.FC<Props> = ({
           onLongPress={m.isDeleted || m.id.startsWith('temp-') ? undefined : onLongPress}
           delayLongPress={300}
           style={[styles.bubble, mine ? styles.mine : styles.other, visual && styles.bubbleMedia]}
+          accessibilityLabel={spoken(m, mine)}
           accessibilityHint="Long press for options"
         >
           {showSender && !mine && m.senderName && <Text style={[styles.sender, visual && styles.senderMedia]}>{m.senderName}</Text>}
@@ -296,3 +297,14 @@ const styles = StyleSheet.create({
 });
 
 export default React.memo(MessageBubble);
+
+const STATUS_WORDS: Record<string, string> = { sending: 'sending', sent: 'sent', delivered: 'delivered', read: 'read', failed: 'not sent' };
+
+/** What a screen reader says for a message: who, what, when and (yours) its status. */
+function spoken(m: Message, mine: boolean): string {
+  const who = mine ? 'You' : m.senderName || 'Message';
+  const what = m.isDeleted ? 'deleted message'
+    : m.text || (m.mediaType === 'image' ? 'photo' : m.mediaType === 'video' ? 'video' : m.mediaType === 'audio' ? 'voice message' : m.mediaFilename || 'attachment');
+  const status = mine && m.status ? `, ${STATUS_WORDS[m.status] || m.status}` : '';
+  return `${who}: ${what}, ${clockTime(m.timestamp)}${status}`;
+}

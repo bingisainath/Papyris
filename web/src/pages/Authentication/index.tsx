@@ -67,9 +67,12 @@ const AuthenticationPage: React.FC = () => {
     }
   };
 
-  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const [emailTypo, setEmailTypo] = useState<string | null>(null); // "Did you mean …?" suggestion
+
+  const handleRegister = async (e?: React.FormEvent<HTMLFormElement>, emailOverride?: string, typoChecked = false) => {
+    e?.preventDefault();
     setRegisterError(null);
+    setEmailTypo(null);
 
     const pwdErr = validatePassword(registerPassword);
     if (pwdErr) {
@@ -79,12 +82,13 @@ const AuthenticationPage: React.FC = () => {
 
     setBusy(true);
     try {
-      const email = registerEmail.toLocaleLowerCase();
-      await register(registerUsername.toLocaleLowerCase(), email, registerPassword);
+      const email = (emailOverride ?? registerEmail).trim().toLocaleLowerCase();
+      await register(registerUsername.toLocaleLowerCase(), email, registerPassword, typoChecked);
       // A 6-digit code is on its way: ask for it before the first sign-in
       navigate("/verify-email", { state: { email, justSent: true } });
     } catch (err: any) {
-      setRegisterError(err.message || "Couldn't create your account");
+      if (err.suggestion) setEmailTypo(err.suggestion);
+      else setRegisterError(err.message || "Couldn't create your account");
     } finally {
       setBusy(false);
     }
@@ -103,8 +107,19 @@ const AuthenticationPage: React.FC = () => {
           <AuthField
             id="registerEmail" name="registerEmail" label="Email" icon={Mail} type="email"
             placeholder="you@example.com" autoComplete="email"
-            value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)}
+            value={registerEmail} onChange={(e) => { setRegisterEmail(e.target.value); setEmailTypo(null); }}
           />
+          {emailTypo && (
+            <div role="alert" className="-mt-2 mb-4 p-3 rounded-xl bg-primary-50 border border-primary-100 text-sm text-muted-800">
+              Did you mean <b>{emailTypo}</b>?
+              <div className="mt-2 flex gap-2">
+                <button type="button" disabled={busy} onClick={() => { setRegisterEmail(emailTypo); handleRegister(undefined, emailTypo); }}
+                  className="h-8 px-3 rounded-lg text-xs font-bold text-white bg-primary-700 hover:bg-primary-800">Use {emailTypo}</button>
+                <button type="button" disabled={busy} onClick={() => handleRegister(undefined, undefined, true)}
+                  className="h-8 px-3 rounded-lg text-xs font-semibold text-primary-700 hover:bg-primary-100">Keep {registerEmail.trim()}</button>
+              </div>
+            </div>
+          )}
           <AuthField
             id="registerPassword" name="registerPassword" label="Password" icon={KeyRound} type="password"
             placeholder="Create a password" autoComplete="new-password"

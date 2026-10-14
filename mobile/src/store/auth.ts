@@ -11,6 +11,8 @@ import { disablePush, enablePush } from '../notifications/push';
 import { e2eSession } from '../crypto/session';
 import { stopV2, v2Runtime } from '../crypto/v2-platform/runtime';
 import { showAlert } from '../components/common/Dialog';
+import { forgetRecoveryKey } from '../crypto/savedRecoveryKey';
+import { chatDrafts } from '../utils/drafts';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -25,7 +27,8 @@ interface AuthState {
   user: User | null;
   restore: () => Promise<void>;
   login: (identifier: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  /** Rejects with error.suggestion set when the email looks mistyped ("Did you mean …?"). */
+  register: (username: string, email: string, password: string, emailTypoChecked?: boolean) => Promise<void>;
   verifyEmail: (identifier: string, code: string) => Promise<void>;
   resendCode: (identifier: string) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -35,7 +38,7 @@ interface AuthState {
   accountDeleted: () => Promise<void>;
 }
 
-export const useAuth = create<AuthState>((set) => {
+export const useAuth = create<AuthState>((set, get) => {
   const finishSignIn = async (pair: TokenPair) => {
     await tokens.save(pair.access_token, pair.refresh_token ?? null);
     const user = await authApi.me();
@@ -49,6 +52,7 @@ export const useAuth = create<AuthState>((set) => {
     socket.stop();
     await stopV2().catch(() => undefined);
     await e2eSession.clear();
+    await chatDrafts.clearAll();
     set({ user: null, status: 'signedOut' });
   };
 
@@ -61,9 +65,15 @@ export const useAuth = create<AuthState>((set) => {
     set({ user: null, status: 'signedOut' });
   });
 
+  // The account is gone: its recovery key saved on this phone goes too
+  const forgetSavedKey = async () => {
+    const id = get().user?.id;
+    if (id) await forgetRecoveryKey(id);
+  };
+
   // The account was deleted from one of its devices: every device signs out and wipes itself
   socket.on((e) => {
-    if (e.type === 'account_deleted') tokens.clear().then(loggedOutElsewhere).catch(() => undefined);
+    if (e.type === 'account_deleted') forgetSavedKey().then(() => tokens.clear()).then(loggedOutElsewhere).catch(() => undefined);
   });
 
   // Suspended by an admin: sign out but keep this phone's keys (nothing is lost if it's lifted);
@@ -128,11 +138,12 @@ export const useAuth = create<AuthState>((set) => {
       }
     },
 
-    register: async (username, email, password) => {
+    register: async (username, email, password, emailTypoChecked = false) => {
       try {
-        await authApi.register(username.trim().toLowerCase(), email.trim().toLowerCase(), password);
+        await authApi.register(username.trim().toLowerCase(), email.trim().toLowerCase(), password, emailTypoChecked);
       } catch (error) {
-        throw new Error(errorMessage(error));
+        const body = axios.isAxiosError(error) ? (error.response?.data as { code?: string; data?: { suggestion?: string } } | undefined) : undefined;
+        throw Object.assign(new Error(errorMessage(error)), body?.code === 'email_typo' ? { suggestion: body.data?.suggestion } : {});
       }
     },
 
@@ -158,6 +169,7 @@ export const useAuth = create<AuthState>((set) => {
 
     setUser: (user) => set({ user }),
     accountDeleted: async () => {
+      await forgetSavedKey();
       await tokens.clear();
       await loggedOutElsewhere();
     },
@@ -168,6 +180,7 @@ export const useAuth = create<AuthState>((set) => {
       socket.stop();
       await tokens.clear();
       await e2eSession.clear(); // signing in here again means linking it again
+      await chatDrafts.clearAll(); // unsent text goes with the sign-in
       set({ user: null, status: 'signedOut' });
     },
   };
