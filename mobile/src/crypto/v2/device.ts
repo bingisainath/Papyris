@@ -26,6 +26,17 @@ export interface E2EHttp {
 /** True for an HTTP error with this status (axios-style errors). */
 export const httpStatus = (e: unknown): number | undefined => (e as { response?: { status?: number } })?.response?.status;
 
+/**
+ * This device was removed from the account on another device ("Log out this device") while this one
+ * stayed signed in. Its local keys are wiped; the app should sign out, as if logged out remotely.
+ */
+export class DeviceRemovedError extends Error {
+  constructor() {
+    super('This device was logged out from another of your devices');
+    this.name = 'DeviceRemovedError';
+  }
+}
+
 export interface DeviceState {
   deviceId: number;
   primary: boolean;
@@ -61,7 +72,16 @@ export class DeviceManager {
       device = { ...device, deviceId: registered.device_id };
       await this.store.saveDevice(device);
     }
-    await this.ensurePrekeys();
+    try {
+      await this.ensurePrekeys();
+    } catch (e) {
+      // The server doesn't know our device number any more: it was removed elsewhere
+      if (httpStatus(e) === 404) {
+        await this.store.wipe();
+        throw new DeviceRemovedError();
+      }
+      throw e;
+    }
 
     if (!device.listed) {
       const list = await this.currentList();

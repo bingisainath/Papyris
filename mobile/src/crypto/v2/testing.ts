@@ -30,6 +30,7 @@ export class Server {
         let m = path.match(/^\/e2e\/v2\/devices\/(\d+)\/prekeys$/);
         if (m) {
           const k = `${user}:${m[1]}`;
+          if (!this.devices.has(k) || this.removed.has(k)) throw fail(404); // like the real server
           return { one_time_left: (this.opks.get(k) || []).length, signed_prekey: this.spk.has(k) ? { id: this.spk.get(k)!.id, created_at: '' } : null } as T;
         }
         m = path.match(/^\/e2e\/v2\/users\/([^/]+)\/device-list$/);

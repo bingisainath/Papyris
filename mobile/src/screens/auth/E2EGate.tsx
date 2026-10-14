@@ -18,7 +18,7 @@ import { linkHere, listStatus, startFreshV2 } from '../../crypto/v2-platform/lin
 import type { LinkHere } from '../../crypto/v2-platform/link';
 import { e2eService } from '../../services/e2e.service';
 import type { MyKeys } from '../../services/e2e.service';
-import { errorMessage } from '../../api/client';
+import { errorMessage, reportLoggedOutElsewhere } from '../../api/client';
 import { startV2 } from '../../crypto/v2-platform/runtime';
 import { backupIfDue, restoreFromBackup } from '../../crypto/backupRuntime';
 import { forgetRecoveryKey, hasSavedRecoveryKey, readSavedRecoveryKey, saveErrorMessage, saveRecoveryKey } from '../../crypto/savedRecoveryKey';
@@ -29,6 +29,7 @@ import { useAuth } from '../../store/auth';
 import { phoneName } from '../../utils/device';
 import { colors, radius, space } from '../../theme';
 import { showAlert } from '../../components/common/Dialog';
+import { DeviceRemovedError } from '../../crypto/v2/device';
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 
@@ -64,6 +65,11 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       }
       setStage({ name: 'link', mine });
     } catch (e) {
+      // Logged out from another device while this phone stayed signed in: sign out, like any remote logout
+      if (e instanceof DeviceRemovedError) {
+        reportLoggedOutElsewhere();
+        return;
+      }
       setStage({ name: 'error', message: errorMessage(e) });
     }
   }, [userId]);

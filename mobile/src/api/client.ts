@@ -16,6 +16,12 @@ export const setSessionExpiredHandler = (handler: (loggedOut: boolean) => void) 
   onSessionExpired = handler;
 };
 
+/** This device was logged out from another device (found out some other way than a 401): sign out and wipe. */
+export const reportLoggedOutElsewhere = async () => {
+  await tokens.clear();
+  onSessionExpired(true);
+};
+
 api.interceptors.request.use((config) => {
   if (tokens.access) config.headers.set('Authorization', `Bearer ${tokens.access}`);
   return config;
