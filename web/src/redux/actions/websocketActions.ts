@@ -425,6 +425,19 @@ export const cancelUpload = (conversationId: string, clientId: string) => (dispa
 /** Try a failed upload again with the same file, caption and settings. */
 export const retryUpload = (clientId: string) => (dispatch: AppDispatch) => dispatch(uploadAndSend(clientId));
 
+/** A text message that didn't send: send it again (it moves to the end, as a new message). */
+export const retryText = (conversationId: string, clientId: string, currentUserId: string) =>
+  (dispatch: AppDispatch, getState: () => RootState) => {
+    const failed = (getState().chat.messages[conversationId] || []).find((m) => m.id === clientId);
+    if (!failed) return;
+    dispatch(removeMessage({ conversationId, messageId: clientId }));
+    return dispatch(sendMessage(conversationId, failed.text, currentUserId, undefined, failed.replyTo));
+  };
+
+/** Drop a text message that didn't send. */
+export const discardFailed = (conversationId: string, clientId: string) => (dispatch: AppDispatch) =>
+  dispatch(removeMessage({ conversationId, messageId: clientId }));
+
 /** The encrypted-file part of a message, to put in a new envelope (forward, edit). */
 export const mediaPayloadOf = (m: Message): E2EMedia | undefined =>
   m.mediaKey && m.mediaType

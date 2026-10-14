@@ -48,6 +48,8 @@ interface MessageBubbleProps {
   uploadFailed?: boolean;
   onCancelUpload?: () => void;
   onRetryUpload?: () => void;
+  onRetrySend?: () => void; // a text message that didn't send
+  onDiscard?: () => void;
   onForward?: () => void;
   onReport?: () => void; // someone else's message
   onDownload?: () => void;
@@ -95,6 +97,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
   uploadFailed,
   onCancelUpload,
   onRetryUpload,
+  onRetrySend,
+  onDiscard,
   onForward,
   onReport,
   onDownload,
@@ -151,13 +155,25 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     <div
       data-message-id={id}
       className={`
-        flex gap-2 mb-3
+        flex gap-2 mb-3 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-primary-400
         ${isSent ? 'flex-row-reverse' : 'flex-row'}
         ${className}
       `}
       onPointerDown={(e) => { lastPointerType.current = e.pointerType; }}
       onPointerEnter={(e) => { lastPointerType.current = e.pointerType; if (e.pointerType === 'mouse' && hasActions) setShowActions(true); }}
       onPointerLeave={(e) => { if (e.pointerType === 'mouse') setShowActions(false); }}
+      /* Keyboard: Tab to a message, Enter (or Space) shows its actions, Escape hides them */
+      tabIndex={hasActions ? 0 : undefined}
+      aria-label={hasActions ? `${isSent ? 'You' : senderName || 'Message'}: ${text || mediaFilename || mediaType || 'attachment'}. Press Enter for actions` : undefined}
+      onKeyDown={(e) => {
+        if (!hasActions || e.target !== e.currentTarget) {
+          if (e.key === 'Escape') setShowActions(false);
+          return;
+        }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowActions(open => !open); }
+        if (e.key === 'Escape') setShowActions(false);
+      }}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null) && lastPointerType.current !== 'mouse') setShowActions(false); }}
     >
       {/* Avatar for received messages in group chats */}
       {!isSent && isGroup && (
@@ -376,6 +392,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           <p className="flex items-center gap-1 mt-1 text-[11px] text-warning-700" title="Signed with a key that isn't this person's. It may not be from them.">
             <ShieldAlert className="w-3.5 h-3.5" /> Couldn't verify the sender
           </p>
+        )}
+
+        {/* A text that didn't send: try again or drop it */}
+        {status === 'failed' && !uploadFailed && onRetrySend && (
+          <div className="flex items-center justify-end gap-2 mt-1 text-xs" role="alert">
+            <span className="text-accent-600">Not sent</span>
+            <button type="button" onClick={onRetrySend} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary-50 text-primary-700 hover:bg-primary-100">
+              <RotateCw className="w-3 h-3" /> Retry
+            </button>
+            <button type="button" onClick={onDiscard} className="px-2 py-0.5 rounded-md text-muted-600 hover:bg-muted-100">Remove</button>
+          </div>
         )}
 
         {/* Upload failed: try again or drop it */}

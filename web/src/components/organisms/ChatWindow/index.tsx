@@ -14,7 +14,7 @@ import type { AppDispatch, RootState } from '../../../redux/store';
 import { selectIsConnected, selectTypingNames } from '../../../redux/slices/websocketSlice';
 import { fetchMessages, fetchOlderMessages } from '../../../redux/actions/chatActions';
 import { downloadMedia, messagePreview, resolveMediaUrl } from '../../../utils/media';
-import { applyMessageUpdate, clearUnreadCount, setBlocked } from '../../../redux/slices/chatSlice';
+import { applyMessageUpdate, clearUnreadCount, forgetUnreadWhenOpened, setBlocked } from '../../../redux/slices/chatSlice';
 import { safetyService } from '../../../services/safety.service';
 import ReportDialog from '../ReportDialog';
 import type { ReportTarget } from '../ReportDialog';
@@ -26,7 +26,7 @@ import ConversationInfoPanel from '../ConversationInfoPanel';
 import MediaViewer from '../MediaViewer';
 import type { ViewerImage } from '../MediaViewer';
 import { useSearchParams } from 'react-router-dom';
-import { Lock, LockOpen, Search, ShieldAlert, UserPlus } from 'lucide-react';
+import { ChevronDown, Lock, LockOpen, Search, ShieldAlert, UserPlus } from 'lucide-react';
 import ChatSearch from './ChatSearch';
 import { downloadDecrypted } from '../../../crypto/media';
 import { sealFor } from '../../../crypto/messages';
@@ -40,7 +40,7 @@ import ExpenseDetail from '../../expenses/ExpenseDetail';
 import ForwardDialog from '../ForwardDialog';
 import AlbumGrid, { groupAlbums } from '../../molecules/AlbumGrid';
 import type { OutgoingAttachment } from '../../molecules/MessageInput';
-import { cancelUpload, forwardMessage, retryUpload } from '../../../redux/actions/websocketActions';
+import { cancelUpload, forwardMessage, retryUpload, retryText, discardFailed } from '../../../redux/actions/websocketActions';
 import { confirmDialog } from '../ConfirmDialog';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
@@ -71,12 +71,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const encryption = useChatEncryption(conversationId);
   const conversationMembers = useSelector((state: RootState) => state.chat.conversations.find(c => c.id === conversationId)?.members) || EMPTY;
+  // Unread when this chat was opened (the list clears the count as it opens the chat)
+  const unreadCount = useSelector((state: RootState) =>
+    state.chat.conversations.find(c => c.id === conversationId)?.unreadCount || state.chat.unreadWhenOpened?.[conversationId] || 0);
   const keyChanges = useKeyChanges(conversationMembers);
   const trustActions = useTrustActions();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastRenderedMessageId = useRef<string | undefined>(undefined);
   const scrollHeightBeforePrepend = useRef<number | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Scrolling: are we at the newest messages? How many arrived while reading further up?
+  const nearBottom = useRef(true);
+  const [newBelow, setNewBelow] = useState(0);
+  const [farFromBottom, setFarFromBottom] = useState(false);
+  // The "New messages" line: above the oldest message that was unread when this chat opened.
+  // Worked out while rendering (not in an effect) so the first scroll can land on it.
+  const openedFor = useRef<string | null>(null);
+  const unreadAtOpen = useRef(0);
+  const firstUnread = useRef<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [showInfo, setShowInfo] = useState(false);
@@ -151,6 +163,23 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // ✅ WebSocket: Read receipts
   const { markAsRead } = useReadReceipt(conversationId);
+  if (openedFor.current !== conversationId) {
+    openedFor.current = conversationId;
+    unreadAtOpen.current = unreadCount;
+    firstUnread.current = null;
+  }
+  if (!firstUnread.current && unreadAtOpen.current > 0 && messages.length) {
+    const fromOthers = messages.filter(m => m.senderId !== currentUserId && m.messageType !== 'system' && !m.id.startsWith('temp-'));
+    firstUnread.current = fromOthers[Math.max(0, fromOthers.length - unreadAtOpen.current)]?.id ?? null;
+  }
+  const firstUnreadId = firstUnread.current;
+
+  const scrollToBottom = (smooth: boolean) => {
+    const container = scrollContainerRef.current;
+    container?.scrollTo({ top: container.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    setNewBelow(0);
+  };
+
   useLayoutEffect(() => {
     const container = scrollContainerRef.current;
 
@@ -161,19 +190,45 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       return;
     }
 
-    // Scroll to bottom only when a new message arrives at the end
-    const lastId = messages[messages.length - 1]?.id;
-    if (lastId !== lastRenderedMessageId.current) {
-      // Scroll only the message list (scrollIntoView would also scroll clipped ancestors sideways)
-      container?.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    const last = messages[messages.length - 1];
+    if (!container || !last || last.id === lastRenderedMessageId.current) {
+      lastRenderedMessageId.current = last?.id;
+      return;
     }
-    lastRenderedMessageId.current = lastId;
-  }, [messages]);
+    if (lastRenderedMessageId.current === undefined) {
+      // Just opened: at the "New messages" line if there's one, else at the newest message. No animation.
+      const line = firstUnreadId ? container.querySelector<HTMLElement>('[data-unread-line]') : null;
+      const lineTop = line ? line.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop : 0;
+      container.scrollTop = line ? Math.max(0, lineTop - container.clientHeight / 4) : container.scrollHeight;
+      nearBottom.current = !line;
+    } else if (nearBottom.current || last.senderId === currentUserId) {
+      // Reading the newest messages, or we sent it: follow along
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    } else {
+      // Reading older messages: don't pull them away, count it on the "new messages" button
+      setNewBelow(n => n + 1);
+    }
+    lastRenderedMessageId.current = last.id;
+  }, [messages, firstUnreadId, currentUserId]);
+
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+    nearBottom.current = distance < 120;
+    if (nearBottom.current && newBelow) setNewBelow(0);
+    setFarFromBottom(distance > container.clientHeight);
+  };
 
   // Reset per-conversation state
   useEffect(() => {
     lastMarkedMessageId.current = undefined;
     lastRenderedMessageId.current = undefined;
+    nearBottom.current = true;
+    dispatch(forgetUnreadWhenOpened(conversationId)); // captured for this visit already
+    setNewBelow(0);
+    setFarFromBottom(false);
+
     setReplyingTo(null);
     setEditingMessage(null);
     setShowInfo(false);
@@ -453,6 +508,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 uploadFailed={message.uploadFailed}
                 onCancelUpload={message.id.startsWith('temp-') ? () => dispatch(cancelUpload(conversationId, message.id)) : undefined}
                 onRetryUpload={() => dispatch(retryUpload(message.id))}
+                onRetrySend={() => dispatch(retryText(conversationId, message.id, currentUserId))}
+                onDiscard={() => dispatch(discardFailed(conversationId, message.id))}
                 onForward={() => setForwarding(message)}
                 onReport={() => setReporting({
                   title: 'Report this message', messageId: message.id, conversationId,
@@ -606,6 +663,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {/* Messages Area */}
       <div
         ref={scrollContainerRef}
+        onScroll={handleScroll}
+        role="log"
+        aria-label={`Messages with ${conversationName}`}
+        aria-live="polite"
+        aria-relevant="additions"
         className="flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-6 pt-6 pb-4 space-y-4"
       >
         {hasMoreMessages && (
@@ -625,7 +687,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           </div>
         ) : (
           <>
-            {chatItems.map((item) => item.kind === 'album' ? (
+            {chatItems.map((item) => {
+              const ids = item.kind === 'album' ? item.messages.map(m => m.id) : [item.message.id];
+              const line = firstUnreadId && ids.includes(firstUnreadId) ? (
+                <div key={`unread-${firstUnreadId}`} data-unread-line role="separator" aria-label="New messages"
+                  className="flex items-center gap-3 text-xs font-bold uppercase tracking-wide text-primary-600">
+                  <span className="h-px flex-1 bg-primary-200" />New messages<span className="h-px flex-1 bg-primary-200" />
+                </div>
+              ) : null;
+              return <React.Fragment key={ids[0]}>{line}{item.kind === 'album' ? (
               <AlbumGrid
                 key={item.messages[0].id}
                 messages={item.messages}
@@ -634,11 +704,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 onOpen={openImage}
                 onMediaError={refreshExpiredMedia}
               />
-            ) : renderMessage(item.message))}
+            ) : renderMessage(item.message)}</React.Fragment>;
+            })}
             <div ref={messagesEndRef} />
           </>
         )}
       </div>
+
+      {/* Newer messages below while reading further up: one tap back to the newest */}
+      {(newBelow > 0 || farFromBottom) && (
+        <div className="relative">
+          <button type="button" onClick={() => scrollToBottom(true)}
+            aria-label={newBelow > 0 ? `${newBelow} new message${newBelow === 1 ? '' : 's'}, jump to the newest` : 'Jump to the newest message'}
+            className="absolute -top-14 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-white border border-muted-200 shadow-elevated text-sm font-semibold text-primary-700 hover:bg-primary-50">
+            <ChevronDown className="w-4 h-4" />
+            {newBelow > 0 ? `${newBelow} new message${newBelow === 1 ? '' : 's'}` : 'Newest'}
+          </button>
+        </div>
+      )}
 
       {/* Typing Indicator */}
       {isTyping && (
@@ -664,6 +747,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       ) : (
       <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-2.5 mobile-nav-safe">
         <MessageInput
+          key={conversationId}
+          draftKey={conversationId}
           onSend={handleSendMessage}
           onSendVoice={handleSendVoice}
           replyingTo={replyingTo}

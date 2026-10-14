@@ -53,13 +53,23 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
   return (
     <div
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-current={isActive ? 'true' : undefined}
+      aria-label={`${name}${unreadCount ? `, ${unreadCount} unread` : ''}`}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
       className={`
         relative group
         flex items-center gap-3 px-3 py-3
         rounded-[14px]
         ${isActive ? 'bg-primary-50' : 'hover:bg-primary-50/60'}
         transition-colors
-        cursor-pointer
+        cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary-500
         ${className}
       `}
     >

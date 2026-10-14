@@ -2,6 +2,7 @@ export interface RegisterPayload {
   username: string;
   email: string;
   password: string;
+  email_typo_checked?: boolean; // kept their address after "Did you mean …?"
 }
 
 export interface LoginPayload {

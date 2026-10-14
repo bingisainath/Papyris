@@ -23,6 +23,8 @@ export async function encryptForUpload(file: Blob): Promise<{ file: File; key: s
 
 // Decrypted files by (URL without its daily signature) + key -> object URL
 const objectUrls = new Map<string, Promise<string>>();
+// The same, once ready: lets a reopened chat show its photos on the first frame, not a placeholder
+const readyUrls = new Map<string, string>();
 const MAX_OBJECT_URLS = 150;
 
 const cacheKey = (url: string, key: string) => `${url.split('?')[0]}#${key}`;
@@ -39,11 +41,12 @@ export function decryptedUrl(url: string, key: string, mime = 'application/octet
     const plain = v2 ? decryptMedia(bytes, { key, sha256: v2.sha256, size: v2.size }) : decryptFile(fromBase64(key), bytes);
     return URL.createObjectURL(new Blob([plain], { type: mime }));
   })();
-  promise.catch(() => objectUrls.delete(id));
+  promise.then((u) => readyUrls.set(id, u), () => objectUrls.delete(id));
   objectUrls.set(id, promise);
   if (objectUrls.size > MAX_OBJECT_URLS) {
     const [oldest, value] = objectUrls.entries().next().value as [string, Promise<string>];
     objectUrls.delete(oldest);
+    readyUrls.delete(oldest);
     value.then((u) => setTimeout(() => URL.revokeObjectURL(u), 60_000)).catch(() => undefined);
   }
   return promise;
@@ -51,7 +54,9 @@ export function decryptedUrl(url: string, key: string, mime = 'application/octet
 
 /** We just encrypted and uploaded this file ourselves: show it from memory instead of downloading it. */
 export function rememberDecrypted(url: string, key: string, file: Blob): void {
-  objectUrls.set(cacheKey(url, key), Promise.resolve(URL.createObjectURL(file)));
+  const objectUrl = URL.createObjectURL(file);
+  objectUrls.set(cacheKey(url, key), Promise.resolve(objectUrl));
+  readyUrls.set(cacheKey(url, key), objectUrl);
 }
 
 /**
@@ -76,7 +81,9 @@ export function useMediaSrc(url?: string, key?: string, mime?: string, v2?: V2Fi
 
   if (!url) return { failed: false };
   if (!key) return { src: url, failed: false };
-  return state.for === id ? { src: state.src, failed: state.failed } : { failed: false };
+  if (state.for === id) return { src: state.src, failed: state.failed };
+  const ready = id ? readyUrls.get(id) : undefined; // decrypted earlier: show it straight away
+  return ready ? { src: ready, failed: false } : { failed: false };
 }
 
 /** Save a decrypted copy under its original name. */

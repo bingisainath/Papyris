@@ -3,6 +3,7 @@
 // - Attach: "Photos & videos" (several at once, a caption on each, optional HD) or "Document" (sent as is)
 // - Empty box shows a microphone: tap to record a voice note, then send or delete it
 import React, { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { chatDrafts } from '../../../utils/drafts';
 import { toast } from 'react-toastify';
 import { Check, FileText, Image as ImageIcon, Mic, Paperclip, Plus, ReceiptText, SendHorizontal, Smile, Trash2, X } from 'lucide-react';
 import Icon from '../../atoms/Icon';
@@ -46,6 +47,8 @@ interface MessageInputProps {
   onCancelReply?: () => void;
   editingText?: string | null; // set while editing a sent message
   onCancelEdit?: () => void;
+  /** Keeps unsent text for this chat (render with key={chatId} so each chat has its own box). */
+  draftKey?: string;
 }
 
 let draftCounter = 0;
@@ -65,9 +68,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
   replyingTo = null,
   onCancelReply,
   editingText = null,
+  draftKey,
   onCancelEdit
 }) => {
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(() => (draftKey ? chatDrafts.get(draftKey) : ''));
   const [isFocused, setIsFocused] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -90,9 +94,24 @@ const MessageInput: React.FC<MessageInputProps> = ({
   // Free preview object URLs when the composer goes away
   useEffect(() => () => draftsRef.current.forEach((d) => d.previewUrl && URL.revokeObjectURL(d.previewUrl)), []);
 
-  // Entering edit mode loads the message text; leaving it clears the box
+  // Keep what the person types as this chat's draft (not while editing a sent message)
+  const rememberDraft = (text: string) => {
+    if (draftKey && editingText === null) chatDrafts.set(draftKey, text);
+  };
+
+  // On a computer, the box is ready to type in when a chat opens (phones would pop the keyboard up)
   useEffect(() => {
-    setMessage(editingText ?? '');
+    if (window.matchMedia?.('(pointer: fine)').matches) textareaRef.current?.focus();
+    requestAnimationFrame(adjustHeight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Entering edit mode loads the message text; leaving it brings back the unsent draft
+  const editingStarted = useRef(false);
+  useEffect(() => {
+    if (editingText === null && !editingStarted.current) return; // first render: keep the draft
+    editingStarted.current = editingText !== null;
+    setMessage(editingText ?? (draftKey ? chatDrafts.get(draftKey) : ''));
     if (editingText !== null) {
       clearDrafts();
       requestAnimationFrame(() => {
@@ -122,6 +141,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     const next = message.slice(0, start) + emoji + message.slice(end);
     if (next.length > maxLength) return;
     setMessage(next);
+    rememberDraft(next);
     requestAnimationFrame(() => {
       textarea?.focus();
       textarea?.setSelectionRange(start + emoji.length, start + emoji.length);
@@ -141,6 +161,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     const value = e.target.value;
     if (value.length > maxLength) return;
     setMessage(value);
+    rememberDraft(value);
     adjustHeight();
     if (!onTyping) return;
     // Repeat "typing" while the user keeps typing; receivers clear it if it stops arriving
@@ -192,6 +213,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       return;
     }
     setMessage('');
+    if (draftKey && !isEditing) chatDrafts.set(draftKey, ''); // an edit leaves the draft alone
     setIsTyping(false);
     onTyping?.(false);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';

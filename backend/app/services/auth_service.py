@@ -19,6 +19,7 @@ _DUMMY_HASH = hash_password("not-a-real-password")
 from app.services import sessions
 from app.services import admin as admin_service
 from app.config.settings import settings
+from app.core.email_check import email_problem
 
 
 class AuthService:
@@ -70,6 +71,11 @@ class AuthService:
     # -----------------------------
     @staticmethod
     async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
+        if settings.EMAIL_DOMAIN_CHECK:
+            problem = await email_problem(user_in.email, user_in.email_typo_checked)
+            if problem:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=problem)
+
         if await AuthService.get_user_by_email(db, user_in.email):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

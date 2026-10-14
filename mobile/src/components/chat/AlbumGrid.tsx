@@ -2,7 +2,7 @@
 // Four or more photos sent together show as one 2x2 grid ("+3" on the last tile), like the web app.
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { CheckCheck } from 'lucide-react-native';
+import { CheckCheck, Lock } from 'lucide-react-native';
 import { useMediaSrc } from '../../crypto/media';
 import type { Message } from '../../api/chat';
 import { colors, radius, space } from '../../theme';
@@ -70,7 +70,10 @@ const AlbumGrid: React.FC<{ messages: Message[]; mine: boolean; showSender: bool
 
 const AlbumPhoto: React.FC<{ message: Message }> = ({ message: m }) => {
   const { src } = useMediaSrc(m.mediaUrl, m.mediaKey, m.mediaMime, m.mediaV2);
-  return src ? <Image source={{ uri: src }} style={styles.image} /> : <View style={styles.image} />;
+  // Grey while the photo is decrypted, never the bubble's purple showing through
+  return src
+    ? <Image source={{ uri: src }} style={styles.image} />
+    : <View style={[styles.image, styles.pending]}><Lock size={18} color={colors.muted400} /></View>;
 };
 
 const TILE = 120;
@@ -84,7 +87,8 @@ const styles = StyleSheet.create({
   sender: { fontSize: 12, fontWeight: '700', color: colors.primary700, marginHorizontal: 6, marginTop: 2, marginBottom: 3 },
   grid: { width: TILE * 2 + 2, flexDirection: 'row', flexWrap: 'wrap', gap: 2, borderRadius: radius.lg - 3, overflow: 'hidden' },
   tile: { width: TILE, height: TILE, backgroundColor: colors.muted100 },
-  image: { width: '100%', height: '100%' },
+  image: { width: '100%', height: '100%', backgroundColor: colors.muted100 },
+  pending: { alignItems: 'center', justifyContent: 'center' },
   more: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
   moreText: { color: colors.white, fontSize: 24, fontWeight: '600' },
   meta: { position: 'absolute', right: 6, bottom: 6, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.full, backgroundColor: 'rgba(0,0,0,0.45)' },

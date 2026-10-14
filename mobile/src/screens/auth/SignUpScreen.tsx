@@ -42,10 +42,12 @@ const SignUpScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'SignUp'>> 
   const [errors, setErrors] = useState<{ username?: string; email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [emailTypo, setEmailTypo] = useState<string | null>(null); // "Did you mean …?" suggestion
 
-  const submit = async () => {
+  const submit = async (emailOverride?: string, typoChecked = false) => {
     const name = username.trim().toLowerCase();
-    const mail = email.trim().toLowerCase();
+    const mail = (emailOverride ?? email).trim().toLowerCase();
+    setEmailTypo(null);
     const next = {
       username: USERNAME.test(name) ? undefined : '3-30 lowercase letters, numbers, dots or underscores',
       email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail) ? undefined : 'Enter a valid email address',
@@ -56,10 +58,12 @@ const SignUpScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'SignUp'>> 
     setBusy(true);
     setError(null);
     try {
-      await register(name, mail, password);
+      await register(name, mail, password, typoChecked);
       navigation.replace('VerifyEmail', { email: mail, justSent: true });
     } catch (err) {
-      setError((err as Error).message);
+      const suggestion = (err as Error & { suggestion?: string }).suggestion;
+      if (suggestion) setEmailTypo(suggestion);
+      else setError((err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -72,9 +76,18 @@ const SignUpScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'SignUp'>> 
         error={errors.username} hint="People can find you by it" />
       <TextField label="Email" icon={Mail} placeholder="you@example.com" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
         textContentType="emailAddress" autoComplete="email" error={errors.email} />
+      {emailTypo && (
+        <View style={styles.typo}>
+          <Text style={styles.typoText}>Did you mean <Text style={styles.typoBold}>{emailTypo}</Text>?</Text>
+          <View style={styles.typoActions}>
+            <Button title={`Use ${emailTypo}`} compact onPress={() => { setEmail(emailTypo); submit(emailTypo); }} disabled={busy} />
+            <Button title="Keep mine" variant="secondary" compact onPress={() => submit(undefined, true)} disabled={busy} />
+          </View>
+        </View>
+      )}
       <TextField label="Password" icon={KeyRound} placeholder="Create a password" value={password} onChangeText={setPassword} secureTextEntry textContentType="newPassword"
         autoComplete="new-password" error={errors.password} hint={<PasswordRules password={password} />} />
-      <Button title="Create account" icon={ArrowRight} onPress={submit} loading={busy} />
+      <Button title="Create account" icon={ArrowRight} onPress={() => submit()} loading={busy} />
       <Text style={styles.consent}>
         By creating an account you agree to the{' '}
         <Text style={styles.consentLink} onPress={() => openInfoPage('terms')}>Terms of Service</Text> and{' '}
@@ -95,6 +108,10 @@ const styles = StyleSheet.create({
   ruleText: { fontSize: 12, color: colors.muted500 },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: space(5) },
   muted: { color: colors.muted500, fontSize: 14 },
+  typo: { marginTop: -space(1), marginBottom: space(3), padding: space(3), borderRadius: 12, backgroundColor: colors.primary50 },
+  typoText: { fontSize: 14, color: colors.muted700 },
+  typoBold: { fontWeight: '700', color: colors.muted900 },
+  typoActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2), marginTop: space(2) },
   consent: { marginTop: space(3), textAlign: 'center', fontSize: 12, lineHeight: 17, color: colors.muted500 },
   consentLink: { color: colors.primary700, fontWeight: '600' },
 });

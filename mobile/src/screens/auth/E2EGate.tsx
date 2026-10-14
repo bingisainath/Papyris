@@ -8,7 +8,7 @@
 // - No other device available: start fresh with new keys; older encrypted messages can't be read.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import AuthLayout from './AuthLayout';
 import { Banner, Button, TextField } from '../../components/common/ui';
@@ -21,6 +21,7 @@ import type { MyKeys } from '../../services/e2e.service';
 import { errorMessage } from '../../api/client';
 import { startV2 } from '../../crypto/v2-platform/runtime';
 import { backupIfDue, restoreFromBackup } from '../../crypto/backupRuntime';
+import { forgetRecoveryKey, hasSavedRecoveryKey, readSavedRecoveryKey, saveErrorMessage, saveRecoveryKey } from '../../crypto/savedRecoveryKey';
 import { syncV2 } from '../../store/chat';
 import { isRecoveryKey } from '../../crypto/backup';
 import { api } from '../../api/client';
@@ -118,19 +119,42 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [noDevice, setNoDevice] = useState(false);
-  const [hasBackup, setHasBackup] = useState(false);
+  const [hasBackup, setHasBackup] = useState<boolean | null>(null); // null: still checking
   const [recoveryKey, setRecoveryKey] = useState('');
+  const [remember, setRemember] = useState(true);
+  const [savedKey, setSavedKey] = useState(false);
   const attempt = useRef(0);
+  const offered = useRef(false);
 
   useEffect(() => {
-    api.get('/e2e/backup').then((r) => setHasBackup(!!r.data.data.exists)).catch(() => undefined);
-  }, []);
+    api.get('/e2e/backup').then((r) => setHasBackup(!!r.data.data.exists)).catch(() => setHasBackup(false));
+    hasSavedRecoveryKey(userId).then(setSavedKey);
+  }, [userId]);
 
-  const restore = async () => {
+  /** Restore with a typed key, or (key = null) the one saved on this phone. */
+  const restore = async (key: string | null = recoveryKey) => {
     setBusy(true);
     attempt.current += 1; // stop waiting for another device
     try {
-      await restoreFromBackup(userId, recoveryKey, mine.enc_public!);
+      const fromPhone = key === null;
+      const theKey = fromPhone ? await readSavedRecoveryKey(userId) : key;
+      if (!theKey) {
+        begin(); // cancelled the fingerprint / PIN: carry on as before
+        return;
+      }
+      try {
+        await restoreFromBackup(userId, theKey, mine.enc_public!);
+      } catch (e) {
+        if (fromPhone) {
+          // The backup was made with a different key since: the saved one is useless now
+          await forgetRecoveryKey(userId);
+          setSavedKey(false);
+        }
+        throw e;
+      }
+      if (!fromPhone && remember) {
+        await saveRecoveryKey(userId, theKey).catch((e) => showAlert('Restored, but the key wasn\'t saved', saveErrorMessage(e)));
+      }
       onDone();
     } catch (e: any) {
       begin(); // keep waiting for another device too (this clears the error, so set it after)
@@ -165,6 +189,16 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
     begin();
     return () => { attempt.current += 1; }; // stop waiting when leaving
   }, [begin]);
+
+  useEffect(() => {
+    if (!hasBackup || !savedKey || offered.current) return;
+    offered.current = true;
+    showAlert('Restore your chats?', 'Your recovery key is saved on this phone. Unlock it with your fingerprint or screen PIN to restore your encrypted chats.', [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'Restore', onPress: () => { restore(null); } },
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasBackup, savedKey]);
 
   // Back (arrow or Android's back button): close the "no other device" panel, else offer to sign out
   const goBack = useCallback(() => {
@@ -237,19 +271,31 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
           <ActivityIndicator color={colors.primary700} />
         )}
       </View>
-      {noDevice ? (
+      {hasBackup && (
         <View style={styles.noDevice}>
-          {hasBackup && (
-            <>
-              <Text style={styles.noDeviceTitle}>Restore from your backup</Text>
-              <TextField label="64-digit recovery key" value={recoveryKey} onChangeText={setRecoveryKey} keyboardType="number-pad" autoCorrect={false} />
-              <Button title={busy ? 'Restoring…' : 'Restore'} onPress={restore} loading={busy} disabled={!isRecoveryKey(recoveryKey)} />
-            </>
+          <Text style={styles.noDeviceTitle}>Or restore from your backup</Text>
+          {savedKey && (
+            <Button title="Use the key saved on this phone" variant="secondary" onPress={() => restore(null)} disabled={busy}
+              style={{ marginBottom: space(3) }} />
           )}
-          <Pressable onPress={startFresh} disabled={busy} style={styles.fresh}>
-            <Text style={[styles.link, { color: colors.danger600 }]}>Start fresh with new keys</Text>
+          <TextField label="64-digit recovery key" value={recoveryKey} onChangeText={setRecoveryKey} keyboardType="number-pad" autoCorrect={false} />
+          <Pressable style={styles.remember} onPress={() => setRemember((r) => !r)}>
+            <Switch value={remember} onValueChange={setRemember} trackColor={{ true: colors.primary600, false: colors.muted300 }} thumbColor={colors.white} />
+            <Text style={styles.rememberText}>Remember it on this phone, unlocked with your fingerprint or screen PIN</Text>
           </Pressable>
+          <Button title={busy ? 'Restoring…' : 'Restore'} onPress={() => restore()} loading={busy} disabled={!isRecoveryKey(recoveryKey)} />
         </View>
+      )}
+      {hasBackup === false && (
+        <Text style={styles.small}>
+          This account has no backup yet, so there's no recovery key to enter. To make one: on a signed-in device,
+          Settings → Linked devices → Encrypted backup.
+        </Text>
+      )}
+      {noDevice ? (
+        <Pressable onPress={startFresh} disabled={busy} style={styles.fresh}>
+          <Text style={[styles.link, { color: colors.danger600 }]}>Start fresh with new keys</Text>
+        </Pressable>
       ) : (
         <Pressable onPress={() => setNoDevice(true)} disabled={busy} style={styles.fresh}>
           <Text style={styles.link}>Don't have your other device?</Text>
@@ -273,6 +319,8 @@ const styles = StyleSheet.create({
   fresh: { alignItems: 'center', marginTop: space(5) },
   noDevice: { marginTop: space(5), padding: space(4), borderRadius: radius.lg, borderWidth: 1, borderColor: colors.muted200, backgroundColor: colors.white },
   noDeviceTitle: { fontSize: 15, fontWeight: '600', color: colors.muted900, marginBottom: space(2) },
+  remember: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginBottom: space(3) },
+  rememberText: { flex: 1, fontSize: 13, color: colors.muted700 },
 });
 
 export default E2EGate;

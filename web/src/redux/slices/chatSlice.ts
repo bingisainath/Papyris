@@ -82,6 +82,9 @@ interface ChatState {
   conversations: Conversation[];
   messages: Record<string, Message[]>; // conversationId -> messages[]
   hasMoreMessages: Record<string, boolean>; // conversationId -> older messages exist on server
+  // How many were unread when each chat was last opened (its unreadCount is cleared on opening):
+  // the chat window puts its "New messages" line there
+  unreadWhenOpened: Record<string, number>;
   activeConversationId?: string;
   isLoading: boolean;
   messagesLoading: boolean;
@@ -92,6 +95,7 @@ const initialState: ChatState = {
   conversations: [],
   messages: {},
   hasMoreMessages: {},
+  unreadWhenOpened: {},
   activeConversationId: undefined,
   isLoading: false,
   messagesLoading: false,
@@ -433,6 +437,7 @@ const chatSlice = createSlice({
       if (action.payload) {
         const conv = state.conversations.find(c => c.id === action.payload);
         if (conv) {
+          if (conv.unreadCount) state.unreadWhenOpened[conv.id] = conv.unreadCount;
           conv.unreadCount = 0;
         }
       }
@@ -485,9 +490,15 @@ const chatSlice = createSlice({
       }
     },
 
+    /** The chat window has read it for its "New messages" line: don't use it again next time. */
+    forgetUnreadWhenOpened: (state, action: PayloadAction<string>) => {
+      delete state.unreadWhenOpened[action.payload];
+    },
+
     clearUnreadCount: (state, action: PayloadAction<string>) => {
       const conversation = state.conversations.find(c => c.id === action.payload);
       if (conversation) {
+        if (conversation.unreadCount) state.unreadWhenOpened[conversation.id] = conversation.unreadCount;
         conversation.unreadCount = 0;
       }
     },
@@ -533,6 +544,7 @@ export const {
   createPlaceholderConversation,
   incrementUnreadCount,
   clearUnreadCount,
+  forgetUnreadWhenOpened,
   setLoading,
   setMessagesLoading,
   setError

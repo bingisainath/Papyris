@@ -128,3 +128,30 @@ async def test_forgot_password_says_when_no_account(client, make_user, monkeypat
     assert r.status_code == 200
     assert r.json()["data"]["email"] == f"{user.email[:2]}•••@example.com"  # partly hidden
     assert sent and sent[0][0] == user.email
+
+
+async def test_sign_up_catches_email_typos_and_dead_domains(client, monkeypatch):
+    from app.config.settings import settings
+    from app.core import email_check
+    monkeypatch.setattr(settings, "EMAIL_DOMAIN_CHECK", True)
+    monkeypatch.setattr(email_check, "_check_dns", lambda email: None if email.endswith(("gmail.com", "gmial.com")) else "We can't send email to nowhere.zz. Check the address for typos.")
+    body = {"username": "typo_" + "a" * 4, "email": "sai@gmial.com", "password": "Passw0rd!23"}
+
+    r = await client.post("/api/v1/auth/register", json=body)
+    assert r.status_code == 400 and r.json()["code"] == "email_typo"
+    assert r.json()["data"]["suggestion"] == "sai@gmail.com"
+
+    # Kept their address after seeing the suggestion: allowed (the domain still has to work)
+    r = await client.post("/api/v1/auth/register", json={**body, "email_typo_checked": True})
+    assert r.status_code == 201, r.text
+
+    r = await client.post("/api/v1/auth/register", json={**body, "username": "deadend", "email": "sai@nowhere.zz", "email_typo_checked": True})
+    assert r.status_code == 400 and r.json()["code"] == "email_undeliverable"
+
+
+def test_typo_suggestions():
+    from app.core.email_check import typo_suggestion
+    assert typo_suggestion("a@gmial.com") == "a@gmail.com"
+    assert typo_suggestion("a@outlok.com") == "a@outlook.com"
+    for fine in ("a@gmail.com", "a@mail.com", "a@gmx.com", "a@protonmail.ch", "a@tcd.ie", "a@company.com"):
+        assert typo_suggestion(fine) is None

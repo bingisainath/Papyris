@@ -25,8 +25,8 @@ export interface TokenPair {
 
 export const authApi = {
   login: (identifier: string, password: string) => data<TokenPair>(api.post('/auth/login', { identifier, password })),
-  register: (username: string, email: string, password: string) =>
-    data<User>(api.post('/auth/register', { username, email, password })),
+  register: (username: string, email: string, password: string, emailTypoChecked = false) =>
+    data<User>(api.post('/auth/register', { username, email, password, email_typo_checked: emailTypoChecked })),
   verifyEmail: (identifier: string, code: string) => data<TokenPair>(api.post('/auth/verify-email', { identifier, code })),
   resendCode: (identifier: string) => api.post('/auth/resend-code', { identifier }),
   forgotPassword: (identifier: string) => api.post('/auth/forgot-password', { identifier }),
