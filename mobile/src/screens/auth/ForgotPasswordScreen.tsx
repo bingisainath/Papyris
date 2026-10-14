@@ -32,7 +32,7 @@ const ForgotPasswordScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'Fo
   };
 
   return (
-    <AuthLayout eyebrow="Account recovery" title="Forgot password?" subtitle="Enter your username or email and we'll send you a reset link.">
+    <AuthLayout onBack={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login'))} eyebrow="Account recovery" title="Forgot password?" subtitle="Enter your username or email and we'll send you a reset link.">
       {error && <Banner text={error} />}
       {sentTo ? (
         <Banner tone="success" text={`We sent a reset link to ${sentTo}. It expires in 1 hour. Not there? Check your spam folder.`} />

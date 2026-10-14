@@ -17,6 +17,7 @@ import { ArrowLeft, ArrowRightLeft, BellRing, CheckCircle2, Download, Lock, Mess
 import { Avatar } from '../atoms';
 import CategoryIcon from './CategoryIcon';
 import { Approx, displayName, Money, MoneyInput, Sheet, useExpenseChanges } from './shared';
+import { confirmDialog } from '../organisms/ConfirmDialog';
 
 interface Props {
   conversationId: string;
@@ -700,7 +701,7 @@ const HistoryTab: React.FC<{
   }, [conversationId, filters, version]);
 
   const removePayment = async (id: string) => {
-    if (!window.confirm('Undo this payment? Balances go back to how they were before it, and the chat is told.')) return;
+    if (!(await confirmDialog({ title: 'Undo this payment?', message: 'Balances go back to how they were before it, and the chat is told.', confirmText: 'Undo payment', danger: true }))) return;
     try {
       await expenseService.removeSettlement(id);
       onChanged();

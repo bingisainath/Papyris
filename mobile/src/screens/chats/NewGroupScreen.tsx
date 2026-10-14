@@ -55,7 +55,7 @@ const NewGroupScreen: React.FC<NativeStackScreenProps<AppStackParams, 'NewGroup'
         onPick={toggle}
         header={
           <View style={styles.top}>
-            <TextField label="Group name" value={title} onChangeText={setTitle} maxLength={100} placeholder="e.g. Flat 4B" />
+            <TextField label="Group name" value={title} onChangeText={setTitle} maxLength={100} placeholder="e.g. Weekend in Galway" />
             {members.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
                 {members.map((m) => (

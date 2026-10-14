@@ -57,3 +57,21 @@ def test_tokens_and_signatures_are_redacted_in_server_logs():
     )
     RedactSecrets().filter(record)
     assert record.getMessage() == "GET /api/v1/media/a.png?exp=1&sig=[redacted]"
+
+
+async def test_security_headers(client):
+    r = await client.get("/health")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+
+
+def test_production_settings_are_checked():
+    from types import SimpleNamespace
+    from app.main import docs_urls, production_problems
+    dev = SimpleNamespace(ENV="local", JWT_SECRET_KEY="", MEDIA_ENCRYPTION_KEY="")
+    assert production_problems(dev) == [] and docs_urls(dev) == {}
+    weak = SimpleNamespace(ENV="production", JWT_SECRET_KEY="your-secret-key-change-this-in-production", MEDIA_ENCRYPTION_KEY="")
+    assert len(production_problems(weak)) == 2
+    good = SimpleNamespace(ENV="production", JWT_SECRET_KEY="x" * 44, MEDIA_ENCRYPTION_KEY="k" * 44)
+    assert production_problems(good) == []
+    assert docs_urls(good) == {"docs_url": None, "redoc_url": None, "openapi_url": None}

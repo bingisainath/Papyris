@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
   badge: { fontSize: 11, fontWeight: '700', color: colors.primary800, backgroundColor: colors.primary50, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.full, overflow: 'hidden' },
   active: { marginTop: 2, fontSize: 13, color: colors.muted700 },
   detail: { fontSize: 12, color: colors.muted500, marginTop: 2 },
-  logout: { alignSelf: 'center', paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted200 },
+  logout: { alignSelf: 'flex-start', marginTop: space(2.5), paddingHorizontal: space(3), paddingVertical: space(1.5), borderRadius: radius.md, borderWidth: 1, borderColor: colors.muted200 },
   logoutText: { fontSize: 13, fontWeight: '600', color: colors.danger600 },
   encRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: space(1) },
 });

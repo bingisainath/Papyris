@@ -66,7 +66,7 @@ const SignUpScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'SignUp'>> 
   };
 
   return (
-    <AuthLayout eyebrow="Your private space" title="Create your account" subtitle="Free and private. We'll email you a code to confirm it's you.">
+    <AuthLayout onBack={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login'))} eyebrow="Your private space" title="Create your account" subtitle="Free and private. We'll email you a code to confirm it's you.">
       {error && <Banner text={error} />}
       <TextField label="Username" icon={AtSign} placeholder="e.g. maya.rao" value={username} onChangeText={setUsername} autoCapitalize="none" autoCorrect={false}
         error={errors.username} hint="People can find you by it" />

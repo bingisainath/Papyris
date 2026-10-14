@@ -13,9 +13,64 @@ from app.websocket.routes import router as ws_router
 
 setup_logging()
 
-app = FastAPI(title=settings.APP_NAME)
+_DEFAULT_JWT_SECRET = "your-secret-key-change-this-in-production"
+
+
+def production_problems(s=settings) -> list[str]:
+    """Settings that must not reach production (the API refuses to start with them)."""
+    if s.ENV != "production":
+        return []
+    problems = []
+    if not s.JWT_SECRET_KEY or s.JWT_SECRET_KEY == _DEFAULT_JWT_SECRET or len(s.JWT_SECRET_KEY) < 32:
+        problems.append("JWT_SECRET_KEY is the default or too short")
+    if not s.MEDIA_ENCRYPTION_KEY:
+        problems.append("MEDIA_ENCRYPTION_KEY is empty (uploads would depend on JWT_SECRET_KEY)")
+    return problems
+
+
+def docs_urls(s=settings) -> dict:
+    """The interactive API docs list every endpoint: only outside production."""
+    if s.ENV == "production":
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
+if production_problems():
+    raise RuntimeError("Refusing to start in production: " + "; ".join(production_problems()))
+
+app = FastAPI(title=settings.APP_NAME, **docs_urls())
+
+
+class SecurityHeaders:
+    """Headers that stop browsers sniffing types or framing API responses (HTTP only, not WebSocket)."""
+
+    HEADERS = [
+        (b"x-content-type-options", b"nosniff"),
+        (b"x-frame-options", b"DENY"),
+        (b"referrer-policy", b"no-referrer"),
+    ]
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def with_headers(message):
+            if message["type"] == "http.response.start":
+                names = {k.lower() for k, _ in message.get("headers", [])}
+                message.setdefault("headers", [])
+                message["headers"] = list(message["headers"]) + [h for h in self.HEADERS if h[0] not in names]
+                if settings.ENV == "production" and b"strict-transport-security" not in names:
+                    message["headers"].append((b"strict-transport-security", b"max-age=31536000; includeSubDomains"))
+            await send(message)
+
+        await self.app(scope, receive, with_headers)
+
 
 # Order matters: middleware added later wraps earlier ones, so CORS stays outermost
+app.add_middleware(SecurityHeaders)
 app.add_middleware(CatchUnhandledErrors)
 app.add_middleware(
     CORSMiddleware,

@@ -1,4 +1,6 @@
 # Local development: Postgres and Redis. The API, worker and web app run on the host (see README).
+# Ports are bound to 127.0.0.1: Docker's firewall rules bypass ufw, so "5432:5432" would let anyone
+# on the same Wi-Fi reach the database (and these are simple dev passwords).
 services:
   postgres:
     image: postgres:16
@@ -8,7 +10,7 @@ services:
       POSTGRES_PASSWORD: papyris
       POSTGRES_DB: papyris
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +22,7 @@ services:
     image: redis:7
     container_name: papyris-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
 volumes:
   postgres_data:

@@ -15,6 +15,7 @@ import { CurrencySelect, displayName, firstName, Money, MoneyInput, PersonToggle
 import type { Member } from './shared';
 import { PayersEditor } from './ManualExpenseForm';
 import type { PayerDraft } from './ManualExpenseForm';
+import { confirmDialog } from '../organisms/ConfirmDialog';
 
 type Draft = ReceiptUpdate;
 type ItemDraft = Draft['items'][number];
@@ -250,7 +251,7 @@ const ReceiptReview: React.FC<Props> = ({ receipt: initial, members, currentUser
   };
 
   const discard = async () => {
-    if (!window.confirm('Discard this receipt? The photo and everything read from it will be removed.')) return;
+    if (!(await confirmDialog({ title: 'Discard this receipt?', message: 'The photo and everything read from it will be removed.', confirmText: 'Discard', danger: true }))) return;
     try {
       await expenseService.discardReceipt(initial.id);
       onDiscard();
