@@ -80,6 +80,14 @@ async def scan_limit(db: AsyncSession) -> int:
         return settings.RECEIPT_SCANS_PER_MONTH
 
 
+async def person_scan_limit(db: AsyncSession, user: User) -> dict:
+    """This person's scans this month: the app's limit or theirs, plus extra scans given this month."""
+    app_limit = await scan_limit(db)
+    base = user.scan_limit_override if user.scan_limit_override is not None else app_limit
+    extra = user.extra_scans if user.extra_scans_month == _month_start().date() else 0
+    return {"limit": base + extra, "app_limit": app_limit, "custom_limit": user.scan_limit_override, "extra_this_month": extra}
+
+
 def _month_start() -> datetime:
     now = datetime.now(timezone.utc)
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -104,7 +112,9 @@ async def prepare_scan(db: AsyncSession, receipt: Receipt, user: User) -> str:
         raise ScanSetupError("That model's provider isn't supported", 503)
     key_source, api_key = await resolve_key(db, user, model.provider)
     if key_source == "app":
-        limit = await scan_limit(db)
+        limit = (await person_scan_limit(db, user))["limit"]
+        if limit <= 0:
+            raise ScanSetupError("Receipt scanning is paused on your account. Questions? Write to support@shareeven.com", 429)
         if await scans_used(db, user.id) >= limit:
             raise ScanSetupError(
                 f"You've used all {limit} receipt scans for this month. They reset on the 1st; "

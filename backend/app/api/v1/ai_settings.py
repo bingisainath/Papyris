@@ -59,7 +59,7 @@ async def get_ai_settings(current_user: User = Depends(get_current_user), db: As
     return _ok({
         "usage": {
             "scans_this_month": await pipeline.scans_used(db, current_user.id),
-            "monthly_limit": await pipeline.scan_limit(db),
+            "monthly_limit": (await pipeline.person_scan_limit(db, current_user))["limit"],
         },
     })
 

@@ -162,7 +162,10 @@ const terms: InfoPage = {
     },
     {
       heading: '5. Receipt scanning',
-      body: ['Receipts are read by AI and can contain mistakes. Check the result before saving it. Free scans are limited; if we offer paid plans, their price and terms will be shown before you buy.'],
+      body: [
+        'Receipts are read by AI and can contain mistakes. Check the result before saving it.',
+        'Scans are limited each month, and the limit can differ between accounts: we may give testers or people whose scan went wrong extra scans, and we may lower or pause scanning for an account that misuses it. We won\'t lower what you paid for during a billing period. If we offer paid plans, their price and terms will be shown before you buy.',
+      ],
     },
     {
       heading: '6. End-to-end encryption',

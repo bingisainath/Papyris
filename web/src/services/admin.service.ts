@@ -47,9 +47,19 @@ export interface AccountDetails extends AccountSummary {
     direct_chats: number; groups: number; messages_sent: number; expenses_added: number; receipts_scanned: number;
     signed_in_sessions: number; blocked_by: number; reports_made: number;
   };
+  scans: ScanAllowance;
   devices: { name: string; added_at: string | null; last_seen_at: string | null }[];
   reports: { id: string; reason: string; details: string | null; status: string; created_at: string }[];
   admin_actions: AdminActionView[];
+}
+
+/** Receipt scans this month: limit = (custom_limit ?? app_limit) + extra_this_month. */
+export interface ScanAllowance {
+  used: number;
+  limit: number;
+  app_limit: number;
+  custom_limit: number | null; // 0 = scanning paused
+  extra_this_month: number;
 }
 
 export type AccountFilter = 'all' | 'suspended' | 'reported' | 'admins';
@@ -64,5 +74,9 @@ export const adminService = {
   signOut: (id: string, reason: string) => data<{ sessions: number }>(api.post(`${V1}/users/${id}/sign-out`, { reason })),
   remove: (id: string, reason: string, confirmUsername: string) =>
     data(api.post(`${V1}/users/${id}/delete`, { reason, confirm_username: confirmUsername })),
+  setScanLimit: (id: string, limit: number | null, reason: string) =>
+    data<ScanAllowance>(api.post(`${V1}/users/${id}/scan-limit`, { limit, reason })),
+  giveExtraScans: (id: string, count: number, reason: string) =>
+    data<ScanAllowance>(api.post(`${V1}/users/${id}/extra-scans`, { count, reason })),
   actions: (includeViews: boolean) => data<AdminActionView[]>(api.get(`${V1}/actions`, { params: { include_views: includeViews } })),
 };

@@ -253,6 +253,53 @@ async def test_monthly_limit(client, make_user, make_dm, fake_ai, db, scan_limit
     assert r.status_code == 429
 
 
+async def test_admin_sets_scans_per_person(client, make_user, make_dm, fake_ai, db, scan_limit_one):
+    """App limit 1: a tester gets a custom limit, someone else extra scans this month, a third is paused."""
+    from sqlalchemy import update
+    from app.models.user import User
+    admin, tester, other = await make_user("admin"), await make_user(), await make_user()
+    await db.execute(update(User).where(User.id == uuid.UUID(admin.id)).values(is_app_admin=True))
+    await db.commit()
+    dm = await make_dm(tester, other)
+    base = f"/api/v1/admin/users"
+
+    # Only admins, and a reason is required
+    assert (await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 3, "reason": "beta"}, headers=other.headers)).status_code == 403
+    assert (await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 3}, headers=admin.headers)).status_code == 422
+
+    r = await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 3, "reason": "Beta tester"}, headers=admin.headers)
+    assert r.status_code == 200 and r.json()["data"]["limit"] == 3 and r.json()["data"]["app_limit"] == 1
+    for _ in range(3):
+        await scan(client, tester, dm)
+    url = (await upload(client, tester)).json()["data"]["url"]
+    assert (await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=tester.headers)).status_code == 429
+    usage = (await client.get("/api/v1/ai/settings", headers=tester.headers)).json()["data"]["usage"]
+    assert usage == {"scans_this_month": 3, "monthly_limit": 3}
+
+    # Extra scans add up within the month, on top of the app's limit
+    await scan(client, other, dm)
+    for count in (1, 2):
+        r = await client.post(f"{base}/{other.id}/extra-scans", json={"count": count, "reason": "A scan went wrong"}, headers=admin.headers)
+    assert r.json()["data"] == {"limit": 4, "app_limit": 1, "custom_limit": None, "extra_this_month": 3, "used": 1}
+    await scan(client, other, dm)
+
+    # Extra scans from an earlier month don't count
+    await db.execute(update(User).where(User.id == uuid.UUID(other.id)).values(extra_scans_month=pipeline._month_start().date().replace(year=2020)))
+    await db.commit()
+    details = (await client.get(f"{base}/{other.id}", headers=admin.headers)).json()["data"]["scans"]
+    assert details["extra_this_month"] == 0 and details["limit"] == 1 and details["used"] == 2
+
+    # 0 pauses scanning with its own message; null goes back to the app's limit
+    await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 0, "reason": "Abuse"}, headers=admin.headers)
+    r = await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=tester.headers)
+    assert r.status_code == 429 and "paused" in r.json()["message"]
+    r = await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": None, "reason": "Resolved"}, headers=admin.headers)
+    assert r.json()["data"]["custom_limit"] is None and r.json()["data"]["limit"] == 1
+
+    log = [a["action"] for a in (await client.get("/api/v1/admin/actions", headers=admin.headers)).json()["data"]]
+    assert log.count("scan_limit_set") == 3 and log.count("extra_scans") == 2
+
+
 async def test_no_server_key_and_access(client, make_user, make_dm, fake_ai, monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
     a, b, outsider = await make_user(), await make_user(), await make_user()

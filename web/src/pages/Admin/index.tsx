@@ -13,7 +13,7 @@ import { ReportsReview } from '../../components/organisms/SafetySettings';
 import DailyBars from '../../components/admin/DailyBars';
 import { AdminAISettings } from '../../components/expenses/ExpenseSettingsSections';
 import { adminService } from '../../services/admin.service';
-import type { AccountDetails, AccountFilter, AccountSummary, AdminActionView, Overview } from '../../services/admin.service';
+import type { AccountDetails, AccountFilter, AccountSummary, AdminActionView, Overview, ScanAllowance } from '../../services/admin.service';
 import { parseApiError } from '../../utils/apiError';
 
 type Tab = 'overview' | 'people' | 'reports' | 'receipt-ai' | 'activity';
@@ -33,7 +33,8 @@ const nameOf = (u: { name: string | null; username: string }) => u.name || u.use
 const ACTION_LABELS: Record<string, string> = {
   view_user: 'Viewed account', suspend: 'Suspended', unsuspend: 'Lifted suspension', sign_out: 'Signed out everywhere',
   delete_account: 'Deleted account', resolve_report: 'Resolved report',
-  ai_model_added: 'Added AI model', ai_model_changed: 'Changed AI model', scan_limit_changed: 'Changed scan limit',
+  ai_model_added: 'Added AI model', ai_model_changed: 'Changed AI model', scan_limit_changed: 'Changed the app scan limit',
+  scan_limit_set: 'Set scan limit', extra_scans: 'Gave extra scans',
 };
 
 const AdminPage: React.FC = () => {
@@ -406,6 +407,8 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
             </div>
           )}
 
+          <ScanControls account={a} onChanged={(scans) => { setA({ ...a, scans }); load(); }} />
+
           <Section title={`Devices (${a.devices.length})`}>
             {a.devices.length === 0 ? <Empty text="No linked devices." /> : a.devices.map((d, i) => (
               <li key={i} className="flex justify-between gap-3"><span className="truncate">{d.name}</span><span className="text-muted-500 flex-shrink-0">{when(d.last_seen_at)}</span></li>
@@ -447,6 +450,81 @@ const ActionButton: React.FC<{ icon: typeof Ban; label: string; danger?: boolean
     <Icon size={15} /> {label}
   </button>
 );
+
+/** This person's receipt scans: their own monthly limit, or extra scans for this month only. */
+const ScanControls: React.FC<{ account: AccountDetails; onChanged: (scans: ScanAllowance) => void }> = ({ account, onChanged }) => {
+  const s = account.scans;
+  const [mode, setMode] = useState<'limit' | 'extra' | null>(null);
+  const [value, setValue] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const paused = s.custom_limit === 0;
+
+  const open = (next: 'limit' | 'extra') => {
+    setMode(next);
+    setValue(next === 'limit' ? String(s.custom_limit ?? s.app_limit) : '10');
+    setReason('');
+  };
+  const save = async (limit?: number | null) => {
+    setBusy(true);
+    try {
+      const n = Number(value);
+      onChanged(mode === 'extra'
+        ? await adminService.giveExtraScans(account.id, n, reason.trim())
+        : await adminService.setScanLimit(account.id, limit === undefined ? n : limit, reason.trim()));
+      toast.success(mode === 'extra' ? `Gave ${n} extra scan${n === 1 ? '' : 's'} this month` : 'Scan limit saved');
+      setMode(null);
+    } catch (e) {
+      toast.error(parseApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const n = Number(value);
+  const valid = value.trim() !== '' && Number.isInteger(n) && (mode === 'extra' ? n >= 1 && n <= 1000 : n >= 0 && n <= 10000);
+  const ready = valid && reason.trim().length >= 3;
+
+  return (
+    <section>
+      <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted-500">Receipt scans this month</h3>
+      <p className="text-sm text-muted-900">
+        {paused ? <span className="font-semibold text-accent-700">Scanning paused</span> : <><b className="tabular-nums">{s.used}</b> of <b className="tabular-nums">{s.limit}</b> used</>}
+      </p>
+      <p className="text-xs text-muted-500">
+        {s.custom_limit === null ? `App limit (${s.app_limit} a month)` : paused ? `App limit is ${s.app_limit}` : `Own limit: ${s.custom_limit} a month (app limit ${s.app_limit})`}
+        {s.extra_this_month > 0 && ` · +${s.extra_this_month} extra this month`}
+      </p>
+      {!mode && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" onClick={() => open('limit')} className="h-8 px-2.5 rounded-lg text-xs font-semibold border border-primary-100 bg-primary-50 text-primary-700 hover:bg-primary-100">Set monthly limit</button>
+          <button type="button" onClick={() => open('extra')} className="h-8 px-2.5 rounded-lg text-xs font-semibold border border-primary-100 bg-primary-50 text-primary-700 hover:bg-primary-100">Give extra scans</button>
+        </div>
+      )}
+      {mode && (
+        <div className="mt-2 p-3 rounded-xl border border-muted-200 space-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted-700">{mode === 'limit' ? 'Scans a month' : 'Extra scans this month'}</span>
+            <input type="number" min={mode === 'extra' ? 1 : 0} max={mode === 'extra' ? 1000 : 10000} value={value} onChange={(e) => setValue(e.target.value)}
+              className="w-24 h-8 px-2 rounded-lg border border-muted-200 text-sm tabular-nums outline-none focus:border-primary-500" />
+          </label>
+          {mode === 'limit' && <p className="text-xs text-muted-500">0 pauses scanning for this person. Don't lower a paying user's plan mid-month.</p>}
+          {mode === 'extra' && <p className="text-xs text-muted-500">They count only until the end of this month.</p>}
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (kept in the admin log)" aria-label="Reason" maxLength={500}
+            className="w-full h-8 px-2.5 rounded-lg border border-muted-200 text-sm outline-none focus:border-primary-500" />
+          <div className="flex flex-wrap justify-end gap-2">
+            {mode === 'limit' && s.custom_limit !== null && (
+              <button type="button" disabled={busy || reason.trim().length < 3} onClick={() => save(null)}
+                className="mr-auto h-8 px-2.5 rounded-lg text-xs font-semibold text-primary-700 hover:bg-primary-50 disabled:opacity-50">Back to app limit</button>
+            )}
+            <button type="button" onClick={() => setMode(null)} className="h-8 px-2.5 rounded-lg text-xs font-semibold text-muted-600 hover:bg-muted-100">Cancel</button>
+            <button type="button" disabled={!ready || busy} onClick={() => save()}
+              className="h-8 px-3 rounded-lg text-xs font-bold text-white bg-primary-700 hover:bg-primary-800 disabled:opacity-50">{busy ? 'Saving…' : 'Save'}</button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <section>

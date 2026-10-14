@@ -4,7 +4,7 @@ User Model
 """
 import uuid
 import enum
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, Enum as SQLEnum
+from sqlalchemy import Column, String, Boolean, Date, DateTime, Integer, Text, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -72,6 +72,11 @@ class User(Base):
     suspended_at = Column(DateTime(timezone=True), nullable=True)
     suspended_until = Column(DateTime(timezone=True), nullable=True)
     suspension_reason = Column(String(500), nullable=True)
+    # Receipt scans, set by app admins: a monthly limit for this person instead of the app's
+    # (None = the app's), and extra scans that count only in the month they were given
+    scan_limit_override = Column(Integer, nullable=True)
+    extra_scans = Column(Integer, default=0, server_default="0", nullable=False)
+    extra_scans_month = Column(Date, nullable=True)
     status = Column(SQLEnum(UserStatus, name="user_status_enum"), default=UserStatus.ACTIVE)
     
     # Email verification: a 6-digit code is emailed after sign-up (only its hash is stored)

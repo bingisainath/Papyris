@@ -27,6 +27,7 @@ from app.models.safety import Report, UserBlock
 from app.models.user import User
 from app.services import admin as admin_service
 from app.services import media_storage
+from app.services.receipt_ai import pipeline
 from app.websocket.routes import publish_users
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -42,6 +43,14 @@ class SuspendRequest(ReasonRequest):
 
 class DeleteRequest(ReasonRequest):
     confirm_username: str
+
+
+class ScanLimitRequest(ReasonRequest):
+    limit: Optional[int] = Field(None, ge=0, le=10000)  # None: back to the app's limit; 0: scanning paused
+
+
+class ExtraScansRequest(ReasonRequest):
+    count: int = Field(..., ge=1, le=1000)
 
 
 def _iso(value) -> Optional[str]:
@@ -159,6 +168,7 @@ async def user_details(user_id: uuid.UUID, admin: User = Depends(get_app_admin),
             "blocked_by": await count(select(UserBlock.blocker_id).where(UserBlock.blocked_id == user.id)),
             "reports_made": await count(select(Report.id).where(Report.reporter_id == user.id)),
         },
+        "scans": {**await pipeline.person_scan_limit(db, user), "used": await pipeline.scans_used(db, user.id)},
         "devices": [{"name": d.name, "added_at": _iso(d.created_at), "last_seen_at": _iso(d.last_seen_at)} for d in devices],
         "reports": [{"id": str(r.id), "reason": r.reason, "details": r.details, "status": r.status,
                      "created_at": _iso(r.created_at)} for r in reports],
@@ -207,6 +217,41 @@ async def delete_account(user_id: uuid.UUID, body: DeleteRequest, admin: User = 
     await db.flush()
     await delete_and_announce(db, user)  # commits
     return {"success": True, "message": "Account deleted", "data": {"deleted": True}}
+
+
+# ------------------------------------------------------------------ receipt scans
+
+async def _scan_target(db: AsyncSession, user_id: uuid.UUID) -> User:
+    """Scan limits can be set for anyone with an account, admins included (it's logged)."""
+    user = await db.get(User, user_id)
+    if user is None or user.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return user
+
+
+@router.post("/users/{user_id}/scan-limit")
+async def set_scan_limit(user_id: uuid.UUID, body: ScanLimitRequest, admin: User = Depends(get_app_admin), db: AsyncSession = Depends(get_db)):
+    """This person's monthly receipt scans: a number, 0 to pause scanning, or null for the app's limit."""
+    user = await _scan_target(db, user_id)
+    before = user.scan_limit_override
+    user.scan_limit_override = body.limit
+    await admin_service.log(db, admin, "scan_limit_set", user.id, body.reason.strip(), before=before, after=body.limit)
+    await db.commit()
+    return {"success": True, "message": "Scan limit saved",
+            "data": {**await pipeline.person_scan_limit(db, user), "used": await pipeline.scans_used(db, user.id)}}
+
+
+@router.post("/users/{user_id}/extra-scans")
+async def give_extra_scans(user_id: uuid.UUID, body: ExtraScansRequest, admin: User = Depends(get_app_admin), db: AsyncSession = Depends(get_db)):
+    """Extra scans for this calendar month only (e.g. after a scan went wrong). They add up within the month."""
+    user = await _scan_target(db, user_id)
+    month = pipeline._month_start().date()
+    user.extra_scans = (user.extra_scans if user.extra_scans_month == month else 0) + body.count
+    user.extra_scans_month = month
+    await admin_service.log(db, admin, "extra_scans", user.id, body.reason.strip(), count=body.count, month=month.isoformat())
+    await db.commit()
+    return {"success": True, "message": f"Gave {body.count} extra scan{'s' if body.count != 1 else ''} this month",
+            "data": {**await pipeline.person_scan_limit(db, user), "used": await pipeline.scans_used(db, user.id)}}
 
 
 # ------------------------------------------------------------------ action log
