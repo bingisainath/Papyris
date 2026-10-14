@@ -22,11 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import settings
 from app.db.session import async_session_maker
-from app.models.ai import AIModel, AppSetting, UserAISettings
+from app.models.ai import AIModel, AppSetting
 from app.models.expense import ConversationSettings
 from app.models.receipt import ItemPreference, Receipt, ReceiptAdjustment, ReceiptItem, StoreDiscountRule
 from app.models.user import User
-from app.services import media_storage, secrets
+from app.services import media_storage
 from app.services.money import MoneyError, allocate, format_minor, is_supported, to_minor
 from app.services.receipt_ai.base import ExtractionError, ReceiptExtractor
 from app.services.receipt_ai.claude import ClaudeExtractor
@@ -54,17 +54,7 @@ class ScanSetupError(Exception):
 # ------------------------------------------------------------------ model, key, quota
 
 async def resolve_model(db: AsyncSession, conversation_id: uuid.UUID, user: User) -> AIModel:
-    """This chat's model, else the person's preference, else the app default."""
-    candidates: list[int | None] = []
-    chat = await db.get(ConversationSettings, conversation_id)
-    candidates.append(chat.receipt_model_id if chat else None)
-    prefs = await db.get(UserAISettings, user.id)
-    candidates.append(prefs.preferred_model_id if prefs else None)
-    for model_id in candidates:
-        if model_id:
-            model = await db.get(AIModel, model_id)
-            if model and model.enabled:
-                return model
+    """The model app admins chose (the default). People and chats don't pick one."""
     model = (await db.execute(
         select(AIModel).where(AIModel.enabled.is_(True))
         .order_by(AIModel.is_default.desc(), AIModel.sort_order, AIModel.id).limit(1)
@@ -75,19 +65,11 @@ async def resolve_model(db: AsyncSession, conversation_id: uuid.UUID, user: User
 
 
 async def resolve_key(db: AsyncSession, user: User, provider: str) -> tuple[str, str]:
-    """(key_source, api_key): the person's own key if they added one, else the app's."""
-    prefs = await db.get(UserAISettings, user.id)
-    if prefs:
-        own = secrets.decrypt(prefs.anthropic_key_encrypted if provider == "anthropic" else prefs.openai_key_encrypted)
-        if own:
-            return "user", own
+    """(key_source, api_key): always the app's key."""
     app_key = settings.ANTHROPIC_API_KEY if provider == "anthropic" else settings.OPENAI_API_KEY
     if app_key:
         return "app", app_key
-    raise ScanSetupError(
-        f"{PROVIDER_NAMES.get(provider, provider)} scanning isn't set up on this server. "
-        f"Add your own {PROVIDER_NAMES.get(provider, provider)} key in Settings, or choose another model", 503
-    )
+    raise ScanSetupError(f"{PROVIDER_NAMES.get(provider, provider)} scanning isn't set up on this server", 503)
 
 
 async def scan_limit(db: AsyncSession) -> int:
@@ -96,6 +78,14 @@ async def scan_limit(db: AsyncSession) -> int:
         return int(row.value) if row else settings.RECEIPT_SCANS_PER_MONTH
     except ValueError:
         return settings.RECEIPT_SCANS_PER_MONTH
+
+
+async def person_scan_limit(db: AsyncSession, user: User) -> dict:
+    """This person's scans this month: the app's limit or theirs, plus extra scans given this month."""
+    app_limit = await scan_limit(db)
+    base = user.scan_limit_override if user.scan_limit_override is not None else app_limit
+    extra = user.extra_scans if user.extra_scans_month == _month_start().date() else 0
+    return {"limit": base + extra, "app_limit": app_limit, "custom_limit": user.scan_limit_override, "extra_this_month": extra}
 
 
 def _month_start() -> datetime:
@@ -122,11 +112,13 @@ async def prepare_scan(db: AsyncSession, receipt: Receipt, user: User) -> str:
         raise ScanSetupError("That model's provider isn't supported", 503)
     key_source, api_key = await resolve_key(db, user, model.provider)
     if key_source == "app":
-        limit = await scan_limit(db)
+        limit = (await person_scan_limit(db, user))["limit"]
+        if limit <= 0:
+            raise ScanSetupError("Receipt scanning is paused on your account. Questions? Write to support@shareeven.com", 429)
         if await scans_used(db, user.id) >= limit:
             raise ScanSetupError(
-                f"You've used all {limit} receipt scans for this month. Add your own AI key in Settings "
-                "for unlimited scans, or add the expense manually", 429
+                f"You've used all {limit} receipt scans for this month. They reset on the 1st; "
+                "until then, add the expense manually", 429
             )
     receipt.provider = model.provider
     receipt.model = model.model_id

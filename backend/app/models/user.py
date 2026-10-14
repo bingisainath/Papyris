@@ -4,7 +4,7 @@ User Model
 """
 import uuid
 import enum
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, Enum as SQLEnum
+from sqlalchemy import Column, String, Boolean, Date, DateTime, Integer, Text, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -62,8 +62,21 @@ class User(Base):
     
     # Account Status
     is_active = Column(Boolean, default=True)
+    # Account deleted by its owner: personal data removed, the row kept as "Deleted user" so
+    # shared expenses and payments still add up for everyone else
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
     # App-wide admin (manages AI models and limits). Set with scripts/make_admin.py
     is_app_admin = Column(Boolean, default=False, server_default="false", nullable=False)
+    # Suspended by an app admin: can't sign in or use the app until suspended_until (None = until
+    # an admin lifts it). Local keys stay on their devices, so a lifted suspension loses nothing.
+    suspended_at = Column(DateTime(timezone=True), nullable=True)
+    suspended_until = Column(DateTime(timezone=True), nullable=True)
+    suspension_reason = Column(String(500), nullable=True)
+    # Receipt scans, set by app admins: a monthly limit for this person instead of the app's
+    # (None = the app's), and extra scans that count only in the month they were given
+    scan_limit_override = Column(Integer, nullable=True)
+    extra_scans = Column(Integer, default=0, server_default="0", nullable=False)
+    extra_scans_month = Column(Date, nullable=True)
     status = Column(SQLEnum(UserStatus, name="user_status_enum"), default=UserStatus.ACTIVE)
     
     # Email verification: a 6-digit code is emailed after sign-up (only its hash is stored)
@@ -85,6 +98,13 @@ class User(Base):
     # Online Status (can be moved to Redis for real-time)
     is_online = Column(Boolean, default=False)
     last_seen = Column(DateTime(timezone=True), nullable=True)
+
+    def suspended_now(self, now=None) -> bool:
+        """Suspended, and the suspension hasn't run out."""
+        from datetime import datetime, timezone
+        if self.suspended_at is None:
+            return False
+        return self.suspended_until is None or self.suspended_until > (now or datetime.now(timezone.utc))
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, email={self.email})>"

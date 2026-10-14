@@ -49,7 +49,7 @@ const BackupSection: React.FC<{ userId: string }> = ({ userId }) => {
       <Text style={styles.title}>Encrypted backup</Text>
       <Text style={styles.text}>
         If you lose every device, a backup lets you read your encrypted chats again. It's encrypted with a 64-digit recovery key that only
-        you have: Papyris can't open it, and can't help if the key is lost.
+        you have: ShareEven can't open it, and can't help if the key is lost.
       </Text>
 
       {status === null ? null : !status.exists && !newKey ? (
@@ -62,7 +62,7 @@ const BackupSection: React.FC<{ userId: string }> = ({ userId }) => {
             <Pressable onPress={() => { Clipboard.setString(formatRecoveryKey(newKey)); showAlert('Copied'); }} style={styles.chip}>
               <Copy size={16} color={colors.muted700} /><Text style={styles.chipText}>Copy</Text>
             </Pressable>
-            <Pressable onPress={() => Share.share({ message: `Papyris recovery key:\n${formatRecoveryKey(newKey)}` })} style={styles.chip}>
+            <Pressable onPress={() => Share.share({ message: `ShareEven recovery key:\n${formatRecoveryKey(newKey)}` })} style={styles.chip}>
               <Share2 size={16} color={colors.muted700} /><Text style={styles.chipText}>Save elsewhere</Text>
             </Pressable>
           </View>

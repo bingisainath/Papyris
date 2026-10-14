@@ -24,8 +24,11 @@ export type AppStackParams = {
   ScanReceipt: { conversationId: string; receiptId?: string };
   ExpenseDetail: { expenseId: string };
   Profile: undefined;
-  ReceiptScanning: undefined;
   StoreDiscounts: undefined;
   Encryption: undefined;
   Sessions: undefined;
+  DeleteAccount: undefined;
+  BlockedPeople: undefined;
+  // What's being reported; messageText is shared only if the reporter chooses to
+  Report: { title: string; userId?: string; userName?: string; conversationId?: string; messageId?: string; messageText?: string };
 };

@@ -17,7 +17,7 @@ import { User } from "../types/auth.types";
 import { decodeJwt, isTokenExpired, tokenStore } from "../utils/token";
 import { e2eSession } from "../crypto/session";
 import { stopV2 } from "../crypto/v2-platform/runtime";
-import { LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
+import { ACCOUNT_DELETED_EVENT, ACCOUNT_SUSPENDED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
@@ -41,7 +41,8 @@ type AuthContextType = {
   register: (u: string, e: string, p: string) => Promise<void>;
   verifyEmail: (identifier: string, code: string) => Promise<void>;
   resendCode: (identifier: string) => Promise<void>;
-  forgotPassword: (identifier: string) => Promise<void>;
+  /** Resolves to the account's partly hidden email (where the link went). */
+  forgotPassword: (identifier: string) => Promise<string>;
   verifyResetToken: (token: string) => Promise<{ email: string; username: string }>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void> | void;
@@ -117,7 +118,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       toast.info("This browser was logged out from another of your devices.");
     };
     window.addEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
+    const onDeleted = () => {
+      tokenStore.clear();
+      logout();
+      toast.info("Your ShareEven account was deleted.");
+    };
+    window.addEventListener(ACCOUNT_DELETED_EVENT, onDeleted);
+    const onSuspended = () => {
+      tokenStore.clear();
+      logout();
+      toast.error("Your account was suspended. Try logging in to see why and until when.", { autoClose: false });
+    };
+    window.addEventListener(ACCOUNT_SUSPENDED_EVENT, onSuspended);
     return () => {
+      window.removeEventListener(ACCOUNT_SUSPENDED_EVENT, onSuspended);
+      window.removeEventListener(ACCOUNT_DELETED_EVENT, onDeleted);
       window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
       window.removeEventListener(LOGGED_OUT_ELSEWHERE_EVENT, onLoggedOut);
     };
@@ -287,7 +302,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const forgotPassword = useCallback(
-    async (identifier: string): Promise<void> => {
+    async (identifier: string): Promise<string> => {
       setError(null);
       setIsLoading(true);
       try {
@@ -295,13 +310,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error("Username or email is required");
         }
 
-
         const response = await authService.forgotPassword(identifier);
 
         if (!response.success) {
           throw new Error(response.message || "Failed to send reset email");
         }
-
+        return response.data?.email || identifier;
 
       } catch (err) {
         const msg = parseApiError(err);

@@ -1,6 +1,6 @@
-# Papyris features
+# ShareEven features
 
-Last updated October 2026. Papyris is a chat app with built-in expense splitting, for web and
+Last updated October 2026. ShareEven is a chat app with built-in expense splitting, for web and
 Android (an iOS project exists but hasn't been built yet). It's compared here with WhatsApp and
 Signal (chat) and Splitwise (expenses).
 
@@ -66,7 +66,7 @@ See also:
 | Excel export: summary, every item and who pays what, discounts | Done | |
 | Overall totals across every chat, per person | Done | Splitwise's "friends" view. |
 | Remind someone who owes you (once a day) | Done | |
-| Pay with Revolut, PayPal or UPI (amount filled in where possible) | Done | Papyris never moves money. |
+| Pay with Revolut, PayPal or UPI (amount filled in where possible) | Done | ShareEven never moves money. |
 | Recurring expenses (rent, bills) | Next | Free in Splitwise. |
 | Default split per group | Next | Splitwise Pro. |
 | "Adjustment" split, search, charts, comments on expenses, currency conversion, trip mode, budgets, offline adding | Consider | Details in [expenses-roadmap.md](expenses-roadmap.md). |

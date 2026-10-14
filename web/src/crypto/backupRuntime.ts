@@ -91,7 +91,7 @@ export async function restoreFromBackup(userId: string, recoveryKey: string, cur
   const key = checkRecoveryKey(recoveryKey, server as BackupMeta);
   const response = await fetch(resolveMediaUrl(server.url)!);
   if (response.status === 404) {
-    throw new Error("Your backup file is missing on the server. Open Papyris on a device that's still signed in and choose Back up now, or link this browser from it.");
+    throw new Error("Your backup file is missing on the server. Open ShareEven on a device that's still signed in and choose Back up now, or link this browser from it.");
   }
   if (!response.ok) throw new Error("Couldn't download the backup");
   const content = openBackup(key, server as BackupMeta, new Uint8Array(await response.arrayBuffer()));

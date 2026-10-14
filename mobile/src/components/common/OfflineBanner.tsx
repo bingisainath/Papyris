@@ -27,7 +27,7 @@ const OfflineBanner: React.FC = () => {
     <View pointerEvents="box-none" style={[styles.wrap, { top: insets.top + space(1) }]}>
       <View style={styles.banner} accessibilityRole="alert">
         <WifiOff size={16} color={colors.warning700} />
-        <Text style={styles.text}>Can't reach Papyris. Reconnecting…</Text>
+        <Text style={styles.text}>Can't reach ShareEven. Reconnecting…</Text>
         <Pressable onPress={() => socket.retryNow()} style={styles.button} hitSlop={8}>
           <Text style={styles.buttonText}>Try now</Text>
         </Pressable>

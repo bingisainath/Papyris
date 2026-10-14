@@ -49,7 +49,7 @@ class ClaudeExtractor(ReceiptExtractor):
         kwargs: dict = {}
         if not model.startswith(_NO_THINKING_PREFIXES):
             kwargs["thinking"] = {"type": "adaptive"}
-            kwargs["output_config"] = {"effort": "high"}
+            kwargs["output_config"] = {"effort": settings.RECEIPT_AI_EFFORT}
         if model in _FALLBACK_MODELS:
             kwargs["betas"] = [_FALLBACK_BETA]
             kwargs["fallbacks"] = "default"

@@ -135,7 +135,6 @@ export interface ActivityFilters {
 export interface ExpenseSettings {
   default_currency: string;
   simplify_debts: boolean;
-  receipt_model_id: number | null;
   can_edit: boolean;
 }
 
@@ -244,13 +243,9 @@ export interface AIModelOption {
   sort_order?: number;
 }
 
+/** Receipt scans this month; ShareEven picks the model, people don't. */
 export interface AISettings {
-  models: AIModelOption[];
-  preferred_model_id: number | null;
-  keys: { anthropic: string | null; openai: string | null };
-  app_keys: { anthropic: boolean; openai: boolean };
   usage: { scans_this_month: number; monthly_limit: number };
-  is_app_admin: boolean;
 }
 
 export interface StoreDiscount {
@@ -341,9 +336,6 @@ export const expenseService = {
     data<Expense>(api.post(`${V1}/receipts/${id}/save`, body)),
 
   aiSettings: () => data<AISettings>(api.get(`${V1}/ai/settings`)),
-  setPreferredModel: (preferred_model_id: number | null) => data<AISettings>(api.put(`${V1}/ai/settings`, { preferred_model_id })),
-  setOwnKey: (provider: 'anthropic' | 'openai', api_key: string) => data<AISettings>(api.put(`${V1}/ai/keys/${provider}`, { api_key })),
-  removeOwnKey: (provider: 'anthropic' | 'openai') => data<AISettings>(api.delete(`${V1}/ai/keys/${provider}`)),
 
   storeDiscounts: () => data<StoreDiscount[]>(api.get(`${V1}/store-discounts`)),
   saveStoreDiscount: (body: Omit<StoreDiscount, 'id'>, id?: number) =>

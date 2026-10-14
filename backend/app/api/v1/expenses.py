@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
 from app.db.session import get_db
-from app.models.ai import AIModel
 from app.models.expense import Expense, ExpenseEvent, Settlement
 from app.models.receipt import Receipt
 from app.models.user import User
@@ -670,7 +669,6 @@ async def _settings_data(db: AsyncSession, conversation_id: uuid.UUID, access: s
     return {
         "default_currency": settings.default_currency,
         "simplify_debts": settings.simplify_debts,
-        "receipt_model_id": settings.receipt_model_id,
         "can_edit": access.is_admin,
     }
 
@@ -702,14 +700,6 @@ async def update_expense_settings(
         settings.default_currency = _currency(body.default_currency)
     if body.simplify_debts is not None:
         settings.simplify_debts = body.simplify_debts
-    if body.receipt_model_id is not None:
-        if body.receipt_model_id == 0:
-            settings.receipt_model_id = None
-        else:
-            model = await db.get(AIModel, body.receipt_model_id)
-            if model is None or not model.enabled:
-                raise HTTPException(status_code=400, detail="That model isn't available")
-            settings.receipt_model_id = model.id
     data = await _settings_data(db, conversation_id, access)
     await db.commit()
     member_ids = await MessageService.member_ids(db, conversation_id)

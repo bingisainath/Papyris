@@ -238,20 +238,66 @@ async def scan_limit_one(db):
     await db.commit()
 
 
-async def test_monthly_limit_and_own_key(client, make_user, make_dm, fake_ai, db, scan_limit_one):
+async def test_monthly_limit(client, make_user, make_dm, fake_ai, db, scan_limit_one):
     a, b = await make_user(), await make_user()
     dm = await make_dm(a, b)
     await scan(client, a, dm)
     url = (await upload(client, a)).json()["data"]["url"]
     r = await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=a.headers)
-    assert r.status_code == 429 and "own AI key" in r.json()["message"]
+    assert r.status_code == 429 and "reset on the 1st" in r.json()["message"]
 
-    # With their own key there is no app limit, and their key is used
+    # A key saved before own keys were removed is ignored: the app's key and limit apply
     db.add(UserAISettings(user_id=uuid.UUID(a.id), anthropic_key_encrypted=secrets.encrypt("sk-ant-users-own-key")))
     await db.commit()
-    receipt = await scan(client, a, dm)
-    assert receipt["key_source"] == "user"
-    assert fake_ai.calls[-1]["api_key"] == "sk-ant-users-own-key"
+    r = await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=a.headers)
+    assert r.status_code == 429
+
+
+async def test_admin_sets_scans_per_person(client, make_user, make_dm, fake_ai, db, scan_limit_one):
+    """App limit 1: a tester gets a custom limit, someone else extra scans this month, a third is paused."""
+    from sqlalchemy import update
+    from app.models.user import User
+    admin, tester, other = await make_user("admin"), await make_user(), await make_user()
+    await db.execute(update(User).where(User.id == uuid.UUID(admin.id)).values(is_app_admin=True))
+    await db.commit()
+    dm = await make_dm(tester, other)
+    base = f"/api/v1/admin/users"
+
+    # Only admins, and a reason is required
+    assert (await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 3, "reason": "beta"}, headers=other.headers)).status_code == 403
+    assert (await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 3}, headers=admin.headers)).status_code == 422
+
+    r = await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 3, "reason": "Beta tester"}, headers=admin.headers)
+    assert r.status_code == 200 and r.json()["data"]["limit"] == 3 and r.json()["data"]["app_limit"] == 1
+    for _ in range(3):
+        await scan(client, tester, dm)
+    url = (await upload(client, tester)).json()["data"]["url"]
+    assert (await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=tester.headers)).status_code == 429
+    usage = (await client.get("/api/v1/ai/settings", headers=tester.headers)).json()["data"]["usage"]
+    assert usage == {"scans_this_month": 3, "monthly_limit": 3}
+
+    # Extra scans add up within the month, on top of the app's limit
+    await scan(client, other, dm)
+    for count in (1, 2):
+        r = await client.post(f"{base}/{other.id}/extra-scans", json={"count": count, "reason": "A scan went wrong"}, headers=admin.headers)
+    assert r.json()["data"] == {"limit": 4, "app_limit": 1, "custom_limit": None, "extra_this_month": 3, "used": 1}
+    await scan(client, other, dm)
+
+    # Extra scans from an earlier month don't count
+    await db.execute(update(User).where(User.id == uuid.UUID(other.id)).values(extra_scans_month=pipeline._month_start().date().replace(year=2020)))
+    await db.commit()
+    details = (await client.get(f"{base}/{other.id}", headers=admin.headers)).json()["data"]["scans"]
+    assert details["extra_this_month"] == 0 and details["limit"] == 1 and details["used"] == 2
+
+    # 0 pauses scanning with its own message; null goes back to the app's limit
+    await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": 0, "reason": "Abuse"}, headers=admin.headers)
+    r = await client.post(f"/api/v1/conversations/{dm}/receipts", json={"image_urls": [url]}, headers=tester.headers)
+    assert r.status_code == 429 and "paused" in r.json()["message"]
+    r = await client.post(f"{base}/{tester.id}/scan-limit", json={"limit": None, "reason": "Resolved"}, headers=admin.headers)
+    assert r.json()["data"]["custom_limit"] is None and r.json()["data"]["limit"] == 1
+
+    log = [a["action"] for a in (await client.get("/api/v1/admin/actions", headers=admin.headers)).json()["data"]]
+    assert log.count("scan_limit_set") == 3 and log.count("extra_scans") == 2
 
 
 async def test_no_server_key_and_access(client, make_user, make_dm, fake_ai, monkeypatch):
@@ -271,17 +317,20 @@ async def test_no_server_key_and_access(client, make_user, make_dm, fake_ai, mon
     assert r.status_code == 400
 
 
-async def test_chat_model_override_and_store_rule_matching(client, six, fake_ai, db):
+async def test_app_model_only_and_store_rule_matching(client, six, fake_ai, db):
     people, group = await six()
     owner = people[0]
-    r = await client.put(f"/api/v1/conversations/{group}/expense-settings", json={"receipt_model_id": 3}, headers=people[1].headers)
-    assert r.status_code == 403  # not a group admin
-    r = await client.put(f"/api/v1/conversations/{group}/expense-settings", json={"receipt_model_id": 3}, headers=owner.headers)
-    assert r.status_code == 200
+    # Chats can't pick a model any more: the old setting is ignored and the app default is used
+    from app.models.expense import ConversationSettings
+    settings_row = await db.get(ConversationSettings, uuid.UUID(group))
+    if settings_row is None:
+        settings_row = ConversationSettings(conversation_id=uuid.UUID(group))
+        db.add(settings_row)
+    settings_row.receipt_model_id = 3
     db.add(StoreDiscountRule(owner_id=uuid.UUID(owner.id), store_name="Lidl", store_key="lidl", percent=5))
     await db.commit()
     receipt = await scan(client, owner, group)
-    assert fake_ai.calls[-1]["model"] == "claude-haiku-4-5"
+    assert fake_ai.calls[-1]["model"] == "claude-opus-5"
     assert not any(a["source"] == "store_rule" for a in receipt["adjustments"])  # Lidl rule, Tesco receipt
 
 

@@ -3,9 +3,10 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, ChevronRight, Coins, LogOut, Mail, MonitorSmartphone, ScanLine, ShieldCheck, Store } from 'lucide-react-native';
+import { Ban, Bell, ChevronRight, Coins, Download, FileText, HelpCircle, Info, LifeBuoy, LockKeyhole, LogOut, Mail, MonitorSmartphone, ShieldCheck, Store, Trash2 } from 'lucide-react-native';
+import { openInfoPage } from '../../components/common/InfoLinks';
 import CurrencyPicker from '../../components/expenses/CurrencyPicker';
-import { authApi } from '../../api/auth';
+import { authApi, saveMyData } from '../../api/auth';
 import { errorMessage } from '../../api/client';
 import type { LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -89,14 +90,14 @@ const SettingsScreen: React.FC = () => {
           <Divider />
           <Row icon={MonitorSmartphone} label="Sessions" hint="Devices signed in to your account" onPress={() => navigation.navigate('Sessions')} />
           <Divider />
+          <Row icon={Ban} label="Blocked people" hint="People who can't message you" onPress={() => navigation.navigate('BlockedPeople')} />
+          <Divider />
           <Row icon={Bell} label="Notifications" onPress={notifications}
             value={push === null ? '' : push === 'on' ? 'On' : push === 'off' ? 'Off' : 'Not set up'} />
         </View>
 
         <Text style={styles.sectionTitle}>Expenses</Text>
         <View style={styles.section}>
-          <Row icon={ScanLine} label="Receipt scanning" hint="AI model and your own keys" onPress={() => navigation.navigate('ReceiptScanning')} />
-          <Divider />
           <Row icon={Store} label="Store discounts" hint="Staff or member discounts" onPress={() => navigation.navigate('StoreDiscounts')} />
           <Divider />
           <Row icon={Coins} label="Show totals in" hint="Also show amounts converted at today's rate" onPress={displayCurrency}
@@ -104,6 +105,19 @@ const SettingsScreen: React.FC = () => {
         </View>
         <CurrencyPicker visible={pickingCurrency} value={user.display_currency || ''} onClose={() => setPickingCurrency(false)}
           onPick={(code) => { setPickingCurrency(false); setDisplayCurrency(code); }} />
+
+        <Text style={styles.sectionTitle}>More</Text>
+        <View style={styles.section}>
+          <Row icon={Info} label="About ShareEven" onPress={() => openInfoPage('about')} />
+          <Divider />
+          <Row icon={HelpCircle} label="FAQ" onPress={() => openInfoPage('faq')} />
+          <Divider />
+          <Row icon={LifeBuoy} label="Contact us" onPress={() => openInfoPage('contact')} />
+          <Divider />
+          <Row icon={FileText} label="Terms of Service" onPress={() => openInfoPage('terms')} />
+          <Divider />
+          <Row icon={LockKeyhole} label="Privacy Policy" onPress={() => openInfoPage('privacy')} />
+        </View>
 
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.section}>
@@ -114,6 +128,11 @@ const SettingsScreen: React.FC = () => {
               <Text style={styles.value}>{user.email}</Text>
             </View>
           </View>
+          <Divider />
+          <Row icon={Download} label="Download my data" hint="Profile, chats, expenses and receipts as a file"
+            onPress={() => saveMyData().then((name) => showAlert('Saved to Downloads', name)).catch((e) => showAlert("Couldn't download", errorMessage(e)))} />
+          <Divider />
+          <Row icon={Trash2} label="Delete account" hint="Signs you out everywhere; can't be undone" onPress={() => navigation.navigate('DeleteAccount')} />
           <Divider />
           <Pressable
             onPress={async () => {

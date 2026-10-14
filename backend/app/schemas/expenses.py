@@ -51,8 +51,6 @@ class SettlementUpdate(BaseModel):
 class SettingsRequest(BaseModel):
     default_currency: Optional[str] = Field(None, min_length=3, max_length=3)
     simplify_debts: Optional[bool] = None
-    # 0 = clear (use each person's own choice)
-    receipt_model_id: Optional[int] = None
 
 
 class RemindRequest(BaseModel):

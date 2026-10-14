@@ -16,6 +16,8 @@ export interface Conversation {
   pinnedAt: string | null;
   mutedUntil?: string | null; // muted for you until then (no notifications)
   isArchived?: boolean; // archived by you
+  otherUserId?: string | null; // direct chats: the other person
+  isBlocked?: boolean; // direct chats: you blocked the other person
 }
 
 /** Muted right now? */

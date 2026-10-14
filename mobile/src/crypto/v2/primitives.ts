@@ -1,4 +1,4 @@
-// Papyris end-to-end encryption v2: building blocks (docs/encryption-design-v2.md).
+// ShareEven end-to-end encryption v2: building blocks (docs/encryption-design-v2.md).
 // Shared word for word by web/src/crypto/v2 and mobile/src/crypto/v2.
 //
 // X25519 (key agreement), Ed25519 (signatures), HKDF-SHA256 / HMAC-SHA256 (key derivation) and

@@ -14,7 +14,10 @@ import type { AppDispatch, RootState } from '../../../redux/store';
 import { selectIsConnected, selectTypingNames } from '../../../redux/slices/websocketSlice';
 import { fetchMessages, fetchOlderMessages } from '../../../redux/actions/chatActions';
 import { downloadMedia, messagePreview, resolveMediaUrl } from '../../../utils/media';
-import { applyMessageUpdate, clearUnreadCount } from '../../../redux/slices/chatSlice';
+import { applyMessageUpdate, clearUnreadCount, setBlocked } from '../../../redux/slices/chatSlice';
+import { safetyService } from '../../../services/safety.service';
+import ReportDialog from '../ReportDialog';
+import type { ReportTarget } from '../ReportDialog';
 import type { Message, ReplyPreview } from '../../../redux/slices/chatSlice';
 import { chatService } from '../../../services/chat.service';
 import { parseApiError } from '../../../utils/apiError';
@@ -90,6 +93,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const closeExpenseView = () => setSearchParams({}, { replace: true });
 
   const isConnected = useSelector(selectIsConnected);
+  const blockedUserId = useSelector((state: RootState) => {
+    const c = state.chat.conversations.find(x => x.id === conversationId);
+    return c?.isBlocked ? c.otherUserId || null : null;
+  });
+  const [unblocking, setUnblocking] = useState(false);
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
+  const unblock = async () => {
+    if (!blockedUserId) return;
+    setUnblocking(true);
+    try {
+      await safetyService.unblock(blockedUserId);
+      dispatch(setBlocked({ userId: blockedUserId, blocked: false }));
+    } catch (error) {
+      toast.error(parseApiError(error));
+    } finally {
+      setUnblocking(false);
+    }
+  };
   // const onlineUsers = useSelector(selectOnlineUsers);
 
   const lastMarkedMessageId = useRef<string | undefined>(undefined);
@@ -432,6 +453,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 onCancelUpload={message.id.startsWith('temp-') ? () => dispatch(cancelUpload(conversationId, message.id)) : undefined}
                 onRetryUpload={() => dispatch(retryUpload(message.id))}
                 onForward={() => setForwarding(message)}
+                onReport={() => setReporting({
+                  title: 'Report this message', messageId: message.id, conversationId,
+                  userId: message.senderId, userName: message.senderName || 'this person',
+                  messageText: message.text || undefined,
+                })}
                 onDownload={message.mediaUrl ? () => handleDownload(message) : undefined}
               />
             );
@@ -625,7 +651,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
       )}
 
-      {/* Message Input */}
+      {/* Message Input (or why there isn't one) */}
+      {blockedUserId ? (
+        <div className="border-t border-muted-200 bg-white px-4 py-4 mobile-nav-safe flex flex-wrap items-center justify-center gap-3 text-sm text-muted-600">
+          You blocked {conversationName}. You can't message each other.
+          <button type="button" onClick={unblock} disabled={unblocking}
+            className="px-3 py-1.5 rounded-lg font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 disabled:opacity-50">
+            {unblocking ? 'Unblocking…' : 'Unblock'}
+          </button>
+        </div>
+      ) : (
       <div className="border-t border-muted-200 bg-white px-3 sm:px-5 py-2.5 mobile-nav-safe">
         <MessageInput
           onSend={handleSendMessage}
@@ -641,6 +676,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           onExpense={() => setAddingExpense(true)}
         />
       </div>
+      )}
 
       {viewerIndex !== null && (
         <MediaViewer
@@ -673,6 +709,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       {openExpenseId && (
         <ExpenseDetail expenseId={openExpenseId} currentUserId={currentUserId} onClose={closeExpenseView} />
       )}
+
+      {reporting && <ReportDialog target={reporting} onClose={() => setReporting(null)} />}
 
       <ConversationInfoPanel
         conversationId={conversationId}

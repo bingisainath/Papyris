@@ -1,7 +1,7 @@
 // src/crypto/v2-platform/sqliteKV.ts
 // The phone's storage for encryption v2 (see crypto/v2/storage.ts): an SQLite database encrypted as
 // a whole with SQLCipher. Its random 256-bit key lives in the Keychain/Keystore, readable only by
-// Papyris on this device.
+// ShareEven on this device.
 
 import { open } from '@op-engineering/op-sqlite';
 import * as Keychain from 'react-native-keychain';

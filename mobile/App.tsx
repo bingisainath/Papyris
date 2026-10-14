@@ -1,5 +1,5 @@
 /**
- * Papyris mobile app (React Native).
+ * ShareEven mobile app (React Native).
  * Chats and expenses on the same server as the web app.
  */
 import React, { useEffect } from 'react';

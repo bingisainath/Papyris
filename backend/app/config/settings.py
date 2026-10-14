@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     ENV: str = "local"  # local, staging, production
     
     # Application
-    APP_NAME: str = "Papyris API"
+    APP_NAME: str = "ShareEven API"
     DEBUG: bool = True
     LOG_LEVEL: str = "INFO"  # DEBUG shows every WebSocket event and worker step
     SQL_ECHO: bool = False  # log every SQL statement (very noisy)
@@ -51,18 +51,23 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     # Encrypts the AI keys people add themselves; falls back to one derived from JWT_SECRET_KEY
     AI_KEY_ENCRYPTION_SECRET: str = ""
-    RECEIPT_SCANS_PER_MONTH: int = 50  # per person on the app's key; admins can change it in the app
+    RECEIPT_SCANS_PER_MONTH: int = 100  # per person; admins can change it in the admin console
+    # Measured on real receipts (2026-10): Opus 5 at medium read all 7 right, cheaper and faster than at high
+    RECEIPT_AI_EFFORT: str = "medium"
     RECEIPT_AI_TIMEOUT_SECONDS: int = 120
     RECEIPT_MAX_IMAGES: int = 4
 
     # Email (sign-up codes, password resets). With SMTP_USER and SMTP_PASSWORD set, emails are
     # really sent; without them (local development) they are written to the backend log instead.
+    # Production: a sending service for shareeven.com (e.g. Resend: smtp.resend.com, port 465,
+    # user "resend", password = its API key) with FROM_EMAIL=noreply@shareeven.com.
     SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
+    SMTP_PORT: int = 587  # 587 = STARTTLS, 465 = TLS from the start
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     FROM_EMAIL: str = ""  # defaults to SMTP_USER
-    FROM_NAME: str = "Papyris"
+    FROM_NAME: str = "ShareEven"
+    REPLY_TO: str = "support@shareeven.com"  # replies to noreply@ reach a person
     FRONTEND_URL: str = "http://localhost:3000"  # used in password-reset links
 
     # Push notifications (Firebase Cloud Messaging). Path to the service-account JSON downloaded
@@ -74,6 +79,9 @@ class Settings(BaseSettings):
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds
     WS_MAX_CONNECTIONS_PER_USER: int = 5
     
+    # Limits on logins, sign-ups, uploads, messages... (app/core/rate_limit.py), counted in Redis
+    RATE_LIMITS_ENABLED: bool = True
+
     # Message worker's name in the Redis consumer group. Empty = "worker-<hostname>".
     # Give each worker a different name when running several on one machine.
     WORKER_NAME: str = ""

@@ -55,7 +55,7 @@ const ProfileScreen: React.FC = () => {
       </View>
       <EditableField icon={UserIcon} label="Name" value={user.name || ''} placeholder="Add your name" max={100}
         validate={(v) => (v.trim().length < 2 ? 'Enter at least 2 characters' : null)} onSave={(name) => save({ name })} />
-      <EditableField icon={Info} label="About" value={user.bio || ''} placeholder="Hey there! I'm using Papyris." max={140} onSave={(bio) => save({ bio })} />
+      <EditableField icon={Info} label="About" value={user.bio || ''} placeholder="Hey there! I'm using ShareEven." max={140} onSave={(bio) => save({ bio })} />
       <EditableField icon={AtSign} label="Username" value={user.username} max={30} prefix="@"
         normalize={(v) => v.trim().toLowerCase()}
         validate={(v) => (/^[a-z0-9._]{3,30}$/.test(v) ? null : 'Use 3-30 lowercase letters, numbers, dots or underscores')}
@@ -63,7 +63,7 @@ const ProfileScreen: React.FC = () => {
 
       {/* Optional: people in your chats who owe you get a Pay button for these */}
       <Text style={styles.section}>Payment details</Text>
-      <Text style={styles.sectionHint}>Optional. People in your chats who owe you see a Pay button for these. Papyris never moves money.</Text>
+      <Text style={styles.sectionHint}>Optional. People in your chats who owe you see a Pay button for these. ShareEven never moves money.</Text>
       <EditableField icon={Wallet} label="Revolut username" value={user.payment_handles?.revolut || ''} placeholder="your-name" max={40} prefix="revolut.me/"
         normalize={(v) => v.trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?revolut\.me\//i, '')}
         validate={(v) => (!v || /^[A-Za-z0-9._-]{2,40}$/.test(v) ? null : 'Letters, numbers, dots, dashes or underscores')}

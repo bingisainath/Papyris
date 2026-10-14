@@ -5,13 +5,14 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import InfoLinks from '../../molecules/InfoLinks';
 
 export const BrandMark: React.FC<{ inverted?: boolean }> = ({ inverted }) => (
   <div className="flex items-center gap-2.5">
     <span className={`w-[42px] h-[42px] rounded-[13px] grid place-items-center font-display font-bold text-xl ${
       inverted ? 'bg-white text-primary-700' : 'bg-primary-700 text-white'
-    }`}>P</span>
-    <span className={`font-display font-bold text-xl ${inverted ? 'text-white' : 'text-muted-900'}`}>Papyris</span>
+    }`}>S</span>
+    <span className={`font-display font-bold text-xl ${inverted ? 'text-white' : 'text-muted-900'}`}>ShareEven</span>
   </div>
 );
 
@@ -73,6 +74,7 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ eyebrow, title, subtitle, icon:
         {!subtitle && <div className="mb-7" />}
         {children}
       </div>
+      <InfoLinks className="px-5 pb-6" />
     </section>
   </main>
 );

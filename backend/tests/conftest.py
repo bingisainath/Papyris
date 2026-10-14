@@ -70,6 +70,8 @@ def events(monkeypatch):
     async def fake_publish_users(user_ids, payload):
         captured.append((list(user_ids), payload))
 
+    import app.api.v1.admin as admin_api
+    import app.api.v1.auth as auth_api
     import app.api.v1.chat as chat_api
     import app.api.v1.e2e_keys as e2e_keys_api
     import app.api.v1.e2e_v2 as e2e_v2_api
@@ -77,10 +79,18 @@ def events(monkeypatch):
     import app.api.v1.groups as groups_api
     import app.api.v1.messages as messages_api
     import app.api.v1.receipts as receipts_api
+    import app.api.v1.safety as safety_api
     import app.websocket.routes as ws_routes
-    for module in (chat_api, e2e_keys_api, e2e_v2_api, expenses_api, groups_api, messages_api, receipts_api, ws_routes):
+    for module in (admin_api, auth_api, chat_api, e2e_keys_api, e2e_v2_api, expenses_api, groups_api, messages_api, receipts_api, safety_api, ws_routes):
         monkeypatch.setattr(module, "publish_users", fake_publish_users)
     return captured
+
+
+@pytest.fixture(autouse=True)
+def rate_limits():
+    """Rate limits count in memory, fresh for every test (no Redis needed)."""
+    from app.core import rate_limit
+    return rate_limit.use_memory_counter()
 
 
 @pytest.fixture(autouse=True)
@@ -112,6 +122,15 @@ class TestUser:
     @property
     def headers(self):
         return {"Authorization": f"Bearer {self.access_token}"}
+
+
+@pytest.fixture(autouse=True)
+def no_real_email(monkeypatch):
+    """Tests never send mail, whatever SMTP settings the developer's .env has (emails go to the log)."""
+    from app.services.email_service import email_service
+    monkeypatch.setattr(email_service, "smtp_user", "")
+    monkeypatch.setattr(email_service, "smtp_password", "")
+    monkeypatch.setattr(email_service, "environment", "local")
 
 
 @pytest.fixture(autouse=True)

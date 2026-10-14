@@ -41,10 +41,11 @@ export interface UserResponse {
     email_verified?: boolean;
     payment_handles?: PaymentHandles | null;
     display_currency?: string | null; // expense totals are also shown in this currency
+    is_app_admin?: boolean;
   };
 }
 
-/** Where people in your chats can pay you (usernames only; Papyris never moves money). */
+/** Where people in your chats can pay you (usernames only; ShareEven never moves money). */
 export interface PaymentHandles {
   revolut?: string; // revolut.me/<name>
   paypal?: string; // paypal.me/<name>

@@ -36,6 +36,7 @@ class UserResponse(BaseModel):
     avatar: Optional[str] = None
     payment_handles: Optional[dict] = None
     display_currency: Optional[str] = None
+    is_app_admin: bool = False  # reviews reports, manages AI models
     is_active: bool
     email_verified: bool = True
     created_at: datetime
@@ -66,6 +67,12 @@ class PaymentHandles(BaseModel):
             else:
                 out.pop(key, None)
         return out or None
+
+
+class DeleteAccountRequest(BaseModel):
+    """Deleting needs the password and the word DELETE typed out, so it never happens by accident."""
+    password: str = Field(..., min_length=1, max_length=128)
+    confirm: str = Field(..., max_length=20)
 
 
 class UserUpdate(BaseModel):

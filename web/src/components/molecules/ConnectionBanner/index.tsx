@@ -34,7 +34,7 @@ const ConnectionBanner: React.FC = () => {
       <WifiOff className="w-4 h-4 flex-shrink-0" />
       <span className="flex-1 min-w-0">
         {online
-          ? "Can't reach Papyris right now. Reconnecting… You can read your chats; sending works again once it's back."
+          ? "Can't reach ShareEven right now. Reconnecting… You can read your chats; sending works again once it's back."
           : "You're offline. Check your internet connection."}
       </span>
       {online && (

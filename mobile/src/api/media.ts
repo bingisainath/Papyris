@@ -1,5 +1,5 @@
 // src/api/media.ts
-// Upload a photo, video, voice note or document to the Papyris server (same endpoint as the web app).
+// Upload a photo, video, voice note or document to the ShareEven server (same endpoint as the web app).
 import { api } from './client';
 
 export type UploadQuality = 'standard' | 'hd' | 'original';

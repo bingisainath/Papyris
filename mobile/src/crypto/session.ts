@@ -2,7 +2,7 @@
 // This phone's unlocked encryption keys (same interface as web/src/crypto/session.ts).
 //
 // The private keys (created here, or received by linking) are kept in the phone's secure storage
-// (Android Keystore / iOS Keychain), readable only by Papyris on this device. Logging out deletes
+// (Android Keystore / iOS Keychain), readable only by ShareEven on this device. Logging out deletes
 // them; signing in again means linking this phone again.
 
 import * as Keychain from 'react-native-keychain';

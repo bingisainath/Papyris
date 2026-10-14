@@ -80,7 +80,7 @@ export async function verificationQr(store: EncryptedStore, me: string, other: s
 /**
  * Check a QR code scanned from the other person's screen. 'match': both see the same keys, so the
  * contact is marked verified. 'mismatch': someone has a different key (don't trust the chat).
- * 'other': it's not a Papyris verification code for this chat.
+ * 'other': it's not a ShareEven verification code for this chat.
  */
 export async function checkVerificationQr(store: EncryptedStore, me: string, other: string, text: string): Promise<'match' | 'mismatch' | 'other'> {
   if (!text.startsWith(QR_PREFIX)) return 'other';

@@ -43,8 +43,8 @@ const BackupSettings: React.FC<{ userId: string }> = ({ userId }) => {
 
   const downloadKey = (key: string) => {
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([`Papyris recovery key\n\n${formatRecoveryKey(key)}\n\nKeep it somewhere safe. Anyone with this key and your account can read your backup.\n`], { type: 'text/plain' }));
-    link.download = 'papyris-recovery-key.txt';
+    link.href = URL.createObjectURL(new Blob([`ShareEven recovery key\n\n${formatRecoveryKey(key)}\n\nKeep it somewhere safe. Anyone with this key and your account can read your backup.\n`], { type: 'text/plain' }));
+    link.download = 'shareeven-recovery-key.txt';
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -57,7 +57,7 @@ const BackupSettings: React.FC<{ userId: string }> = ({ userId }) => {
           <h2 className="text-lg font-semibold text-muted-900">Encrypted backup</h2>
           <p className="text-sm text-muted-500">
             If you lose every device, a backup lets you read your encrypted chats again. It's encrypted with a 64-digit recovery key
-            that only you have: Papyris can't open it, and can't help if the key is lost.
+            that only you have: ShareEven can't open it, and can't help if the key is lost.
           </p>
 
           {status === null ? null : !status.exists && !newKey ? (

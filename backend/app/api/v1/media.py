@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import Response, StreamingResponse
 
 from app.api.dependencies import get_current_user
+from app.core import rate_limit as rl
 from app.models.user import User
 from app.services import media_crypto, media_processing, media_storage
 
@@ -41,6 +42,7 @@ async def upload_media(
     itself). The server can't look inside, so it stores the bytes as they are: no type check,
     compression or poster frame.
     """
+    await rl.enforce((rl.UPLOADS_PER_USER, str(current_user.id)))
     if encrypted:
         if not kind:
             raise HTTPException(status_code=400, detail="Say what kind of file this is")

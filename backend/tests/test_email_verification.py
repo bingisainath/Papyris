@@ -77,7 +77,7 @@ def test_email_goes_out_over_smtp_when_configured(monkeypatch):
     sent = []
 
     class FakeSMTP:
-        def __init__(self, host, port):
+        def __init__(self, host, port, timeout=None):
             sent.append(("connect", host, port))
         def __enter__(self):
             return self
@@ -89,15 +89,42 @@ def test_email_goes_out_over_smtp_when_configured(monkeypatch):
             sent.append(("login", user))
         def send_message(self, msg):
             sent.append(("send", msg["To"], msg["Subject"]))
+            sent.append(("headers", msg["From"], msg["Reply-To"], bool(msg["Message-ID"]), bool(msg["Date"])))
 
     monkeypatch.setattr(module.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(module.smtplib, "SMTP_SSL", FakeSMTP)
     service = module.EmailService()
+    # Fixed settings: never whatever the developer's .env points at
+    service.smtp_host, service.smtp_port = "smtp.gmail.com", 587
     service.smtp_user, service.smtp_password, service.from_email = "papyris@gmail.com", "app-password", "papyris@gmail.com"
     assert service.send_verification_code("new@example.com", "new", "123456")
     assert ("login", "papyris@gmail.com") in sent
-    assert ("send", "new@example.com", "123456 is your Papyris code") in sent
+    assert ("send", "new@example.com", "123456 is your ShareEven code") in sent
+
+    # A sending service on port 465 (TLS from the start), from noreply@ with replies to support@
+    sent.clear()
+    service.smtp_host, service.smtp_port = "smtp.resend.com", 465
+    service.smtp_user, service.smtp_password, service.from_email = "resend", "re_key", "noreply@shareeven.com"
+    assert service.send_verification_code("new@example.com", "new", "123456")
+    assert ("connect", "smtp.resend.com", 465) in sent and ("tls",) not in sent
+    assert ("headers", "ShareEven <noreply@shareeven.com>", "support@shareeven.com", True, True) in sent
 
     unconfigured = module.EmailService()
     unconfigured.smtp_user = unconfigured.smtp_password = ""
     unconfigured.environment = "production"
     assert unconfigured.send_verification_code("new@example.com", "new", "123456") is False
+
+
+async def test_forgot_password_says_when_no_account(client, make_user, monkeypatch):
+    from app.api.v1 import auth as auth_api
+    sent = []
+    monkeypatch.setattr(auth_api.email_service, "send_password_reset_email", lambda *a: sent.append(a) or True)
+    r = await client.post("/api/v1/auth/forgot-password", json={"identifier": "nobody-here@example.com"})
+    assert r.status_code == 404 and r.json()["code"] == "account_not_found"
+    assert sent == []
+
+    user = await make_user("forgot")
+    r = await client.post("/api/v1/auth/forgot-password", json={"identifier": user.username})
+    assert r.status_code == 200
+    assert r.json()["data"]["email"] == f"{user.email[:2]}•••@example.com"  # partly hidden
+    assert sent and sent[0][0] == user.email

@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { Archive, ArchiveRestore, Bell, BellOff, Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
+import { Archive, ArchiveRestore, Ban, Bell, Flag, BellOff, Camera, ChevronRight, Images, Info, LogOut, Pin, PinOff, Type, UserPlus, Wallet, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/common/Avatar';
 import EditableField from '../../components/common/EditableField';
@@ -14,6 +14,7 @@ import { Divider } from '../../components/common/ui';
 import { isMuted, chatApi, ConversationDetails, MemberInfo } from '../../api/chat';
 import { expenseService, ExpenseSettings } from '../../api/expenses';
 import { api, errorMessage } from '../../api/client';
+import { safetyApi } from '../../api/safety';
 import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
 import { colors, radius, space } from '../../theme';
@@ -62,6 +63,24 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
   const isAdmin = details.my_role === 'admin';
   const other = details.members.find((m) => !m.is_me);
   const title = isGroup ? details.title : other?.name || other?.username;
+
+  const blocked = !!chat?.isBlocked;
+  const setBlock = (block: boolean) => {
+    if (!other) return;
+    const name = other.name || other.username;
+    const change = () => run(async () => {
+      await (block ? safetyApi.block(other.id) : safetyApi.unblock(other.id));
+      useChat.getState().setBlocked(other.id, block);
+    });
+    if (!block) return change();
+    showAlert(`Block ${name}?`, "You won't be able to message each other directly, and they can't add you to groups. They aren't told. Groups you share and shared expenses stay as they are.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Block', style: 'destructive', onPress: change },
+    ]);
+  };
+  const report = () => navigation.navigate('Report', isGroup
+    ? { title: `Report ${title || 'group'}`, conversationId }
+    : { title: `Report ${title || 'this person'}`, userId: other?.id, userName: title || undefined, conversationId });
 
   const run = async (action: () => Promise<unknown>) => {
     try {
@@ -235,11 +254,21 @@ const ChatInfoScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatInfo'
           </View>
         )}
 
-        {isGroup && (
-          <View style={styles.section}>
-            <Row icon={LogOut} label="Leave group" danger onPress={leave} />
-          </View>
-        )}
+        <View style={styles.section}>
+          {!isGroup && other && (
+            <>
+              <Row icon={Ban} label={blocked ? `Unblock ${title}` : `Block ${title}`} danger={!blocked} onPress={() => setBlock(!blocked)} />
+              <Divider />
+            </>
+          )}
+          <Row icon={Flag} label={isGroup ? 'Report group' : `Report ${title}`} danger onPress={report} />
+          {isGroup && (
+            <>
+              <Divider />
+              <Row icon={LogOut} label="Leave group" danger onPress={leave} />
+            </>
+          )}
+        </View>
       </ScrollView>
 
       <Modal visible={adding} animationType="slide" onRequestClose={() => setAdding(false)}>

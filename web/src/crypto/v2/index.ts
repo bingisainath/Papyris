@@ -1,4 +1,4 @@
-// Papyris end-to-end encryption v2 (docs/encryption-design-v2.md).
+// ShareEven end-to-end encryption v2 (docs/encryption-design-v2.md).
 // Shared word for word by web/src/crypto/v2 and mobile/src/crypto/v2.
 export * from './primitives';
 export * from './identity';

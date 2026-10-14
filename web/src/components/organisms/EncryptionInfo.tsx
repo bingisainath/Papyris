@@ -56,7 +56,7 @@ const EncryptionInfo: React.FC<{ conversationId: string; other?: { id: string; n
                     <p className="font-mono text-sm tracking-wide text-muted-800 break-words" data-testid="security-code">{trust.code}</p>
                     {qr && <div className="mt-3 inline-block p-2 bg-white border border-muted-200 rounded-lg"><QRCodeSVG value={qr} size={132} level="M" /></div>}
                     <p className="mt-1 text-xs text-muted-500">
-                      Compare this code with {other!.name} in person or on a call, or scan this QR code with the Papyris app on their phone.
+                      Compare this code with {other!.name} in person or on a call, or scan this QR code with the ShareEven app on their phone.
                       If it matches, nobody is listening in. It only changes if one of you starts over with new keys.
                     </p>
                     <div className="mt-2 flex flex-wrap gap-3 text-xs font-medium">

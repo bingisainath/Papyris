@@ -14,7 +14,7 @@ const MIME: Record<string, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
-const safeName = (name: string) => name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120) || 'papyris-file';
+const safeName = (name: string) => name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120) || 'shareeven-file';
 
 /** Copy a file already on the phone to Downloads (Android) or open its preview to save or share it (iPhone). */
 export async function saveLocalFile(local: string, filename: string, mime: string): Promise<void> {
@@ -26,7 +26,7 @@ export async function saveLocalFile(local: string, filename: string, mime: strin
       const target = `${ReactNativeBlobUtil.fs.dirs.DownloadDir}/${name}`;
       await ReactNativeBlobUtil.fs.cp(local, target);
       await ReactNativeBlobUtil.android.addCompleteDownload({
-        title: name, description: 'Saved from Papyris', mime, path: target, showNotification: true,
+        title: name, description: 'Saved from ShareEven', mime, path: target, showNotification: true,
       });
     }
     return;
@@ -53,7 +53,7 @@ export async function saveToPhone(url: string, filename: string, key?: string, f
         useDownloadManager: true,
         notification: true,
         title: name,
-        description: 'Saved from Papyris',
+        description: 'Saved from ShareEven',
         mime,
         mediaScannable: true,
         storeInDownloads: true,

@@ -61,7 +61,7 @@ export interface FoundLink {
 /** Signed-in device: the scanned QR's own key must match what the server has for that request. */
 export async function findByQr(qrText: string): Promise<FoundLink> {
   const parsed = parseLinkQr(qrText);
-  if (!parsed) throw new Error("That isn't a Papyris link code");
+  if (!parsed) throw new Error("That isn't a ShareEven link code");
   const request = await e2eService.linkRequest(parsed.requestId);
   if (request.ephemeral_public !== toBase64(parsed.publicKey)) throw new Error("This code doesn't match. Start again on the new device.");
   return { request, devicePublic: parsed.publicKey };

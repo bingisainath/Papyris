@@ -7,6 +7,8 @@ from app.api.v1.chat import router as chat_router
 from app.api.v1.media import router as media_router
 from app.api.v1.messages import router as messages_router
 from app.api.v1.groups import router as groups_router
+from app.api.v1.safety import router as safety_router
+from app.api.v1.admin import router as admin_router
 from app.api.v1.expenses import router as expenses_router
 from app.api.v1.receipts import router as receipts_router
 from app.api.v1.ai_settings import router as ai_settings_router
@@ -39,7 +41,7 @@ api_router.include_router(expenses_router)
 # Receipt scanning
 api_router.include_router(receipts_router)
 
-# AI model choice, own keys, store discounts, app admin
+# Scans used this month, store discounts, app admin (receipt model and limit)
 api_router.include_router(ai_settings_router)
 
 # Media, links and docs shared in a chat
@@ -56,3 +58,10 @@ api_router.include_router(e2e_v2_router)
 
 # Optional end-to-end encrypted backup
 api_router.include_router(e2e_backup_router)
+
+
+# Blocking people, reports, and report review for app admins
+api_router.include_router(safety_router)
+
+# The admin console (app admins only)
+api_router.include_router(admin_router)

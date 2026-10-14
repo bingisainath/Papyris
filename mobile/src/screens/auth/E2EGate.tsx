@@ -193,7 +193,7 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
   return (
     <AuthLayout
       title="Link this phone"
-      subtitle="Your chats are end-to-end encrypted. To read them here, open Papyris on another signed-in device, go to Settings → End-to-end encryption → Link a device, and scan this code or type the code below."
+      subtitle="Your chats are end-to-end encrypted. To read them here, open ShareEven on another signed-in device, go to Settings → End-to-end encryption → Link a device, and scan this code or type the code below."
     >
       {!!error && <Banner text={error} />}
       <View style={styles.qrBox}>

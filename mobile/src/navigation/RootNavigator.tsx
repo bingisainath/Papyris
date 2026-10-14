@@ -27,11 +27,13 @@ import ScanReceiptScreen from '../screens/expenses/ScanReceiptScreen';
 import ExpenseDetailScreen from '../screens/expenses/ExpenseDetailScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import ProfileScreen from '../screens/settings/ProfileScreen';
-import ReceiptScanningScreen from '../screens/settings/ReceiptScanningScreen';
 import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
 import E2EGate from '../screens/auth/E2EGate';
 import SessionsScreen from '../screens/settings/SessionsScreen';
 import EncryptionScreen from '../screens/settings/EncryptionScreen';
+import DeleteAccountScreen from '../screens/settings/DeleteAccountScreen';
+import BlockedPeopleScreen from '../screens/settings/BlockedPeopleScreen';
+import ReportScreen from '../screens/settings/ReportScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
 const AppStack = createNativeStackNavigator<AppStackParams>();
@@ -193,11 +195,6 @@ const RootNavigator: React.FC = () => {
             options={{ title: 'Profile' }}
           />
           <AppStack.Screen
-            name="ReceiptScanning"
-            component={ReceiptScanningScreen}
-            options={{ title: 'Receipt scanning' }}
-          />
-          <AppStack.Screen
             name="StoreDiscounts"
             component={StoreDiscountsScreen}
             options={{ title: 'Store discounts' }}
@@ -206,6 +203,21 @@ const RootNavigator: React.FC = () => {
             name="Sessions"
             component={SessionsScreen}
             options={{ title: 'Sessions' }}
+          />
+          <AppStack.Screen
+            name="DeleteAccount"
+            component={DeleteAccountScreen}
+            options={{ title: 'Delete account' }}
+          />
+          <AppStack.Screen
+            name="BlockedPeople"
+            component={BlockedPeopleScreen}
+            options={{ title: 'Blocked people' }}
+          />
+          <AppStack.Screen
+            name="Report"
+            component={ReportScreen}
+            options={{ title: 'Report' }}
           />
           <AppStack.Screen
             name="Encryption"

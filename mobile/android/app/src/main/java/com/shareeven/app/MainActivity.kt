@@ -1,4 +1,4 @@
-package com.papyris.app
+package com.shareeven.app
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

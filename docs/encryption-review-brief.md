@@ -1,4 +1,4 @@
-# Papyris end-to-end encryption: brief for an external review
+# ShareEven end-to-end encryption: brief for an external review
 
 Status: October 2026, branch `feature/e2e-v2`. The design is in [encryption-design-v2.md](encryption-design-v2.md);
 this page says what to review, what we already know is weak, and what we'd like answered.

@@ -5,7 +5,7 @@ import { LogOut, MessageSquareText, Settings as SettingsIcon, Users, Wallet } fr
 import { Avatar } from '../../components/atoms';
 import { isMuted } from '../../components/molecules/ChatListItem';
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAuth } from '../../app/AuthProvider';
 import {
@@ -37,10 +37,13 @@ import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
 import ConnectionBanner from '../../components/molecules/ConnectionBanner';
-import { DisplayCurrencySettings, ReceiptScanningSettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
+import { DisplayCurrencySettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
 import SessionsSettings from '../../components/organisms/SessionsSettings';
 import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
+import AccountDataSettings from '../../components/organisms/AccountDataSettings';
+import InfoLinks from '../../components/molecules/InfoLinks';
+import { BlockedPeopleSettings } from '../../components/organisms/SafetySettings';
 import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
 import type { LogoutRisk } from '../../components/organisms/LogoutWarning';
 
@@ -80,15 +83,15 @@ const Home: React.FC = () => {
   const [creatingConversation, setCreatingConversation] = useState(false);  // ✅ NEW
 
   // Active route
-  // Unread count in the browser tab title, e.g. "(3) Papyris"
+  // Unread count in the browser tab title, e.g. "(3) ShareEven"
   // Muted and archived chats don't count (like WhatsApp)
   const counted = conversations.filter(c => !c.isArchived && !isMuted(c.mutedUntil));
   const totalUnread = counted.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
   useEffect(() => {
-    document.title = totalUnread > 0 ? `(${totalUnread}) Papyris` : 'Papyris';
+    document.title = totalUnread > 0 ? `(${totalUnread}) ShareEven` : 'ShareEven';
     setUnreadBadge(totalUnread);
   }, [totalUnread]);
-  useEffect(() => () => { document.title = 'Papyris'; setUnreadBadge(0); }, []);
+  useEffect(() => () => { document.title = 'ShareEven'; setUnreadBadge(0); }, []);
   // A chat that's been read (here or on another device) shouldn't keep its notifications up
   useEffect(() => {
     conversations.forEach(c => { if (!c.unreadCount) clearNotifications(c.id); });
@@ -525,8 +528,8 @@ const NotificationSettings: React.FC = () => {
   };
 
   const description: Record<NotificationStatus, string> = {
-    on: 'You get a desktop notification for new messages when Papyris is in the background.',
-    off: 'Turn on to get a desktop notification for new messages when Papyris is in the background.',
+    on: 'You get a desktop notification for new messages when ShareEven is in the background.',
+    off: 'Turn on to get a desktop notification for new messages when ShareEven is in the background.',
     denied: 'Notifications are blocked for this site. Allow them in your browser\'s site settings, then reload.',
     unsupported: 'This browser does not support desktop notifications.',
   };
@@ -605,15 +608,30 @@ const SettingsPage: React.FC<{
 
           <DisplayCurrencySettings />
 
-          <ReceiptScanningSettings />
 
           <StoreDiscountSettings />
+
+          <BlockedPeopleSettings />
+
+          {user.is_app_admin && (
+            <div className="card p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-muted-900">Admin console</h2>
+                <p className="text-sm text-muted-500">Overview, people, reports and the admin log. Only app admins see this.</p>
+              </div>
+              <Link to="/admin" className="flex-shrink-0 inline-flex items-center gap-2 h-10 px-4 text-sm font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-[11px]">
+                Open admin console
+              </Link>
+            </div>
+          )}
+
+          <AccountDataSettings />
 
           <div className="card p-4 sm:p-6">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-muted-900">Log out</h2>
-                <p className="text-sm text-muted-500">Sign out of Papyris on this device.</p>
+                <p className="text-sm text-muted-500">Sign out of ShareEven on this device.</p>
               </div>
               <button
                 onClick={onLogout}
@@ -624,6 +642,8 @@ const SettingsPage: React.FC<{
               </button>
             </div>
           </div>
+
+          <InfoLinks className="pt-2 pb-4" />
         </div>
       </div>
     </div>

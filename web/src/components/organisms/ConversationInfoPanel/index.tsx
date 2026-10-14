@@ -2,7 +2,7 @@
 // Slide-over with group info (name, photo, description, members, admin actions, leave)
 // or contact info for a direct chat.
 
-import { Archive, ArchiveRestore } from 'lucide-react';
+import { Archive, ArchiveRestore, Ban, Flag } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Avatar, Loading } from '../../atoms';
@@ -22,6 +22,10 @@ import { isMuted } from '../../molecules/ChatListItem';
 import { ChatExpenseSettings } from '../../expenses/ExpenseSettingsSections';
 import SharedMedia, { SharedMediaRow } from '../SharedMedia';
 import EncryptionInfo from '../EncryptionInfo';
+import ReportDialog from '../ReportDialog';
+import type { ReportTarget } from '../ReportDialog';
+import { safetyService } from '../../../services/safety.service';
+import { setBlocked } from '../../../redux/slices/chatSlice';
 
 interface ConversationInfoPanelProps {
   conversationId: string;
@@ -54,6 +58,8 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
   const mutedUntil = useSelector((state: RootState) => state.chat.conversations.find(x => x.id === conversationId)?.mutedUntil ?? null);
   const isArchived = useSelector((state: RootState) => !!state.chat.conversations.find(x => x.id === conversationId)?.isArchived);
   const prefs = { mutedUntil, isArchived };
+  const isBlocked = useSelector((state: RootState) => !!state.chat.conversations.find(x => x.id === conversationId)?.isBlocked);
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const muted = isMuted(prefs.mutedUntil);
   const mutedLabel = !muted ? '' : new Date(prefs.mutedUntil!).getFullYear() > 2100 ? 'Muted always'
     : `Muted until ${new Date(prefs.mutedUntil!).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
@@ -490,6 +496,15 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
               </div>
             </section>
 
+            <SafetyActions
+              conversationId={conversationId}
+              groupTitle={details.title}
+              other={!isGroup && other ? { id: other.id, name: other.name || other.username } : null}
+              isBlocked={isBlocked}
+              onBlockedChange={(userId, blocked) => dispatch(setBlocked({ userId, blocked }))}
+              onReport={setReporting}
+            />
+
             {isGroup && (
               <div className="px-6 py-4">
                 <button
@@ -503,11 +518,73 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
             )}
           </div>
         )}
+        {reporting && <ReportDialog target={reporting} onClose={() => setReporting(null)} />}
         {showShared && (
           <SharedMedia conversationId={conversationId} currentUserId={me?.id} onBack={() => setShowShared(false)} />
         )}
       </aside>
     </div>
+  );
+};
+
+/** Block or unblock (direct chats) and report (the person, or the group). */
+const SafetyActions: React.FC<{
+  conversationId: string;
+  groupTitle?: string | null;
+  other: { id: string; name: string } | null;
+  isBlocked: boolean;
+  onBlockedChange: (userId: string, blocked: boolean) => void;
+  onReport: (target: ReportTarget) => void;
+}> = ({ conversationId, groupTitle, other, isBlocked, onBlockedChange, onReport }) => {
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const toggleBlock = async () => {
+    if (!other) return;
+    setBusy(true);
+    try {
+      if (isBlocked) await safetyService.unblock(other.id);
+      else await safetyService.block(other.id);
+      onBlockedChange(other.id, !isBlocked);
+      toast.success(isBlocked ? `Unblocked ${other.name}` : `Blocked ${other.name}`);
+      setConfirming(false);
+    } catch (error) {
+      toast.error(parseApiError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="px-6 pt-4 space-y-2" aria-label="Safety">
+      {other && (
+        confirming && !isBlocked ? (
+          <div className="p-3 rounded-xl bg-accent-50 text-sm text-accent-800 space-y-2">
+            <p>Block {other.name}? You won't be able to message each other directly, and they can't add you to groups. They aren't told. Groups you share and shared expenses stay as they are.</p>
+            <div className="flex gap-2">
+              <button onClick={toggleBlock} disabled={busy} className="flex-1 px-3 py-2 rounded-lg bg-accent-600 text-white font-semibold disabled:opacity-50">Block</button>
+              <button onClick={() => setConfirming(false)} className="flex-1 px-3 py-2 rounded-lg bg-white text-muted-700 font-semibold">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => (isBlocked ? toggleBlock() : setConfirming(true))}
+            disabled={busy}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-accent-600 bg-accent-50 hover:bg-accent-100 rounded-lg disabled:opacity-50"
+          >
+            <Ban className="w-4 h-4" /> {isBlocked ? `Unblock ${other.name}` : `Block ${other.name}`}
+          </button>
+        )
+      )}
+      <button
+        onClick={() => onReport(other
+          ? { title: `Report ${other.name}`, userId: other.id, userName: other.name, conversationId }
+          : { title: `Report ${groupTitle || 'this group'}`, conversationId })}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-muted-700 bg-muted-100 hover:bg-muted-200 rounded-lg"
+      >
+        <Flag className="w-4 h-4" /> {other ? `Report ${other.name}` : 'Report group'}
+      </button>
+    </section>
   );
 };
 

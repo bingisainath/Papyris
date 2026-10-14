@@ -3,10 +3,8 @@
 import uuid
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import update
 
-from app.api.v1 import ai_settings
-from app.models.ai import UserAISettings
 from app.models.user import User
 
 
@@ -183,32 +181,13 @@ async def test_outsider_sees_nothing(client, trio, make_user):
 
 # ------------------------------------------------------------------ AI settings
 
-async def test_ai_settings_models_and_own_keys(client, make_user, db, monkeypatch):
+async def test_ai_settings_show_only_usage(client, make_user):
+    """ShareEven picks the model; people can't choose one or add their own keys."""
     user = await make_user()
     data = (await client.get("/api/v1/ai/settings", headers=user.headers)).json()["data"]
-    assert [m["model_id"] for m in data["models"]] == ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
-    assert data["models"][0]["is_default"] is True
-    assert data["keys"] == {"anthropic": None, "openai": None}
-
-    r = await client.put("/api/v1/ai/settings", json={"preferred_model_id": 2}, headers=user.headers)
-    assert r.json()["data"]["preferred_model_id"] == 2
-
-    r = await client.put("/api/v1/ai/keys/anthropic", json={"api_key": "not-a-key-at-all-really"}, headers=user.headers)
-    assert r.status_code == 400
-
-    async def fake_verify(provider, key):
-        return None
-    monkeypatch.setattr(ai_settings, "verify_key", fake_verify)
-    secret = "sk-ant-api03-" + "x" * 40 + "WXYZ"
-    r = await client.put("/api/v1/ai/keys/anthropic", json={"api_key": secret}, headers=user.headers)
-    assert r.status_code == 200
-    assert r.json()["data"]["keys"]["anthropic"] == "…WXYZ"
-    assert secret not in r.text
-    stored = await db.get(UserAISettings, uuid.UUID(user.id))
-    assert stored.anthropic_key_encrypted and secret not in stored.anthropic_key_encrypted
-
-    r = await client.delete("/api/v1/ai/keys/anthropic", headers=user.headers)
-    assert r.json()["data"]["keys"]["anthropic"] is None
+    assert data == {"usage": {"scans_this_month": 0, "monthly_limit": data["usage"]["monthly_limit"]}}
+    assert (await client.put("/api/v1/ai/settings", json={"preferred_model_id": 2}, headers=user.headers)).status_code == 405
+    assert (await client.put("/api/v1/ai/keys/anthropic", json={"api_key": "sk-ant-" + "x" * 40}, headers=user.headers)).status_code == 404
 
 
 async def test_store_discounts_are_private(client, make_user):

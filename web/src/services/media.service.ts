@@ -20,7 +20,7 @@ export interface UploadedMedia {
 
 class MediaService {
   /**
-   * Upload a file to the Papyris server. The returned URL is then sent in a chat message.
+   * Upload a file to the ShareEven server. The returned URL is then sent in a chat message.
    */
   async upload(
     file: File,

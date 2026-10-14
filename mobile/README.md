@@ -1,6 +1,6 @@
-# Papyris mobile (React Native)
+# ShareEven mobile (React Native)
 
-Android and iPhone app for Papyris: sign-in with email code, chats (DMs and groups) and shared
+Android and iPhone app for ShareEven: sign-in with email code, chats (DMs and groups) and shared
 expenses with receipt scanning. It talks to the same backend as the web app.
 
 ## Run on an Android phone (USB)
@@ -34,9 +34,9 @@ works on edge-to-edge Android 15+, older Android that resizes the window, and iO
 The app builds and runs without Firebase; notifications just stay off. To switch them on:
 
 1. Create a project at https://console.firebase.google.com (free).
-2. **Android:** Add app → Android, package name `com.papyris.app`. Download
+2. **Android:** Add app → Android, package name `com.shareeven.app`. Download
    `google-services.json` into `mobile/android/app/`, then rebuild (`npx react-native run-android`).
-3. **iPhone:** Add app → iOS, bundle ID `com.papyris.app`. Download `GoogleService-Info.plist`
+3. **iPhone:** Add app → iOS, bundle ID `com.shareeven.app`. Download `GoogleService-Info.plist`
    into `mobile/ios/mobile/`. In Project settings → Cloud Messaging, upload your APNs key
    (Apple Developer account → Keys → new key with Apple Push Notifications service).
 4. **Server:** Project settings → Service accounts → Generate new private key. Save the JSON on the

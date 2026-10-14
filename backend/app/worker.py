@@ -19,6 +19,7 @@ from sqlalchemy import select, update
 
 from app.config.settings import settings
 from app.services import media_storage, push
+from app.services import safety
 
 logger = logging.getLogger("app.worker")
 
@@ -124,6 +125,11 @@ class MessageWorker:
     async def notify(self, db, message: Message, data: dict, recipient_ids: list) -> None:
         """Push "Alice: see you at 8" (DM) or "Flat 4B / Alice: ..." (group) to the other members' phones."""
         if not push.enabled() or not recipient_ids:
+            return
+        # Nobody gets notified about someone they've blocked (in groups too)
+        blocked = await safety.who_blocked(db, message.sender_id, recipient_ids)
+        recipient_ids = [r for r in recipient_ids if r not in blocked]
+        if not recipient_ids:
             return
         conversation = await db.get(Conversation, message.conversation_id)
         sender = data.get("senderName") or "Someone"

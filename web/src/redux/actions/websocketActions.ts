@@ -23,6 +23,7 @@ import {
   setConversationPrefs,
   markMessagesRead,
   markMessagesDelivered,
+  setBlocked,
   syncOnlineStatus,
   setActiveConversation,
   updateUserOnlineStatus,
@@ -32,7 +33,7 @@ import {
 import type { Message, ReplyPreview } from '../slices/chatSlice';
 import { toast } from 'react-toastify';
 import { v2Runtime } from '../../crypto/v2-platform/runtime';
-import { LOGGED_OUT_ELSEWHERE_EVENT } from '../../utils/authRefresh';
+import { ACCOUNT_DELETED_EVENT, ACCOUNT_SUSPENDED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT } from '../../utils/authRefresh';
 import { mediaService } from '../../services/media.service';
 import type { OutgoingMedia } from '../../services/websocket.service';
 import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf, messagePreview } from '../../utils/media';
@@ -211,7 +212,7 @@ const uploads = new Map<string, {
  *
  * The message is shown immediately with a temporary id (its clientId). The
  * server echoes the clientId back, which is how the optimistic copy is replaced.
- * Attachments are uploaded to the Papyris server first, then sent by URL.
+ * Attachments are uploaded to the ShareEven server first, then sent by URL.
  * An upload can be cancelled while running and retried if it fails.
  */
 export const sendMessage = (
@@ -718,6 +719,21 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     v2Runtime()?.then((r) => {
       if (r.state.deviceId === data.deviceId) window.dispatchEvent(new Event(LOGGED_OUT_ELSEWHERE_EVENT));
     }).catch(() => undefined);
+  });
+
+  // You blocked or unblocked someone (maybe on another device)
+  wsService.on('block_changed', (data) => {
+    if (data.userId) dispatch(setBlocked({ userId: data.userId, blocked: !!data.blocked }));
+  });
+
+  // The account was deleted from one of its devices: every device signs out and wipes itself
+  wsService.on('account_deleted', () => {
+    window.dispatchEvent(new Event(ACCOUNT_DELETED_EVENT));
+  });
+
+  // An app admin suspended this account
+  wsService.on('account_suspended', () => {
+    window.dispatchEvent(new Event(ACCOUNT_SUSPENDED_EVENT));
   });
 
   // Someone in a chat reminded us that we owe them

@@ -7,6 +7,7 @@ import { ArrowRight, AtSign, Check, KeyRound, Mail } from 'lucide-react-native';
 import { Banner, Button, TextField } from '../../components/common/ui';
 import { colors, space } from '../../theme';
 import AuthLayout from './AuthLayout';
+import { openInfoPage } from '../../components/common/InfoLinks';
 import { passwordProblem } from '../../utils/password';
 import type { AuthStackParams } from '../../navigation/types';
 
@@ -74,6 +75,11 @@ const SignUpScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'SignUp'>> 
       <TextField label="Password" icon={KeyRound} placeholder="Create a password" value={password} onChangeText={setPassword} secureTextEntry textContentType="newPassword"
         autoComplete="new-password" error={errors.password} hint={<PasswordRules password={password} />} />
       <Button title="Create account" icon={ArrowRight} onPress={submit} loading={busy} />
+      <Text style={styles.consent}>
+        By creating an account you agree to the{' '}
+        <Text style={styles.consentLink} onPress={() => openInfoPage('terms')}>Terms of Service</Text> and{' '}
+        <Text style={styles.consentLink} onPress={() => openInfoPage('privacy')}>Privacy Policy</Text>, and confirm you're 18 or older.
+      </Text>
       <View style={styles.footer}>
         <Text style={styles.muted}>Already have an account? </Text>
         <Pressable onPress={() => navigation.navigate('Login')} hitSlop={8}><Text style={styles.link}>Log in</Text></Pressable>
@@ -89,6 +95,8 @@ const styles = StyleSheet.create({
   ruleText: { fontSize: 12, color: colors.muted500 },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: space(5) },
   muted: { color: colors.muted500, fontSize: 14 },
+  consent: { marginTop: space(3), textAlign: 'center', fontSize: 12, lineHeight: 17, color: colors.muted500 },
+  consentLink: { color: colors.primary700, fontWeight: '600' },
 });
 
 export default SignUpScreen;

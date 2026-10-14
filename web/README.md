@@ -1,6 +1,6 @@
-# Papyris web (React)
+# ShareEven web (React)
 
-The browser app for Papyris. Setup, tests and the folder layout are in the main
+The browser app for ShareEven. Setup, tests and the folder layout are in the main
 [README](../README.md).
 
 ```bash

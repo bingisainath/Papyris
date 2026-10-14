@@ -65,6 +65,7 @@ export interface WebSocketEvent {
   version?: number;
   readUpTo?: string | null;
   deliveredUpTo?: string | null;
+  blocked?: boolean;
   expenseId?: string | null;
   receiptId?: string;
   error?: string | null;
