@@ -10,6 +10,7 @@ import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../app/AuthProvider';
 import { logOutDevice } from '../../crypto/v2-platform/link';
+import { confirmDialog } from './ConfirmDialog';
 
 interface Session { device_id: number; name: string; created_at: string | null; last_seen_at: string | null; linked: boolean }
 
@@ -35,7 +36,7 @@ const SessionsSettings: React.FC = () => {
   const [version, setVersion] = useState(0);
 
   const logOut = async (s: Session) => {
-    if (!window.confirm(`Log out ${s.name}? It's signed out right away, its encrypted chats are wiped from it, and it would need linking again to use them.`)) return;
+    if (!(await confirmDialog({ title: `Log out ${s.name}?`, message: "It's signed out right away, its encrypted chats are wiped from it, and it would need linking again to use them.", confirmText: 'Log out', danger: true }))) return;
     setBusy(s.device_id);
     try {
       await logOutDevice(user!.id, s.device_id);

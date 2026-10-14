@@ -41,6 +41,7 @@ import ForwardDialog from '../ForwardDialog';
 import AlbumGrid, { groupAlbums } from '../../molecules/AlbumGrid';
 import type { OutgoingAttachment } from '../../molecules/MessageInput';
 import { cancelUpload, forwardMessage, retryUpload } from '../../../redux/actions/websocketActions';
+import { confirmDialog } from '../ConfirmDialog';
 
 // Stable empty value for selectors: returning a new [] each time makes components re-render
 const EMPTY: never[] = [];
@@ -304,7 +305,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   const handleDelete = async (message: Message) => {
-    if (!window.confirm('Delete this message for everyone?')) return;
+    if (!(await confirmDialog({ title: 'Delete this message for everyone?', confirmText: 'Delete', danger: true }))) return;
     try {
       await chatService.deleteMessage(message.id);
       dispatch(applyMessageUpdate({ conversationId, messageId: message.id, isDeleted: true }));

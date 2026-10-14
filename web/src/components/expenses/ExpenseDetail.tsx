@@ -12,6 +12,7 @@ import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
 import AddExpenseSheet from './AddExpenseSheet';
 import { displayName, Money, Segmented, Sheet, useChatMoney, useExpenseChanges } from './shared';
+import { confirmDialog } from '../organisms/ConfirmDialog';
 
 interface Props {
   expenseId: string;
@@ -160,7 +161,11 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
             {expense.can_delete && !expense.locked && (
               <button
                 type="button"
-                onClick={() => window.confirm('Delete this expense? It can be restored later.') && act(() => expenseService.remove(expense.id), 'Expense deleted')}
+                onClick={async () => {
+                  if (await confirmDialog({ title: 'Delete this expense?', message: 'It can be restored later.', confirmText: 'Delete', danger: true })) {
+                    act(() => expenseService.remove(expense.id), 'Expense deleted');
+                  }
+                }}
                 className="ml-auto px-3 py-2 rounded-lg text-accent-600 hover:bg-accent-50 text-sm font-medium"
               >
                 Delete

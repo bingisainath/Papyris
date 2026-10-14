@@ -26,6 +26,7 @@ import ReportDialog from '../ReportDialog';
 import type { ReportTarget } from '../ReportDialog';
 import { safetyService } from '../../../services/safety.service';
 import { setBlocked } from '../../../redux/slices/chatSlice';
+import { confirmDialog } from '../ConfirmDialog';
 
 interface ConversationInfoPanelProps {
   conversationId: string;
@@ -208,13 +209,13 @@ const ConversationInfoPanel: React.FC<ConversationInfoPanelProps> = ({ conversat
     () => chatService.updateGroupMemberRole(conversationId, member.id, role)
   );
 
-  const removeMember = (member: ConversationMemberInfo) => {
-    if (!window.confirm(`Remove ${member.username} from the group?`)) return;
+  const removeMember = async (member: ConversationMemberInfo) => {
+    if (!(await confirmDialog({ title: `Remove ${member.username} from the group?`, message: "They stop getting the group's messages. Shared expenses stay.", confirmText: 'Remove', danger: true }))) return;
     run(() => chatService.removeGroupMember(conversationId, member.id), `${member.username} removed`);
   };
 
   const leaveGroup = async () => {
-    if (!me || !window.confirm('Leave this group? You will stop receiving its messages.')) return;
+    if (!me || !(await confirmDialog({ title: 'Leave this group?', message: 'You will stop receiving its messages.', confirmText: 'Leave', danger: true }))) return;
     setBusy(true);
     try {
       await chatService.removeGroupMember(conversationId, me.id);

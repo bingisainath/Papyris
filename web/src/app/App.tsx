@@ -5,6 +5,7 @@ import { router } from "../routes/router";
 import { AuthProvider } from "../app/AuthProvider";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { ConfirmHost } from "../components/organisms/ConfirmDialog";
 
 // import { useWebSocket } from '../hooks/useWebSocket';
 // import { tokenStore } from '../utils/token';
@@ -19,6 +20,7 @@ const App = () => {
   return (
     <AuthProvider>
       <RouterProvider router={router} />
+      <ConfirmHost />
 
       <ToastContainer
         position="top-center"

@@ -264,7 +264,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               {/* Group name */}
               <Input
                 label="Group Name"
-                placeholder="Enter group name..."
+                placeholder="e.g. Weekend in Galway"
                 value={groupName}
                 onChange={(e) => {
                   setGroupName(e.target.value);

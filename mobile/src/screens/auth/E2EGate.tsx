@@ -8,7 +8,7 @@
 // - No other device available: start fresh with new keys; older encrypted messages can't be read.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import AuthLayout from './AuthLayout';
 import { Banner, Button, TextField } from '../../components/common/ui';
@@ -101,7 +101,7 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (stage.name === 'error') {
     return (
-      <AuthLayout title="Couldn't check your encryption" subtitle={stage.message}>
+      <AuthLayout onBack={() => logout()} title="Couldn't check your encryption" subtitle={stage.message}>
         <Button title="Try again" onPress={check} />
         {footer}
       </AuthLayout>
@@ -112,6 +112,7 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.ReactNode; onDone: () => void }> = ({ mine, userId, footer, onDone }) => {
+  const { logout } = useAuth();
   const [link, setLink] = useState<LinkHere | null>(null);
   const [expired, setExpired] = useState(false);
   const [error, setError] = useState('');
@@ -165,6 +166,23 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
     return () => { attempt.current += 1; }; // stop waiting when leaving
   }, [begin]);
 
+  // Back (arrow or Android's back button): close the "no other device" panel, else offer to sign out
+  const goBack = useCallback(() => {
+    if (noDevice) {
+      setNoDevice(false);
+      return;
+    }
+    showAlert('Go back to sign in?', 'You can sign in again any time and link this phone then.', [
+      { text: 'Stay here', style: 'cancel' },
+      { text: 'Sign out', onPress: () => { attempt.current += 1; logout(); } },
+    ]);
+  }, [noDevice, logout]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { goBack(); return true; });
+    return () => sub.remove();
+  }, [goBack]);
+
   const startFresh = () => showAlert(
     'Start fresh with new keys?',
     "Your encrypted messages from before can't be read again, on any device, and the people you chat with will see that your keys changed.",
@@ -192,15 +210,16 @@ const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.Reac
 
   return (
     <AuthLayout
+      onBack={goBack}
       title="Link this phone"
-      subtitle="Your chats are end-to-end encrypted. To read them here, open ShareEven on another signed-in device, go to Settings → End-to-end encryption → Link a device, and scan this code or type the code below."
+      subtitle="Your chats are end-to-end encrypted. On a device that's already signed in (your laptop's browser works), open Settings → Linked devices → Link a device, then type the 16-character code below. No camera needed; scanning the QR works too."
     >
       {!!error && <Banner text={error} />}
       <View style={styles.qrBox}>
         {link && !expired ? (
           <>
             <View style={styles.qr}><QRCode value={link.qrText} size={200} /></View>
-            <Text style={styles.small}>Or type this code on the other device</Text>
+            <Text style={styles.small}>Type this code on the other device</Text>
             <Text style={styles.code} selectable>{link.code}</Text>
             <View style={styles.waiting}>
               <ActivityIndicator size="small" color={colors.primary700} />

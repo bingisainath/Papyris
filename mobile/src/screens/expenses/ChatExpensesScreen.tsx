@@ -667,7 +667,7 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 14, fontWeight: '600', color: colors.muted500 },
   tabTextOn: { color: colors.primary700, fontWeight: '700' },
   tabLine: { position: 'absolute', left: 0, right: 0, bottom: -1, height: 2, backgroundColor: colors.primary700 },
-  position: { margin: space(4), marginBottom: space(2), padding: space(5), borderRadius: 18, overflow: 'hidden', backgroundColor: colors.primary700 },
+  position: { margin: space(4), marginBottom: space(2), padding: space(5), borderRadius: 18, overflow: 'hidden', backgroundColor: CARD_GRADIENT.middle },
   positionLabel: { fontSize: 11, letterSpacing: 1.3, color: colors.primary100 },
   positionTitle: { marginTop: space(2), fontSize: 18, fontWeight: '600', color: colors.white },
   positionAmount: { fontSize: 26, fontWeight: '800' },

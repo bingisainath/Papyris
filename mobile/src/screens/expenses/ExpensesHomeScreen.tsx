@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.white },
   eyebrow: { paddingHorizontal: space(4), paddingTop: space(4), fontSize: 11, fontWeight: '700', letterSpacing: 1.3, color: colors.primary500 },
   title: { paddingHorizontal: space(4), marginTop: 2, fontSize: 28, fontWeight: '700', letterSpacing: -0.5, color: colors.muted900 },
-  overall: { margin: space(4), padding: space(5), borderRadius: 18, overflow: 'hidden', backgroundColor: colors.primary700 },
+  overall: { margin: space(4), padding: space(5), borderRadius: 18, overflow: 'hidden', backgroundColor: CARD_GRADIENT.middle },
   overallLabel: { fontSize: 11, letterSpacing: 1.3, color: colors.primary100 },
   overallSettled: { marginTop: space(2), fontSize: 20, fontWeight: '700', color: colors.white },
   overallSub: { marginTop: space(1), fontSize: 12, color: colors.primary100 },

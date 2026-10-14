@@ -1,9 +1,9 @@
 // src/screens/auth/AuthLayout.tsx
 // The frame for the signed-out screens: brand on top, a small eyebrow, the title, then the form.
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Lock } from 'lucide-react-native';
+import { ArrowLeft, Lock } from 'lucide-react-native';
 import { colors, space } from '../../theme';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import InfoLinks from '../../components/common/InfoLinks';
@@ -12,13 +12,21 @@ const AuthLayout: React.FC<{
   eyebrow?: string;
   title: string;
   subtitle?: string;
+  /** Shows a back arrow above the brand (every screen except the first one). */
+  onBack?: () => void;
   children: React.ReactNode;
-}> = ({ eyebrow, title, subtitle, children }) => {
+}> = ({ eyebrow, title, subtitle, onBack, children }) => {
   const keyboard = useKeyboardOffset();
   return (
     <SafeAreaView style={styles.safe}>
       <View ref={keyboard.ref} style={[styles.flex, { paddingBottom: keyboard.offset }]}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          {onBack && (
+            <Pressable onPress={onBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back"
+              style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.muted100 }]}>
+              <ArrowLeft size={22} color={colors.muted900} />
+            </Pressable>
+          )}
           <View style={styles.brandRow}>
             <View style={styles.logo}>
               <Text style={styles.logoText}>S</Text>
@@ -46,6 +54,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.white },
   flex: { flex: 1 },
   scroll: { flexGrow: 1, paddingHorizontal: space(5), paddingTop: space(7), paddingBottom: space(5) },
+  back: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginLeft: -8, marginBottom: space(3) },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: space(2.5) },
   logo: {
     width: 42,

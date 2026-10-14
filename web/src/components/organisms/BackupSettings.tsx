@@ -10,6 +10,7 @@ import { backupStatus, runBackup, turnOffBackup, turnOnBackup, adoptRecoveryKey 
 import type { BackupStatus } from '../../crypto/backupRuntime';
 import { formatFileSize } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
+import { confirmDialog } from './ConfirmDialog';
 
 const BackupSettings: React.FC<{ userId: string }> = ({ userId }) => {
   const [status, setStatus] = useState<BackupStatus | null>(null);
@@ -110,8 +111,8 @@ const BackupSettings: React.FC<{ userId: string }> = ({ userId }) => {
                   <button type="button" disabled={busy} onClick={() => act(() => runBackup(userId), 'Backed up')}
                     className="px-3 py-1.5 text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg">{busy ? 'Backing up…' : 'Back up now'}</button>
                 )}
-                <button type="button" disabled={busy} onClick={() => {
-                  if (window.confirm('Turn off backups? The backup is deleted. Without it, losing every device means losing your encrypted chats.')) {
+                <button type="button" disabled={busy} onClick={async () => {
+                  if (await confirmDialog({ title: 'Turn off backups?', message: 'The backup is deleted. Without it, losing every device means losing your encrypted chats.', confirmText: 'Turn off', danger: true })) {
                     act(() => turnOffBackup(userId), 'Backup turned off');
                   }
                 }} className="px-3 py-1.5 text-sm text-accent-700 hover:bg-accent-50 rounded-lg">Turn off</button>

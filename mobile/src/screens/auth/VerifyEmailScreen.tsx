@@ -54,7 +54,7 @@ const VerifyEmailScreen: React.FC<NativeStackScreenProps<AuthStackParams, 'Verif
   };
 
   return (
-    <AuthLayout eyebrow="One last step" title="Verify your email" subtitle={`We sent a 6-digit code to ${email}. It expires in 10 minutes.`}>
+    <AuthLayout onBack={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login'))} eyebrow="One last step" title="Verify your email" subtitle={`We sent a 6-digit code to ${email}. It expires in 10 minutes.`}>
       {error && <Banner text={error} />}
       {info && !error && <Banner tone="info" text={info} />}
       <Pressable onPress={() => input.current?.focus()} style={styles.boxes} accessibilityLabel="Verification code">
