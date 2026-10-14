@@ -1,3 +1,20 @@
-# https://www.robotstxt.org/robotstxt.html
+# Public pages can be indexed; the app itself (behind sign-in) and the admin console can't.
 User-agent: *
-Disallow:
+Allow: /$
+Allow: /login
+Allow: /signup
+Allow: /about
+Allow: /faq
+Allow: /contact
+Allow: /terms
+Allow: /privacy
+Disallow: /chat
+Disallow: /groups
+Disallow: /expenses
+Disallow: /settings
+Disallow: /admin
+Disallow: /verify-email
+Disallow: /reset-password
+Disallow: /forgot-password
+
+Sitemap: https://shareeven.com/sitemap.xml
