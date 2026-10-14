@@ -15,12 +15,14 @@ Device lists (signed by the account key on the primary device)
   GET    /e2e/v2/users/{user_id}/devices/{d}/bundle   prekeys to start a session (uses up one one-time prekey)
 Linking (the new device registers first, then asks the primary to certify it)
   POST   /e2e/v2/link-requests  ·  GET /e2e/v2/link-requests?code=  ·  GET/POST /e2e/v2/link-requests/{id}[/grant]
+  GET    /e2e/v2/link-requests/pending  ·  POST /e2e/v2/link-requests/{id}/deny   (one-tap approval)
 Mailboxes (one queue per device; packets are deleted once acknowledged)
   POST   /e2e/v2/conversations/{id}/envelopes    deliver packets to devices
   GET    /e2e/v2/mailbox/{device_id}             pending packets for one of my devices
   POST   /e2e/v2/mailbox/{device_id}/ack         done with these
 """
 
+import logging
 import base64
 import json
 import uuid
@@ -28,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
@@ -39,11 +41,13 @@ from app.models.user import User
 from app.services import e2e_v2 as checks
 from app.services import e2e_mailbox as mailbox_service
 from app.services import media_storage
-from app.services import sessions
+from app.services import push, sessions
 from app.websocket.routes import publish_users
 from app.schemas.e2e_v2 import (
     MAX_ONE_TIME_PREKEYS, RegisterDevice, PreKeyUpload, PublishList, LinkRequestBody, GrantBody, SendBody, AckBody,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/e2e/v2", tags=["Encryption v2"])
 
@@ -353,7 +357,34 @@ async def create_link_request(body: LinkRequestBody, user: User = Depends(get_cu
                              created_at=now, expires_at=now + LINK_TTL)
     db.add(request)
     await db.commit()
+    # The account's other devices show "Is this you?" right away (and phones get a notification)
+    await publish_users([str(user.id)], {"type": "e2e_link_request", "requestId": str(request.id), "name": device.name})
+    try:
+        await push.send_to_users(db, [user.id], "Is this you?", f"{device.name} wants to link to your ShareEven account",
+                                 {"type": "e2e_link_request", "requestId": str(request.id)})
+    except Exception:
+        logger.warning("Couldn't send the link request notification", exc_info=True)
     return {"success": True, "data": _link_view(request, device)}
+
+
+@router.get("/link-requests/pending")
+async def pending_link_requests(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Devices waiting to be approved, for the "Is this you?" prompt on the account's linked devices."""
+    rows = (await db.execute(select(E2ELinkRequest).where(
+        E2ELinkRequest.user_id == user.id, E2ELinkRequest.expires_at >= _now(),
+        E2ELinkRequest.grant.is_(None), E2ELinkRequest.denied_at.is_(None),
+    ).order_by(E2ELinkRequest.created_at.desc()))).scalars().all()
+    out, seen = [], set()
+    for r in rows:
+        if r.device_id in seen:
+            continue  # a device that asked twice: only its newest request
+        device = (await db.execute(select(E2EDevice).where(
+            E2EDevice.user_id == user.id, E2EDevice.device_id == r.device_id, E2EDevice.removed_at.is_(None),
+        ))).scalar_one_or_none()
+        if device is not None:
+            seen.add(r.device_id)
+            out.append(_link_view(r, device))
+    return {"success": True, "data": out}
 
 
 async def _own_link(db: AsyncSession, request_id: uuid.UUID, user: User) -> tuple[E2ELinkRequest, E2EDevice]:
@@ -368,6 +399,7 @@ async def find_link_request(code: str = Query(..., min_length=16, max_length=32)
     clean = code.upper().replace("-", "").replace(" ", "")
     request = (await db.execute(select(E2ELinkRequest).where(
         E2ELinkRequest.user_id == user.id, E2ELinkRequest.code == clean, E2ELinkRequest.expires_at >= _now(), E2ELinkRequest.grant.is_(None),
+        E2ELinkRequest.denied_at.is_(None),
     ))).scalars().first()
     if request is None:
         raise HTTPException(status_code=404, detail="No device is waiting with that code. Check it, or start again on the new device.")
@@ -379,6 +411,8 @@ async def link_request(request_id: uuid.UUID, user: User = Depends(get_current_u
     """The new device polls this; the grant is returned once and then deleted."""
     request, device = await _own_link(db, request_id, user)
     view = _link_view(request, device)
+    if request.denied_at is not None:
+        return {"success": True, "data": {**view, "status": "denied"}}
     if request.grant is None:
         return {"success": True, "data": {**view, "status": "waiting"}}
     grant = json.loads(request.grant)
@@ -393,6 +427,8 @@ async def grant_link(request_id: uuid.UUID, body: GrantBody, user: User = Depend
     request, _ = await _own_link(db, request_id, user)
     if request.grant is not None:
         raise HTTPException(status_code=409, detail="This device has already been linked")
+    if request.denied_at is not None:
+        raise HTTPException(status_code=409, detail="This device was turned down. Start again on the new device.")
     if len(json.dumps(body.grant)) > 64 * 1024 or not {"v", "requestId", "e", "c"} <= body.grant.keys():
         raise HTTPException(status_code=422, detail="Invalid grant")
     request.grant = json.dumps(body.grant)
@@ -403,8 +439,29 @@ async def grant_link(request_id: uuid.UUID, body: GrantBody, user: User = Depend
         device = await _my_device(db, user, request.device_id)
         _remove_history(device)
         device.history_url = url
+    # It's linked now: its other asks (the screen may ask more than once) mustn't pop up "Is this you?" again
+    await db.execute(delete(E2ELinkRequest).where(
+        E2ELinkRequest.user_id == user.id, E2ELinkRequest.device_id == request.device_id,
+        E2ELinkRequest.id != request.id, E2ELinkRequest.grant.is_(None),
+    ))
     await db.commit()
     await publish_users([str(user.id)], {"type": "e2e_link_granted", "requestId": str(request.id)})
+    return {"success": True}
+
+
+@router.post("/link-requests/{request_id}/deny")
+async def deny_link(request_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """"Not me" (or the wrong number) on a linked device: the new device is told, and nothing is sent to it."""
+    request, _ = await _own_link(db, request_id, user)
+    if request.grant is not None:
+        raise HTTPException(status_code=409, detail="This device has already been linked")
+    # Every waiting request from that device (it may have asked more than once)
+    await db.execute(update(E2ELinkRequest).where(
+        E2ELinkRequest.user_id == user.id, E2ELinkRequest.device_id == request.device_id,
+        E2ELinkRequest.grant.is_(None), E2ELinkRequest.denied_at.is_(None),
+    ).values(denied_at=_now()))
+    await db.commit()
+    await publish_users([str(user.id)], {"type": "e2e_link_denied", "requestId": str(request.id)})
     return {"success": True}
 
 

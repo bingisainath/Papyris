@@ -161,6 +161,46 @@ async def test_link_a_device(client, make_user, events):
     assert primary.id == 1
 
 
+async def test_one_tap_link_requests(client, make_user, events):
+    """A new device's request shows up on the account's other devices; they can approve or deny it."""
+    a, other = await make_user(), await make_user()
+    await register(client, a, Device())
+    new, newer = await register(client, a, Device()), await register(client, a, Device())
+    ek = lambda: b64(X25519PrivateKey.generate().public_key().public_bytes(*RAW))  # noqa: E731
+
+    events.clear()
+    first = (await client.post(f"{API}/link-requests", json={"device_id": new.id, "ek": ek()}, headers=a.headers)).json()["data"]
+    again = (await client.post(f"{API}/link-requests", json={"device_id": new.id, "ek": ek()}, headers=a.headers)).json()["data"]
+    second = (await client.post(f"{API}/link-requests", json={"device_id": newer.id, "ek": ek()}, headers=a.headers)).json()["data"]
+    assert any(p["type"] == "e2e_link_request" and p["requestId"] == first["id"] and ids == [a.id] for ids, p in events)
+
+    pending = (await client.get(f"{API}/link-requests/pending", headers=a.headers)).json()["data"]
+    assert [r["id"] for r in pending] == [second["id"], again["id"]]  # newest per device, newest first
+    assert (await client.get(f"{API}/link-requests/pending", headers=other.headers)).json()["data"] == []
+
+    # "Not me": the new device hears it, the code stops working, and it can't be granted any more
+    events.clear()
+    assert (await client.post(f"{API}/link-requests/{again['id']}/deny", headers=other.headers)).status_code == 404
+    assert (await client.post(f"{API}/link-requests/{again['id']}/deny", headers=a.headers)).status_code == 200
+    assert any(p["type"] == "e2e_link_denied" and p["requestId"] == again["id"] for _, p in events)
+    assert (await client.get(f"{API}/link-requests/{again['id']}", headers=a.headers)).json()["data"]["status"] == "denied"
+    assert (await client.get(f"{API}/link-requests", params={"code": again["code"]}, headers=a.headers)).status_code == 404
+    grant = {"v": 2, "requestId": again["id"], "e": b64(b"e" * 32), "c": b64(b"c" * 80)}
+    assert (await client.post(f"{API}/link-requests/{again['id']}/grant", json={"grant": grant}, headers=a.headers)).status_code == 409
+    # The older request of the same device isn't offered again either way once the newest is answered
+    left = [r["id"] for r in (await client.get(f"{API}/link-requests/pending", headers=a.headers)).json()["data"]]
+    assert left == [second["id"]] and first["id"] not in left
+
+    # Approving one ask of a device clears its other asks, so "Is this you?" doesn't come back
+    older = (await client.post(f"{API}/link-requests", json={"device_id": newer.id, "ek": ek()}, headers=a.headers)).json()["data"]
+    newest = (await client.post(f"{API}/link-requests", json={"device_id": newer.id, "ek": ek()}, headers=a.headers)).json()["data"]
+    grant = {"v": 2, "requestId": older["id"], "e": b64(b"e" * 32), "c": b64(b"c" * 80)}
+    assert (await client.post(f"{API}/link-requests/{older['id']}/grant", json={"grant": grant}, headers=a.headers)).status_code == 200
+    assert (await client.get(f"{API}/link-requests/pending", headers=a.headers)).json()["data"] == []
+    assert (await client.get(f"{API}/link-requests/{newest['id']}", headers=a.headers)).status_code == 404
+    assert (await client.get(f"{API}/link-requests/{older['id']}", headers=a.headers)).json()["data"]["status"] == "approved"
+
+
 async def test_mailboxes(client, make_user, make_group, events):
     a, b, c, outsider = await make_user(), await make_user(), await make_user(), await make_user()
     group = await make_group(a, [b, c])

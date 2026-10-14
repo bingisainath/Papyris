@@ -32,6 +32,7 @@ import E2EGate from '../screens/auth/E2EGate';
 import SessionsScreen from '../screens/settings/SessionsScreen';
 import EncryptionScreen from '../screens/settings/EncryptionScreen';
 import DeleteAccountScreen from '../screens/settings/DeleteAccountScreen';
+import LinkApprovalPrompt from '../components/settings/LinkApprovalPrompt';
 import BlockedPeopleScreen from '../screens/settings/BlockedPeopleScreen';
 import ReportScreen from '../screens/settings/ReportScreen';
 
@@ -100,6 +101,7 @@ const Tabs: React.FC = () => {
 
 const RootNavigator: React.FC = () => {
   const status = useAuth(s => s.status);
+  const user = useAuth(s => s.user);
 
   if (status === 'loading') {
     return (
@@ -226,6 +228,7 @@ const RootNavigator: React.FC = () => {
           />
         </AppStack.Navigator>
         <OfflineBanner />
+        {!!user && <LinkApprovalPrompt userId={user.id} />}
       </View>
     </E2EGate>
   );

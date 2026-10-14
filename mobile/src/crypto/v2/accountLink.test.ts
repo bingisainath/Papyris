@@ -7,6 +7,8 @@ import {
 import type { GrantPayload } from './index';
 import { Device, Server } from './testing';
 import { DeviceManager, DeviceRemovedError } from './device';
+import { denyDeviceLink, pendingDeviceLinks } from './accountLink';
+import { linkNumber, linkNumberChoices } from './link';
 
 const blobs = new Map<string, Uint8Array>();
 
@@ -28,7 +30,7 @@ async function linkNew(device: Device, approver: Device, by: 'qr' | 'code' = 'qr
     ? await findLinkByQr(approver.server.http(approver.user), pending.qrText)
     : await findLinkByCode(approver.server.http(approver.user), pending.code);
   await approve(approver, found!, { secret: 'v1-secret', encPublic: 'v1-pub' });
-  const grant = (await waitForGrant(device.store, http, device.user, pending, () => false, 1))!;
+  const grant = (await waitForGrant(device.store, http, device.user, pending, () => false, 1)) as GrantPayload;
   const imported = await importHistory(device.store, device.user, decryptMedia(blobs.get(grant.history!.url)!, grant.history!));
   await device.start();
   approver.messenger.forget(device.user);
@@ -164,5 +166,50 @@ describe('a device removed elsewhere', () => {
     const fresh = await again.bootstrap();
     expect(fresh.deviceId).not.toBe(browser.address.device);
     expect(fresh.listed).toBe(false);
+  });
+});
+
+describe('one-tap approval', () => {
+  it('the other device sees the request with three numbers, one of them the number on the new device', async () => {
+    const server = new Server();
+    const phone = await new Device(server, 'alice', 'Phone').start();
+    const laptop = await new Device(server, 'alice', 'Laptop').start();
+    const pending = await startDeviceLink(laptop.store, server.http('alice'));
+    expect(pending.number).toBeGreaterThanOrEqual(10);
+    expect(pending.number).toBeLessThanOrEqual(99);
+
+    const [found] = await pendingDeviceLinks(server.http('alice'));
+    expect(found.request.id).toBe(pending.request.id);
+    expect(found.number).toBe(pending.number);
+    expect(new Set(found.choices).size).toBe(3);
+    expect(found.choices).toContain(pending.number);
+
+    await approveDeviceLink(phone.store, server.http('alice'), 'alice', found);
+    const grant = await waitForGrant(laptop.store, server.http('alice'), 'alice', pending, () => false, 1);
+    expect(grant).not.toBeNull();
+    expect(grant).not.toBe('denied');
+    expect(await pendingDeviceLinks(server.http('alice'))).toEqual([]);
+  });
+
+  it('"Not me" tells the new device and it gets nothing', async () => {
+    const server = new Server();
+    await new Device(server, 'alice', 'Phone').start();
+    const laptop = await new Device(server, 'alice', 'Laptop').start();
+    const pending = await startDeviceLink(laptop.store, server.http('alice'));
+    await denyDeviceLink(server.http('alice'), pending.request.id);
+    expect(await waitForGrant(laptop.store, server.http('alice'), 'alice', pending, () => false, 1)).toBe('denied');
+    expect(await pendingDeviceLinks(server.http('alice'))).toEqual([]);
+  });
+
+  it('numbers depend on the keys, and the choices are always three different two-digit numbers', () => {
+    for (let i = 0; i < 200; i++) {
+      const key = () => Uint8Array.from({ length: 32 }, () => Math.floor(Math.random() * 256));
+      const offer = { ek: key(), identitySign: key(), identityDh: key() };
+      const choices = linkNumberChoices(offer);
+      expect(choices).toHaveLength(3);
+      expect(new Set(choices).size).toBe(3);
+      expect(choices).toContain(linkNumber(offer));
+      choices.forEach((n) => { expect(n).toBeGreaterThanOrEqual(10); expect(n).toBeLessThanOrEqual(99); });
+    }
   });
 });

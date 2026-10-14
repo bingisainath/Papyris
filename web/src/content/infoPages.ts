@@ -93,7 +93,10 @@ const faq: InfoPage = {
     },
     {
       heading: 'How do I use ShareEven on another phone or computer?',
-      body: ['Sign in on the new device, then approve it from a device that\'s already signed in (Settings → Linked devices) by scanning the QR code or typing the code. If you turned on backup, you can restore your chats with your recovery key instead.'],
+      body: [
+        'Sign in on the new device. It shows a number, and every device you\'re already signed in on asks "Is this you?". Tap the same number there and the new device is linked. If it isn\'t you, tap "Not me" (a wrong number turns it down too).',
+        'For the strongest check, tap "Use a code instead" on the new device and scan its QR code or type its code in Settings → Linked devices. The number check stops a mistaken or unexpected approval, and the code also proves the two devices talked to each other directly. If you turned on backup, you can restore your chats with your recovery key instead.',
+      ],
     },
     {
       heading: 'I lost my phone. Are my chats gone?',

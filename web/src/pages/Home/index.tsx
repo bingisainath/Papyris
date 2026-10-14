@@ -43,6 +43,7 @@ import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
 import AccountDataSettings from '../../components/organisms/AccountDataSettings';
 import InfoLinks from '../../components/molecules/InfoLinks';
+import LinkApprovalPrompt from '../../components/organisms/LinkApprovalPrompt';
 import { BlockedPeopleSettings } from '../../components/organisms/SafetySettings';
 import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
 import type { LogoutRisk } from '../../components/organisms/LogoutWarning';
@@ -295,6 +296,7 @@ const Home: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-muted-50 overflow-hidden">
+      {currentUser && <LinkApprovalPrompt userId={currentUser.id} />}
       <ConnectionBanner />
       <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Sidebar */}
