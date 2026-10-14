@@ -7,6 +7,7 @@ import ResetPassword from '../pages/ResetPassword';
 import VerifyEmail from '../pages/VerifyEmail';
 import InfoPage from '../pages/Info';
 import AdminPage from '../pages/Admin';
+import Landing from '../pages/Landing';
 import { INFO_PAGES } from '../content/infoPages';
 import { RequireAuth } from '../app/RequireAuth';
 
@@ -33,21 +34,10 @@ export const router = createBrowserRouter([
   },
   // About, FAQ, Contact, Terms, Privacy: public
   ...INFO_PAGES.map((page) => ({ path: `/${page.slug}`, element: <InfoPage /> })),
+  // The public homepage; signed-in people go straight to /chat
   {
     path: '/',
-    element: (
-      <RequireAuth>
-        <Home />
-      </RequireAuth>
-    ),
-    children: [
-      // These are handled within Home component via activeRoute state
-      // But we can add them here for direct URL access
-      {
-        index: true,
-        element: <Navigate to="/chat" replace />,
-      },
-    ],
+    element: <Landing />,
   },
   {
     path: '/chat',
