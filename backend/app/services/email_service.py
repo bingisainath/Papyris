@@ -1,6 +1,8 @@
 # backend/app/services/email_service.py
 
 import smtplib
+from html import escape
+from email.utils import formataddr, formatdate, make_msgid
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
@@ -21,6 +23,7 @@ class EmailService:
         self.smtp_password = settings.SMTP_PASSWORD
         self.from_email = settings.FROM_EMAIL or settings.SMTP_USER
         self.from_name = settings.FROM_NAME
+        self.reply_to = settings.REPLY_TO
         self.environment = settings.ENV
 
     @property
@@ -50,8 +53,13 @@ class EmailService:
             # Create message
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = f"{self.from_name} <{self.from_email}>"
+            msg['From'] = formataddr((self.from_name, self.from_email))
             msg['To'] = to_email
+            if self.reply_to:
+                msg['Reply-To'] = self.reply_to
+            # Spam filters expect these; the Message-ID uses the sending domain
+            msg['Date'] = formatdate(localtime=False)
+            msg['Message-ID'] = make_msgid(domain=self.from_email.rsplit('@', 1)[-1] or None)
 
             # Add text part (fallback)
             if text_content:
@@ -63,8 +71,14 @@ class EmailService:
             msg.attach(html_part)
 
             # Send email
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
+            # Port 465 is TLS from the first byte; 587 (and others) upgrade with STARTTLS
+            if self.smtp_port == 465:
+                connection = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=20)
+            else:
+                connection = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=20)
+            with connection as server:
+                if self.smtp_port != 465:
+                    server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(msg)
 
@@ -81,160 +95,92 @@ class EmailService:
         username: str,
         reset_link: str
     ) -> bool:
-        """Send password reset email with beautiful ShareEven branding"""
-        
-        subject = "Reset Your ShareEven Password"
-        
-        # HTML email template with ShareEven purple/indigo theme
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    margin: 0;
-                    padding: 0;
-                    background-color: #f8fafc;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 40px auto;
-                    background-color: white;
-                    border-radius: 16px;
-                    overflow: hidden;
-                    box-shadow: 0 4px 20px rgba(126, 34, 206, 0.08);
-                }}
-                .header {{
-                    background: linear-gradient(135deg, #7e22ce 0%, #4338ca 100%);
-                    padding: 40px 20px;
-                    text-align: center;
-                }}
-                .header h1 {{
-                    color: white;
-                    margin: 0;
-                    font-size: 28px;
-                    font-weight: 600;
-                }}
-                .content {{
-                    padding: 40px 30px;
-                }}
-                .content h2 {{
-                    color: #1e293b;
-                    font-size: 24px;
-                    margin-top: 0;
-                    margin-bottom: 20px;
-                }}
-                .content p {{
-                    color: #64748b;
-                    font-size: 16px;
-                    margin-bottom: 20px;
-                }}
-                .button {{
-                    display: inline-block;
-                    padding: 16px 40px;
-                    background: linear-gradient(135deg, #7e22ce 0%, #4338ca 100%);
-                    color: white !important;
-                    text-decoration: none;
-                    border-radius: 12px;
-                    font-weight: 600;
-                    font-size: 16px;
-                    margin: 20px 0;
-                }}
-                .footer {{
-                    padding: 30px;
-                    background-color: #f8fafc;
-                    text-align: center;
-                    font-size: 14px;
-                    color: #94a3b8;
-                }}
-                .warning {{
-                    background-color: #fff7ed;
-                    border-left: 4px solid #f59e0b;
-                    padding: 15px;
-                    margin: 20px 0;
-                    border-radius: 8px;
-                }}
-                .warning p {{
-                    margin: 0;
-                    color: #92400e;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🔐 ShareEven</h1>
-                </div>
-                <div class="content">
-                    <h2>Reset Your Password</h2>
-                    <p>Hi {username},</p>
-                    <p>We received a request to reset your password for your ShareEven account.</p>
-                    <p>Click the button below to create a new password:</p>
-                    <div style="text-align: center;">
-                        <a href="{reset_link}" class="button">Reset Password</a>
-                    </div>
-                    <div class="warning">
-                        <p><strong>⏰ This link expires in 1 hour</strong></p>
-                    </div>
-                    <p>If you didn't request this password reset, you can safely ignore this email. Your password will not be changed.</p>
-                    <p>For security reasons, this link will only work once.</p>
-                </div>
-                <div class="footer">
-                    <p>If the button doesn't work, copy and paste this link:</p>
-                    <p style="word-break: break-all; color: #7e22ce;">{reset_link}</p>
-                    <p style="margin-top: 20px;">© 2026 ShareEven. All rights reserved.</p>
-                </div>
-            </div>
-        </body>
-        </html>
+        """The link to choose a new password (valid for 1 hour, once)."""
+        subject = "Reset your ShareEven password"
+        link = escape(reset_link, quote=True)
+        body = f"""
+          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:{INK}">Reset your password</h1>
+          <p style="margin:0 0 12px">Hi {escape(username)},</p>
+          <p style="margin:0 0 24px">We received a request to reset the password for your ShareEven account. Choose a new one with the button below.</p>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px"><tr>
+            <td style="border-radius:10px;background:{PURPLE}">
+              <a href="{link}" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px">Reset password</a>
+            </td>
+          </tr></table>
+          {_note("This link expires in 1 hour and works once.")}
+          <p style="margin:24px 0 0;color:{MUTED};font-size:14px">If you didn't ask for this, you can ignore this email. Your password won't change.</p>
+          <p style="margin:16px 0 0;color:{MUTED};font-size:13px">Button not working? Paste this link into your browser:<br>
+            <a href="{link}" style="color:{PURPLE};word-break:break-all">{link}</a></p>
         """
-        
-        # Plain text version
-        text_content = f"""
-        Reset Your ShareEven Password
-        
-        Hi {username},
-        
-        We received a request to reset your password for your ShareEven account.
-        
-        Click the link below to create a new password:
-        {reset_link}
-        
-        This link expires in 1 hour.
-        
-        If you didn't request this password reset, you can safely ignore this email.
-        
-        © 2026 ShareEven
-        """
-        
-        return self.send_email(to_email, subject, html_content, text_content)
+        text_content = (
+            f"Hi {username},\n\n"
+            "We received a request to reset the password for your ShareEven account.\n"
+            f"Choose a new one here: {reset_link}\n\n"
+            "This link expires in 1 hour and works once.\n"
+            "If you didn't ask for this, you can ignore this email. Your password won't change.\n"
+        )
+        return self.send_email(to_email, subject, _layout(subject, body), text_content)
 
-
-# Create singleton instance
     def send_verification_code(self, to_email: str, username: str, code: str) -> bool:
         """The 6-digit code that confirms a new account's email address."""
         subject = f"{code} is your ShareEven code"
+        body = f"""
+          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:{INK}">Confirm your email</h1>
+          <p style="margin:0 0 20px">Hi {escape(username)}, use this code to finish creating your account:</p>
+          <p style="margin:0 0 24px;padding:16px 0;text-align:center;background:{PURPLE_TINT};border-radius:12px;
+                    font-size:32px;font-weight:700;letter-spacing:8px;color:{INK};font-family:Menlo,Consolas,monospace">{escape(code)}</p>
+          {_note("The code expires in 10 minutes.")}
+          <p style="margin:24px 0 0;color:{MUTED};font-size:14px">If you didn't create an account, you can ignore this email.</p>
+        """
         text_content = (
             f"Hi {username},\n\nYour ShareEven verification code is {code}.\n"
             "It expires in 10 minutes. If you didn't create an account, you can ignore this email."
         )
-        html_content = f"""
-        <!DOCTYPE html>
-        <html><body style="margin:0;padding:24px;background:#f6f6f8;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b">
-          <div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:32px">
-            <h1 style="margin:0 0 16px;font-size:20px;color:#543f7d">ShareEven</h1>
-            <p style="margin:0 0 16px">Hi {username}, use this code to finish creating your account:</p>
-            <p style="margin:0 0 16px;font-size:32px;font-weight:700;letter-spacing:8px;color:#1e293b">{code}</p>
-            <p style="margin:0;color:#64748b;font-size:14px">It expires in 10 minutes. If you didn't create an account, you can ignore this email.</p>
-          </div>
-        </body></html>
-        """
-        return self.send_email(to_email, subject, html_content, text_content)
+        return self.send_email(to_email, subject, _layout(subject, body), text_content)
+
+
+# ------------------------------------------------------------------ the look (inline styles: email
+# clients drop <style> blocks and most CSS; tables keep the layout in Outlook)
+
+PURPLE = "#543f7d"  # the app's primary-700
+PURPLE_TINT = "#f4f1fa"
+INK = "#1e293b"
+MUTED = "#64748b"
+
+
+def _note(text: str) -> str:
+    """A small purple-edged note (instead of an emoji)."""
+    return (f'<p style="margin:0;padding:12px 14px;background:{PURPLE_TINT};border-left:4px solid {PURPLE};'
+            f'border-radius:8px;color:{PURPLE};font-size:14px;font-weight:600">{escape(text)}</p>')
+
+
+def _layout(title: str, body: str) -> str:
+    """The ShareEven frame: the purple S mark and name on top, the card, a quiet footer."""
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title)}</title></head>
+<body style="margin:0;padding:0;background:#f6f6f8">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f8"><tr><td align="center" style="padding:32px 16px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px">
+      <tr><td style="padding:0 4px 20px">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;background:{PURPLE};border-radius:12px;
+              color:#ffffff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700">S</td>
+          <td style="padding-left:10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:19px;font-weight:700;color:{INK}">ShareEven</td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;
+                     font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#334155">
+        {body}
+      </td></tr>
+      <tr><td style="padding:20px 4px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#94a3b8">
+        You're getting this because of a request on your ShareEven account. Questions? Reply to this email or write to
+        <a href="mailto:support@shareeven.com" style="color:#94a3b8">support@shareeven.com</a>.<br>
+        &copy; 2026 ShareEven
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>"""
 
 
 email_service = EmailService()

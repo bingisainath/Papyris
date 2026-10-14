@@ -17,7 +17,7 @@ const ForgotPassword: React.FC = () => {
 
     const [identifier, setIdentifier] = useState('');
     const [loading, setLoading] = useState(false);
-    const [submitted, setSubmitted] = useState(false);
+    const [sentTo, setSentTo] = useState<string | null>(null);
     const [error, setError] = useState('');
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -25,8 +25,7 @@ const ForgotPassword: React.FC = () => {
         setError('');
         setLoading(true);
         try {
-            await forgotPassword(identifier);
-            setSubmitted(true);
+            setSentTo(await forgotPassword(identifier.trim()));
         } catch (err: any) {
             setError(err.message || 'Something went wrong. Please try again.');
         } finally {
@@ -34,13 +33,13 @@ const ForgotPassword: React.FC = () => {
         }
     };
 
-    if (submitted) {
+    if (sentTo) {
         return (
             <AuthLayout
                 icon={MailCheck}
                 eyebrow="Check your inbox"
                 title="Reset link sent"
-                subtitle={<>If an account exists for <b className="text-muted-900">{identifier}</b>, you'll get an email with a link to choose a new password. The link expires in 1 hour.</>}
+                subtitle={<>We sent a link to <b className="text-muted-900">{sentTo}</b> to choose a new password. It expires in 1 hour. Not there? Check your spam folder.</>}
             >
                 <BackToLogin />
             </AuthLayout>

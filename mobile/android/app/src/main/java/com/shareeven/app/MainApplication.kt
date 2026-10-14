@@ -1,4 +1,4 @@
-package com.papyris.app
+package com.shareeven.app
 
 import android.app.Application
 import android.app.NotificationChannel

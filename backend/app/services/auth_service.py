@@ -229,8 +229,7 @@ class AuthService:
         """
         user = await AuthService.get_user_by_identifier(db, identifier)
         
-        if not user:
-            # Don't reveal if user exists (security)
+        if not user or user.deleted_at is not None:
             return (False, None)
         
         # Generate secure token

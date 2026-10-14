@@ -41,7 +41,8 @@ type AuthContextType = {
   register: (u: string, e: string, p: string) => Promise<void>;
   verifyEmail: (identifier: string, code: string) => Promise<void>;
   resendCode: (identifier: string) => Promise<void>;
-  forgotPassword: (identifier: string) => Promise<void>;
+  /** Resolves to the account's partly hidden email (where the link went). */
+  forgotPassword: (identifier: string) => Promise<string>;
   verifyResetToken: (token: string) => Promise<{ email: string; username: string }>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void> | void;
@@ -301,7 +302,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const forgotPassword = useCallback(
-    async (identifier: string): Promise<void> => {
+    async (identifier: string): Promise<string> => {
       setError(null);
       setIsLoading(true);
       try {
@@ -309,13 +310,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           throw new Error("Username or email is required");
         }
 
-
         const response = await authService.forgotPassword(identifier);
 
         if (!response.success) {
           throw new Error(response.message || "Failed to send reset email");
         }
-
+        return response.data?.email || identifier;
 
       } catch (err) {
         const msg = parseApiError(err);

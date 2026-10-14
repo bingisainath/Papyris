@@ -101,8 +101,8 @@ async def send_to_users(
                 continue
             if r.status_code == 200:
                 sent += 1
-            elif r.status_code == 404 or "UNREGISTERED" in r.text:
-                gone.append(token)  # app uninstalled or token replaced
+            elif r.status_code == 404 or "UNREGISTERED" in r.text or "SENDER_ID_MISMATCH" in r.text:
+                gone.append(token)  # app uninstalled, token replaced, or from another Firebase project
             else:
                 logger.warning("Push send failed: %s %s", r.status_code, r.text[:200])
     if gone:

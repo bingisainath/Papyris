@@ -59,12 +59,15 @@ class Settings(BaseSettings):
 
     # Email (sign-up codes, password resets). With SMTP_USER and SMTP_PASSWORD set, emails are
     # really sent; without them (local development) they are written to the backend log instead.
+    # Production: a sending service for shareeven.com (e.g. Resend: smtp.resend.com, port 465,
+    # user "resend", password = its API key) with FROM_EMAIL=noreply@shareeven.com.
     SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
+    SMTP_PORT: int = 587  # 587 = STARTTLS, 465 = TLS from the start
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     FROM_EMAIL: str = ""  # defaults to SMTP_USER
     FROM_NAME: str = "ShareEven"
+    REPLY_TO: str = "support@shareeven.com"  # replies to noreply@ reach a person
     FRONTEND_URL: str = "http://localhost:3000"  # used in password-reset links
 
     # Push notifications (Firebase Cloud Messaging). Path to the service-account JSON downloaded

@@ -245,48 +245,37 @@ async def forgot_password(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Request password reset email
-    
-    Security: Always returns success to prevent user enumeration
+    Email a password-reset link. Says plainly when no account matches: sign-up already tells
+    people an email is taken, so hiding it here protected nothing. Rate limits (per IP and per
+    account) stop anyone using this to check emails in bulk.
     """
     await rl.enforce((rl.FORGOT_PER_IP, rl.client_ip(request)), (rl.FORGOT_PER_ACCOUNT, payload.identifier))
-    try:
-        success, user = await AuthService.request_password_reset(db, payload.identifier)
-        
-        if success and user:
-            # Build reset link
-            frontend_url = settings.FRONTEND_URL
-            reset_link = f"{frontend_url}/reset-password?token={user.reset_token}"
-            
-            # Never log the link or token: anyone reading logs could reset the password.
-            # (Without SMTP configured, email_service logs the email in dev mode instead.)
-            logger.info("Password reset requested for user %s", user.id)
+    success, user = await AuthService.request_password_reset(db, payload.identifier)
+    if not (success and user):
+        logger.info("Password reset requested for an unknown account")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": "We couldn't find a ShareEven account with that username or email.", "code": "account_not_found"},
+        )
 
-            # Send email in background
-            background_tasks.add_task(
-                email_service.send_password_reset_email,
-                user.email,
-                user.username,
-                reset_link
-            )
-        else:
-            logger.info("Password reset requested for an unknown account")
-        
-        # Always return success (security best practice)
-        return APIResponse(
-            success=True,
-            message="If an account exists with that username or email, a password reset link has been sent.",
-            data={"email_sent": True}
-        )
-        
-    except Exception:
-        logger.exception("forgot-password failed")
-        # Still return success to prevent information disclosure
-        return APIResponse(
-            success=True,
-            message="If an account exists with that username or email, a password reset link has been sent.",
-            data={"email_sent": True}
-        )
+    reset_link = f"{settings.FRONTEND_URL}/reset-password?token={user.reset_token}"
+    # Never log the link or token: anyone reading logs could reset the password.
+    # (Without SMTP configured, email_service logs the email in dev mode instead.)
+    logger.info("Password reset requested for user %s", user.id)
+    background_tasks.add_task(email_service.send_password_reset_email, user.email, user.username, reset_link)
+    return APIResponse(
+        success=True,
+        message="Reset link sent",
+        # Partly hidden: someone who typed a username only learns where to look
+        data={"email_sent": True, "email": mask_email(user.email)},
+    )
+
+
+def mask_email(email: str) -> str:
+    """bingisainath27@gmail.com -> bi•••@gmail.com"""
+    local, _, domain = email.partition("@")
+    return f"{local[:2]}•••@{domain}" if domain else "your email"
+
 
 # ============================================
 # ✅ NEW: VERIFY RESET TOKEN

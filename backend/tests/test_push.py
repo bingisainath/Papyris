@@ -43,6 +43,8 @@ def firebase(tmp_path, monkeypatch):
         calls["sent"].append(message)
         if message["token"].startswith("gone"):
             return httpx.Response(404, json={"error": {"status": "NOT_FOUND", "details": [{"errorCode": "UNREGISTERED"}]}})
+        if message["token"].startswith("oldproject"):  # a token from another Firebase project
+            return httpx.Response(403, json={"error": {"status": "PERMISSION_DENIED", "details": [{"errorCode": "SENDER_ID_MISMATCH"}]}})
         return httpx.Response(200, json={"name": "projects/papyris-test/messages/1"})
 
     transport = httpx.MockTransport(handler)
@@ -85,6 +87,7 @@ async def test_send_and_forget_uninstalled_phones(firebase, make_user, db):
     db.add_all([
         DeviceToken(user_id=uuid.UUID(user.id), token="good-" + "a" * 30, platform="android"),
         DeviceToken(user_id=uuid.UUID(user.id), token="gone-" + "b" * 30, platform="ios"),
+        DeviceToken(user_id=uuid.UUID(user.id), token="oldproject-" + "c" * 30, platform="android"),
     ])
     await db.commit()
     sent = await push.send_to_users(db, [uuid.UUID(user.id)], "Flat 4B", "bob: dinner?", {"conversationId": "c1"})
@@ -93,7 +96,7 @@ async def test_send_and_forget_uninstalled_phones(firebase, make_user, db):
     assert android["notification"] == {"title": "Flat 4B", "body": "bob: dinner?"}
     assert android["data"] == {"conversationId": "c1"} and android["android"]["priority"] == "high"
     tokens = (await db.execute(select(DeviceToken.token))).scalars().all()
-    assert not any(t.startswith("gone") for t in tokens)
+    assert not any(t.startswith(("gone", "oldproject")) for t in tokens)
 
     # The Google access token is reused
     await push.send_to_users(db, [uuid.UUID(user.id)], "t", "b", {})

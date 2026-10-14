@@ -125,6 +125,15 @@ class TestUser:
 
 
 @pytest.fixture(autouse=True)
+def no_real_email(monkeypatch):
+    """Tests never send mail, whatever SMTP settings the developer's .env has (emails go to the log)."""
+    from app.services.email_service import email_service
+    monkeypatch.setattr(email_service, "smtp_user", "")
+    monkeypatch.setattr(email_service, "smtp_password", "")
+    monkeypatch.setattr(email_service, "environment", "local")
+
+
+@pytest.fixture(autouse=True)
 def sent_codes(monkeypatch):
     """Verification codes that would have been emailed: {email: latest code}."""
     codes = {}
