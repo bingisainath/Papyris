@@ -6,6 +6,7 @@ import {
 } from './index';
 import type { GrantPayload } from './index';
 import { Device, Server } from './testing';
+import { DeviceManager, DeviceRemovedError } from './device';
 
 const blobs = new Map<string, Uint8Array>();
 
@@ -143,5 +144,25 @@ describe('logging out another device', () => {
     const sent = await bob.send('dm', false, ['alice', 'bob'], 'only the phone');
     expect(sent.envelopes.map((e) => `${e.to_user}:${e.to_device}`)).toEqual(['alice:1']);
     await expect(logOutOtherDevice(phone.store, server.http('alice'), 'alice', 1)).rejects.toThrow('this device');
+  });
+});
+
+describe('a device removed elsewhere', () => {
+  it('stops with DeviceRemovedError and wipes its keys instead of a dead-end error', async () => {
+    const server = new Server();
+    const phone = await new Device(server, 'alice', 'Phone').start();
+    const browser = await new Device(server, 'alice', 'Browser').start();
+    // On the phone: "Log out this device" for the browser (the server forgets it)
+    await phone.manager['http'].del(`/e2e/v2/devices/${browser.address.device}`);
+
+    // The browser opens again with its old keys still saved
+    const again = new DeviceManager(browser.store, server.http('alice'), 'alice', 'Browser');
+    await expect(again.bootstrap()).rejects.toBeInstanceOf(DeviceRemovedError);
+    expect(await browser.store.device()).toBeNull();
+
+    // Signing in again starts over as a new, unlinked device
+    const fresh = await again.bootstrap();
+    expect(fresh.deviceId).not.toBe(browser.address.device);
+    expect(fresh.listed).toBe(false);
   });
 });

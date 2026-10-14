@@ -24,6 +24,8 @@ import { store } from '../redux/store';
 import { syncV2 } from '../redux/actions/websocketActions';
 import { isRecoveryKey } from '../crypto/backup';
 import api from '../utils/axios';
+import { DeviceRemovedError } from '../crypto/v2/device';
+import { LOGGED_OUT_ELSEWHERE_EVENT } from '../utils/authRefresh';
 
 type Stage = { name: 'checking' } | { name: 'ready' } | { name: 'link'; mine: MyKeys } | { name: 'error'; message: string };
 
@@ -66,6 +68,11 @@ export const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
       }
       setStage({ name: 'link', mine });
     } catch (error) {
+      // Logged out from another device while this browser stayed signed in: sign out, like any remote logout
+      if (error instanceof DeviceRemovedError) {
+        window.dispatchEvent(new Event(LOGGED_OUT_ELSEWHERE_EVENT));
+        return;
+      }
       setStage({ name: 'error', message: parseApiError(error) });
     }
   }, [userId]);
