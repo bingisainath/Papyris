@@ -13,7 +13,8 @@ export type ChatItem = { kind: 'message'; message: Message } | { kind: 'album'; 
 
 const GAP_MS = 2 * 60 * 1000;
 const isAlbumPhoto = (m: Message) =>
-  m.mediaType === 'image' && !!m.mediaUrl && !m.text && !m.isDeleted && !m.replyTo && m.e2e !== 'unreadable'
+  m.mediaType === 'image' && !!m.mediaUrl && !m.text && !m.isDeleted && !m.replyTo
+  && m.e2e !== 'unreadable' && m.e2e !== 'pending' // no key yet: the tile would show the encrypted file
   && m.uploadProgress === undefined && !m.uploadFailed && m.messageType !== 'system' && !m.reactions.length;
 
 /** Split a chat (oldest first) into single messages and albums. */
