@@ -10,6 +10,7 @@ import { decryptedFields, decryptMessage, mediaLabel, openText, recipientsFor, s
 import { encryptForUpload, rememberDecrypted } from '../crypto/media';
 import type { E2EMedia } from '../crypto/e2e';
 import { e2eSession } from '../crypto/session';
+import { useAuth } from './auth';
 import { e2eService } from '../services/e2e.service';
 import {
   confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, joinedAt, lastLocal, localFor, pendingFields, pointerOf, receiveLive,
@@ -280,6 +281,12 @@ export const useChat = create<ChatState>((set, get) => ({
 }));
 
 type Setter = (fn: (s: ChatState) => Partial<ChatState>) => void;
+
+/**
+ * The signed-in user. Not e2eSession.userId(): that is only set when this phone has the old (v1)
+ * keys, so phones without them took their own messages for someone else's.
+ */
+const myId = () => useAuth.getState().user?.id ?? null;
 
 /** Who is in a conversation (for encryption v2), from the chat list. */
 function chatInfo(conversationId: string): ChatInfo {
@@ -558,11 +565,19 @@ socket.on((e) => {
         reactions: [],
         expenseId: e.expenseId || null,
       } as Message);
+      // Quoting a v2 message: the server only has its marker; the quoted text is in this phone's copy
+      const quoted = message.replyTo;
+      if (quoted && isV2Marker(quoted.text)) {
+        message.replyTo = { ...quoted, text: '' };
+        localFor(quoted.id).then((local) => {
+          updateMessage(set, e.roomId, e.messageId, { replyTo: { ...quoted, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } });
+        }).catch(() => undefined);
+      }
       const v2Row = isV2Marker(e.text);
       if (v2Row) {
         Object.assign(message, pendingFields);
         // The content comes in this phone's own packet; ours is already in the local database
-        const own = !!e.clientId && e.senderId === e2eSession.userId();
+        const own = !!e.clientId && e.senderId === myId();
         (own ? confirmOwn(e.clientId, e.messageId) : localFor(e.messageId)).then((local) => {
           if (!local) return;
           const fields = fromLocal(local);
@@ -578,7 +593,7 @@ socket.on((e) => {
         flagUnverified(e.roomId, [message]);
       }
       // The server passes the sender's clientId to every member: only the sender's id says it's ours
-      const mine = e.senderId === e2eSession.userId(); // set at sign-in, before any chat opens
+      const mine = e.senderId === myId();
       set((s) => {
         const list = (s.messages[e.roomId] || []).filter((m) => m.id !== message.id && (!e.clientId || m.id !== e.clientId));
         const active = s.activeId === e.roomId;

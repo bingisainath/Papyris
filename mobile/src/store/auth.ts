@@ -65,6 +65,11 @@ export const useAuth = create<AuthState>((set, get) => {
     set({ user: null, status: 'signedOut' });
   });
 
+  // Register for notifications whenever the server is reachable again (a start while offline skipped it)
+  socket.onStatus((connected) => {
+    if (connected && get().status === 'signedIn') enablePush({ ask: false });
+  });
+
   // The account is gone: its recovery key saved on this phone goes too
   const forgetSavedKey = async () => {
     const id = get().user?.id;

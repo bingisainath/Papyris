@@ -564,6 +564,21 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         reactions: [],
       } as Message);
 
+      // Quoting a v2 message: the server only has its marker; the quoted text is in this browser's copy
+      const quoted = message.replyTo;
+      if (quoted && isV2Marker(quoted.text)) {
+        message.replyTo = { ...quoted, text: '' };
+        const quotingRoom: string = data.roomId;
+        const quotingId: string = data.messageId;
+        localFor(quoted.id).then(local => {
+          dispatch(updateMessage({
+            conversationId: quotingRoom,
+            messageId: quotingId,
+            updates: { replyTo: { ...quoted, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } },
+          }));
+        }).catch(() => undefined);
+      }
+
       const timestamp: string = data.timestamp || new Date().toISOString();
       const v2 = isV2Marker(data.text);
       dispatch(upsertMessage({ conversationId: data.roomId, message: v2 ? { ...message, ...pendingFields } : message }));

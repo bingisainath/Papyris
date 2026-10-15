@@ -25,13 +25,15 @@ let stopTokenRefresh: (() => void) | null = null;
 
 const configured = () => getApps().length > 0;
 
-async function allowed(): Promise<boolean> {
+/** Whether notifications are allowed; `ask` shows the phone's permission prompt if needed. */
+async function allowed(ask: boolean): Promise<boolean> {
   if (Platform.OS === 'android') {
     if (Number(Platform.Version) < 33) return true; // no runtime permission before Android 13
+    if (!ask) return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
     const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
     return result === PermissionsAndroid.RESULTS.GRANTED;
   }
-  const status = await requestPermission(getMessaging());
+  const status = await (ask ? requestPermission : hasPermission)(getMessaging());
   return status === AuthorizationStatus.AUTHORIZED || status === AuthorizationStatus.PROVISIONAL;
 }
 
@@ -40,11 +42,15 @@ async function register(token: string) {
   await api.post('/devices', { token, platform: Platform.OS === 'ios' ? 'ios' : 'android' });
 }
 
-/** After sign-in: ask permission and register this phone. Safe to call more than once. */
-export async function enablePush(): Promise<void> {
+/**
+ * Register this phone for notifications. After sign-in it asks permission (`ask`); on each
+ * reconnect it registers again without asking, because a start while the server was unreachable
+ * skipped it and a reinstall gives the phone a new token. Safe to call more than once.
+ */
+export async function enablePush(options: { ask?: boolean } = {}): Promise<void> {
   if (!configured()) return;
   try {
-    if (!(await allowed())) return;
+    if (!(await allowed(options.ask !== false))) return;
     const messaging = getMessaging();
     await register(await getToken(messaging));
     stopTokenRefresh?.();
