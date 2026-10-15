@@ -9,6 +9,7 @@ Uses the QA user qa_carol (a test account).
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -48,13 +49,15 @@ def main():
         expect(second.get_by_role("heading", name="Link this browser")).to_be_visible(timeout=20000)
         token = second.evaluate("() => localStorage.getItem('papyris_access_token') || ''")
 
-        first.goto(f"{WEB}/settings")
+        first.goto(f"{WEB}/settings/devices")
+        # The waiting browser makes this one ask "Is this you?"; close it to use Sessions instead
+        first.get_by_role("alertdialog", name="Is this you?").get_by_role("button", name="Not now").click()
         sessions = first.get_by_role("list", name="Active sessions")
         expect(sessions.get_by_role("button", name="Log out Chrome on Linux").first).to_be_visible(timeout=15000)
         count_before = sessions.locator("li").count()
         first.screenshot(path=SHOTS / "s1-sessions.png")
-        first.once("dialog", lambda d: d.accept())
         sessions.get_by_role("button", name="Log out Chrome on Linux").first.click()
+        first.get_by_role("alertdialog", name=re.compile("^Log out")).get_by_role("button", name="Log out").click()
         expect(first.get_by_text("is logged out")).to_be_visible(timeout=15000)
         expect(sessions.locator("li")).to_have_count(count_before - 1, timeout=15000)
 

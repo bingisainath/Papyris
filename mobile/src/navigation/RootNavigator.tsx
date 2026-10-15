@@ -26,6 +26,10 @@ import AddExpenseScreen from '../screens/expenses/AddExpenseScreen';
 import ScanReceiptScreen from '../screens/expenses/ScanReceiptScreen';
 import ExpenseDetailScreen from '../screens/expenses/ExpenseDetailScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
+import AccountScreen from '../screens/settings/AccountScreen';
+import BackupScreen from '../screens/settings/BackupScreen';
+import ReceiptScanningScreen from '../screens/settings/ReceiptScanningScreen';
+import HelpScreen from '../screens/settings/HelpScreen';
 import ProfileScreen from '../screens/settings/ProfileScreen';
 import StoreDiscountsScreen from '../screens/settings/StoreDiscountsScreen';
 import E2EGate from '../screens/auth/E2EGate';
@@ -195,6 +199,26 @@ const RootNavigator: React.FC = () => {
             name="Profile"
             component={ProfileScreen}
             options={{ title: 'Profile' }}
+          />
+          <AppStack.Screen
+            name="Account"
+            component={AccountScreen}
+            options={{ title: 'Account' }}
+          />
+          <AppStack.Screen
+            name="Backup"
+            component={BackupScreen}
+            options={{ title: 'Encryption & backup' }}
+          />
+          <AppStack.Screen
+            name="ReceiptScanning"
+            component={ReceiptScanningScreen}
+            options={{ title: 'Receipt scanning' }}
+          />
+          <AppStack.Screen
+            name="Help"
+            component={HelpScreen}
+            options={{ title: 'Help & about' }}
           />
           <AppStack.Screen
             name="StoreDiscounts"

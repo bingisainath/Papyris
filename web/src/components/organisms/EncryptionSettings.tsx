@@ -55,21 +55,19 @@ const EncryptionSettings: React.FC = () => {
 
   return (
     <div className="card p-4 sm:p-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
         <div className="min-w-0 flex gap-3">
           <ShieldCheck className="w-6 h-6 text-primary-600 flex-shrink-0" strokeWidth={1.75} />
           <div>
-            <h2 className="text-lg font-semibold text-muted-900">Linked devices</h2>
-            <p className="text-sm text-muted-500">
-              End-to-end encryption is on. Messages, photos, videos, voice messages and files in chats where everyone has set it up are encrypted on
-              your devices. Expenses, receipt scans and group names and photos aren't: the server needs them to work out
-              balances and show your chats.
+            <h2 className="text-base font-bold text-muted-900">Link a new device</h2>
+            <p className="mt-1 text-sm text-muted-500">
+              Sign in on the new phone or browser. This device asks "Is this you?": tap the number it shows. Or link it with its code here.
             </p>
           </div>
         </div>
         {!open && (
           <button type="button" onClick={() => setOpen(true)}
-            className="flex-shrink-0 px-3 py-1.5 text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg">
+            className="self-start sm:self-auto ml-9 sm:ml-0 flex-shrink-0 h-10 px-4 text-xs font-bold text-primary-700 bg-primary-50 border border-primary-100 hover:bg-primary-100 rounded-[11px]">
             Link a device
           </button>
         )}

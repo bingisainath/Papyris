@@ -1,11 +1,11 @@
 // src/pages/Home/index.tsx - COMPLETE WITH ALL INTEGRATIONS
 
 import GroupAddIcon from '../../components/atoms/GroupAddIcon';
-import { LogOut, MessageSquareText, Settings as SettingsIcon, Users, Wallet } from 'lucide-react';
+import { MessageSquareText, Settings as SettingsIcon, Users, Wallet } from 'lucide-react';
 import { Avatar } from '../../components/atoms';
 import { isMuted } from '../../components/molecules/ChatListItem';
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate, useLocation, useParams } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAuth } from '../../app/AuthProvider';
 import {
@@ -30,21 +30,14 @@ import { selectOnlineUsers } from '../../redux/slices/websocketSlice';
 import { clearUnreadCount } from '../../redux/slices/chatSlice';
 import { chatService } from '../../services/chat.service';
 import { NAVIGATE_EVENT } from '../../utils/events';
-import { clearNotifications, getNotificationStatus, setNotificationsEnabled, setUnreadBadge } from '../../utils/notifications';
-import type { NotificationStatus } from '../../utils/notifications';
+import { clearNotifications, setUnreadBadge } from '../../utils/notifications';
 import { mediaService } from '../../services/media.service';
 import { parseApiError } from '../../utils/apiError';
 import { toast } from 'react-toastify';
 import ExpensesPage from '../../components/expenses/ExpensesPage';
 import ConnectionBanner from '../../components/molecules/ConnectionBanner';
-import { DisplayCurrencySettings, StoreDiscountSettings } from '../../components/expenses/ExpenseSettingsSections';
-import SessionsSettings from '../../components/organisms/SessionsSettings';
-import EncryptionSettings from '../../components/organisms/EncryptionSettings';
-import BackupSettings from '../../components/organisms/BackupSettings';
-import AccountDataSettings from '../../components/organisms/AccountDataSettings';
-import InfoLinks from '../../components/molecules/InfoLinks';
 import LinkApprovalPrompt from '../../components/organisms/LinkApprovalPrompt';
-import { BlockedPeopleSettings } from '../../components/organisms/SafetySettings';
+import SettingsPage from '../Settings';
 import LogoutWarning, { logoutRisk } from '../../components/organisms/LogoutWarning';
 import type { LogoutRisk } from '../../components/organisms/LogoutWarning';
 
@@ -438,7 +431,7 @@ const Home: React.FC = () => {
           risk={logoutWarning}
           onCancel={() => setLogoutWarning(null)}
           onConfirm={logoutNow}
-          onOpenSettings={() => { setLogoutWarning(null); navigate('/settings'); }}
+          onOpenSettings={() => { setLogoutWarning(null); navigate('/settings/backup'); }}
         />
       )}
     </div>
@@ -514,143 +507,6 @@ const GroupsPage: React.FC<{
 );
 
 
-
-// Desktop notification preference (Settings)
-const NotificationSettings: React.FC = () => {
-  const [status, setStatus] = useState<NotificationStatus>(getNotificationStatus);
-  const [busy, setBusy] = useState(false);
-
-  const toggle = async () => {
-    setBusy(true);
-    try {
-      setStatus(await setNotificationsEnabled(status !== 'on'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const description: Record<NotificationStatus, string> = {
-    on: 'You get a desktop notification for new messages when ShareEven is in the background.',
-    off: 'Turn on to get a desktop notification for new messages when ShareEven is in the background.',
-    denied: 'Notifications are blocked for this site. Allow them in your browser\'s site settings, then reload.',
-    unsupported: 'This browser does not support desktop notifications.',
-  };
-
-  return (
-    <div className="card p-4 sm:p-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-muted-900">Notifications</h2>
-          <p className="text-sm text-muted-500">{description[status]}</p>
-        </div>
-        {(status === 'on' || status === 'off') && (
-          <button
-            role="switch"
-            aria-checked={status === 'on'}
-            aria-label="Desktop notifications"
-            onClick={toggle}
-            disabled={busy}
-            className={`relative flex-shrink-0 w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
-              status === 'on' ? 'bg-primary-600' : 'bg-muted-300'
-            }`}
-          >
-            <span
-              className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                status === 'on' ? 'translate-x-5' : ''
-              }`}
-            />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// Settings Page Component
-const SettingsPage: React.FC<{
-  user: any;
-  onEditProfile: () => void;
-  onLogout: () => void;
-}> = ({ user, onEditProfile, onLogout }) => {
-  const username = user.username || user.email.split('@')[0];
-  const payTo = ['revolut', 'paypal', 'upi'].filter((k) => user.payment_handles?.[k]);
-  return (
-    <div className="px-4 py-6 sm:p-8 h-full overflow-auto">
-      <div className="max-w-4xl mx-auto">
-        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary-500">Your account</p>
-        <h1 className="mt-0.5 mb-6 font-display text-[28px] font-semibold text-muted-900">Settings</h1>
-
-        <div className="space-y-5">
-          <section className="card p-5 sm:p-6 flex items-start sm:items-center gap-4 sm:gap-5" aria-label="Account">
-            <Avatar src={user.avatar} alt={user.name || username} size="xl" />
-            <div className="flex-1 min-w-0">
-              <h2 className="font-display text-xl font-semibold text-muted-900 truncate">{user.name || username}</h2>
-              <p className="mt-0.5 text-sm text-muted-500 truncate">@{username} · {user.email}</p>
-              {user.bio && <p className="mt-1.5 text-sm text-muted-700">{user.bio}</p>}
-              <p className="mt-1.5 text-xs text-muted-400">
-                Joined {new Date(user.created_at).toLocaleDateString()}
-                {payTo.length > 0 && ` · Paid via ${payTo.map((k) => (k === 'upi' ? 'UPI' : k === 'paypal' ? 'PayPal' : 'Revolut')).join(', ')}`}
-              </p>
-            </div>
-            <button
-              onClick={onEditProfile}
-              className="flex-shrink-0 h-10 px-4 text-sm font-bold text-primary-700 bg-primary-50 border border-primary-100 hover:bg-primary-100 rounded-[11px] transition-colors"
-            >
-              Edit profile
-            </button>
-          </section>
-
-          <EncryptionSettings />
-
-          <SessionsSettings />
-
-          <BackupSettings userId={user.id} />
-
-          <NotificationSettings />
-
-          <DisplayCurrencySettings />
-
-
-          <StoreDiscountSettings />
-
-          <BlockedPeopleSettings />
-
-          {user.is_app_admin && (
-            <div className="card p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-lg font-semibold text-muted-900">Admin console</h2>
-                <p className="text-sm text-muted-500">Overview, people, reports and the admin log. Only app admins see this.</p>
-              </div>
-              <Link to="/admin" className="flex-shrink-0 inline-flex items-center gap-2 h-10 px-4 text-sm font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-[11px]">
-                Open admin console
-              </Link>
-            </div>
-          )}
-
-          <AccountDataSettings />
-
-          <div className="card p-4 sm:p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <h2 className="text-lg font-semibold text-muted-900">Log out</h2>
-                <p className="text-sm text-muted-500">Sign out of ShareEven on this device.</p>
-              </div>
-              <button
-                onClick={onLogout}
-                className="flex-shrink-0 inline-flex items-center gap-2 h-10 px-4 text-sm font-bold text-white bg-accent-500 hover:bg-accent-600 rounded-[11px] transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Log out
-              </button>
-            </div>
-          </div>
-
-          <InfoLinks className="pt-2 pb-4" />
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // Mobile Bottom Navigation
 const MOBILE_TABS = [

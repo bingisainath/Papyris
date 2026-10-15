@@ -65,7 +65,7 @@ def main():
 
         # ---- no backup: the warning says chats will be lost
         page.wait_for_timeout(1500)  # let this browser register as a v2 device
-        page.get_by_role("button", name="Logout").first.click()
+        page.get_by_role("button", name="Log out", exact=True).first.click()
         dialog = page.get_by_role("dialog", name="Log out of your only device?")
         expect(dialog).to_be_visible(timeout=10000)
         expect(dialog.get_by_text(re.compile("you have no backup"))).to_be_visible()
@@ -86,7 +86,7 @@ def main():
         aik_before = sql("select aik from e2e_device_lists where user_id = %s", carol)[0][0]
 
         # ---- with a backup: the warning mentions the recovery key
-        page.get_by_role("button", name="Logout").first.click()
+        page.get_by_role("button", name="Log out", exact=True).first.click()
         expect(dialog.get_by_text(re.compile("64-digit backup recovery key"))).to_be_visible(timeout=10000)
         dialog.get_by_role("button", name="Log out anyway").click()
         expect(page.locator("input[name=loginIdentifier]")).to_be_visible(timeout=15000)
@@ -115,9 +115,9 @@ def main():
             problems.append("the restored browser isn't on the account's device list")
 
         # ---- turning backups off
-        page2.goto(f"{WEB}/settings")
-        page2.once("dialog", lambda d: d.accept())
+        page2.goto(f"{WEB}/settings/backup")
         page2.get_by_role("button", name="Turn off").click()
+        page2.get_by_role("alertdialog", name="Turn off backups?").get_by_role("button", name="Turn off").click()
         expect(page2.get_by_role("button", name="Turn on backup")).to_be_visible(timeout=15000)
         if sql("select 1 from e2e_backups where user_id = %s", carol):
             problems.append("backup not deleted when turned off")
