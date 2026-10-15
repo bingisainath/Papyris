@@ -123,3 +123,13 @@ async def test_worker_notifies_other_members(firebase, make_user, make_group, db
     assert [m["token"][:10] for m in firebase["sent"]] == ["bobs-phone"]  # not the sender
     assert firebase["sent"][0]["notification"] == {"title": "Flat 4B", "body": f"{alice.username}: Dinner at 8?"}
     assert firebase["sent"][0]["data"]["conversationId"] == group
+
+
+def test_startup_log_says_whether_push_is_on(firebase, tmp_path, monkeypatch):
+    assert push.describe() == "on (Firebase project papyris-test)"
+    monkeypatch.setattr(push, "_account", None)
+    monkeypatch.setattr(settings, "FIREBASE_SERVICE_ACCOUNT_FILE", str(tmp_path / "missing.json"))
+    assert push.describe().startswith("OFF: FIREBASE_SERVICE_ACCOUNT_FILE is set but")
+    monkeypatch.setattr(push, "_account", None)
+    monkeypatch.setattr(settings, "FIREBASE_SERVICE_ACCOUNT_FILE", "")
+    assert push.describe() == "OFF: FIREBASE_SERVICE_ACCOUNT_FILE is not set"

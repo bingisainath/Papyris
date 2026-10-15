@@ -378,7 +378,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
             ref={list}
             data={rows}
             inverted
-            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'unread' ? 'unread-line' : r.kind === 'album' ? `album-${r.messages[0].id}` : r.message.id)}
+            keyExtractor={(r) => (r.kind === 'day' ? r.key : r.kind === 'unread' ? 'unread-line' : r.kind === 'album' ? `album-${r.messages[0].id}` : r.message.clientId || r.message.id)} // clientId: a sent message keeps its row when the server confirms it
             renderItem={renderRow}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}

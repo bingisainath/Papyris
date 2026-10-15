@@ -44,6 +44,7 @@ class MessageWorker:
     async def start(self):
         """Start the worker"""
         logger.info("Starting message worker %s", self.consumer_name)
+        logger.info("Push notifications: %s", push.describe())
         await self.streams.init_stream()
         self.running = True
         await self.recover()

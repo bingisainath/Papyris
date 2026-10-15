@@ -15,6 +15,9 @@ jest.mock('../api/chat', () => ({
 }));
 // Signed in as "me" (this test has no encryption keys, so only the account says who we are)
 jest.mock('./auth', () => ({ useAuth: { getState: () => ({ user: { id: 'me' } }) } }));
+jest.mock('../utils/startupCache', () => ({ startupCache: { chats: async () => null, setChats: () => undefined } }));
+// The phone's encryption check (E2EGate) is done
+jest.mock('../crypto/v2-platform/runtime', () => ({ ...jest.requireActual('../crypto/v2-platform/runtime'), encryptionChecked: async () => undefined }));
 
 import { typingNames, useChat } from './chat';
 import { socket } from '../websocket/socket';
@@ -126,4 +129,25 @@ test('a chat read on the phone stays read even if the server is a moment behind'
   chatApi.conversations.mockResolvedValueOnce([{ ...conversation, unreadCount: 1, lastMessageTime: new Date(Date.now() + 60000).toISOString() }]);
   await useChat.getState().loadConversations();
   expect(useChat.getState().conversations[0].unreadCount).toBe(1);
+});
+
+test('our own encrypted message keeps its bubble when the server confirms it (no flash)', async () => {
+  useChat.getState().send('c1', 'hello', { id: 'me', username: 'me' });
+  const [pending] = useChat.getState().messages.c1;
+  await settle();
+  emit({ type: 'message', roomId: 'c1', messageId: 'm2', clientId: pending.id, senderId: 'me', text: 'e2e2:', timestamp: new Date().toISOString(), status: 'sent' });
+  const [row] = useChat.getState().messages.c1;
+  expect(row).toMatchObject({ id: 'm2', clientId: pending.id, text: 'hello', status: 'sent' });
+  expect(row.e2e).not.toBe('pending');
+});
+
+test("a refreshed chat list never shows the server's encrypted marker", async () => {
+  const { chatApi } = require('../api/chat');
+  chatApi.conversations.mockResolvedValueOnce([{ ...conversation, lastMessage: 'e2e2:', lastMessageTime: new Date().toISOString() }]);
+  const seen: string[] = [];
+  const stop = useChat.subscribe((s) => s.conversations.forEach((c) => seen.push(c.lastMessage || '')));
+  await useChat.getState().loadConversations();
+  stop();
+  expect(seen.some((t) => t.startsWith('e2e2:'))).toBe(false);
+  expect(useChat.getState().conversations[0].lastMessage).toBe('Encrypted message'); // no copy on this phone
 });

@@ -43,6 +43,7 @@ export function startV2(userId: string): Promise<Runtime> {
 
 /** On logout: forget this device on the server and wipe its local keys and messages. */
 export async function stopV2(logout = true): Promise<void> {
+  resetEncryptionChecked(); // the next sign-in checks again
   const running = current;
   current = null;
   stopWatching?.();
@@ -53,3 +54,14 @@ export async function stopV2(logout = true): Promise<void> {
 }
 
 export const v2Runtime = (): Promise<Runtime> | null => current;
+
+// Whether this phone's encryption check (E2EGate) has finished since sign-in. The app can show its
+// cached screens before then, but sending waits: until the check is done a chat can't tell end-to-end
+// encrypted (v2) from "not encrypted yet", and guessing wrong would send a message unencrypted.
+let checked!: () => void;
+let checkedPromise = new Promise<void>((resolve) => { checked = resolve; });
+export const encryptionChecked = (): Promise<void> => checkedPromise;
+export const markEncryptionChecked = (): void => checked();
+function resetEncryptionChecked() {
+  checkedPromise = new Promise<void>((resolve) => { checked = resolve; });
+}

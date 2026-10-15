@@ -12,7 +12,7 @@ import { socket } from '../../websocket/socket';
 import { isV2Marker, LocalMessage, MediaPointer, MessageBody } from '../v2';
 import type { IncomingEnvelope, OutgoingEnvelope, Received } from '../v2';
 import { encryptFileV2, rememberDecrypted } from '../media';
-import { v2Runtime } from './runtime';
+import { encryptionChecked, v2Runtime } from './runtime';
 
 const LINK_RE = /https?:\/\/\S/i;
 
@@ -22,6 +22,7 @@ export interface ChatInfo { conversationId: string; isGroup: boolean; members: s
 type V2 = NonNullable<Awaited<ReturnType<typeof v2For>>>;
 
 export async function v2For(chat: ChatInfo) {
+  await encryptionChecked(); // right after start the cached screens show before this phone's check is done
   const runtime = await v2Runtime()?.catch(() => null);
   if (!runtime?.state.listed || !chat.members.length) return null;
   const members = Array.from(new Set([...chat.members, runtime.userId]));

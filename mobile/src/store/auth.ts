@@ -13,6 +13,7 @@ import { stopV2, v2Runtime } from '../crypto/v2-platform/runtime';
 import { showAlert } from '../components/common/Dialog';
 import { forgetRecoveryKey } from '../crypto/savedRecoveryKey';
 import { chatDrafts } from '../utils/drafts';
+import { startupCache } from '../utils/startupCache';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -42,6 +43,7 @@ export const useAuth = create<AuthState>((set, get) => {
   const finishSignIn = async (pair: TokenPair) => {
     await tokens.save(pair.access_token, pair.refresh_token ?? null);
     const user = await authApi.me();
+    startupCache.setUser(user);
     set({ user, status: 'signedIn' });
     socket.start();
     enablePush();
@@ -53,6 +55,7 @@ export const useAuth = create<AuthState>((set, get) => {
     await stopV2().catch(() => undefined);
     await e2eSession.clear();
     await chatDrafts.clearAll();
+    await startupCache.clear();
     set({ user: null, status: 'signedOut' });
   };
 
@@ -113,19 +116,29 @@ export const useAuth = create<AuthState>((set, get) => {
         set({ status: 'signedOut' });
         return;
       }
+      // Open straight away as the user from last time; the server confirms (or signs out) just after
+      const cached = await startupCache.user();
+      if (cached) {
+        set({ user: cached, status: 'signedIn' });
+        socket.start();
+      }
       try {
         const user = await authApi.me();
+        startupCache.setUser(user);
         set({ user, status: 'signedIn' });
-        socket.start();
+        if (!cached) socket.start();
         enablePush();
       } catch (error) {
         // Offline: keep the session and try again later; rejected: sign out
         if (axios.isAxiosError(error) && !error.response) {
-          set({ status: 'signedIn' });
-          socket.start();
+          if (!cached) {
+            set({ status: 'signedIn' });
+            socket.start();
+          }
         } else {
+          socket.stop();
           await tokens.clear();
-          set({ status: 'signedOut' });
+          set({ user: null, status: 'signedOut' });
         }
       }
     },
@@ -172,7 +185,10 @@ export const useAuth = create<AuthState>((set, get) => {
       set({ user: await authApi.me() });
     },
 
-    setUser: (user) => set({ user }),
+    setUser: (user) => {
+      startupCache.setUser(user);
+      set({ user });
+    },
     accountDeleted: async () => {
       await forgetSavedKey();
       await tokens.clear();
@@ -186,6 +202,7 @@ export const useAuth = create<AuthState>((set, get) => {
       await tokens.clear();
       await e2eSession.clear(); // signing in here again means linking it again
       await chatDrafts.clearAll(); // unsent text goes with the sign-in
+      await startupCache.clear();
       set({ user: null, status: 'signedOut' });
     },
   };

@@ -19,7 +19,9 @@ import type { LinkHere } from '../../crypto/v2-platform/link';
 import { e2eService } from '../../services/e2e.service';
 import type { MyKeys } from '../../services/e2e.service';
 import { errorMessage, reportLoggedOutElsewhere } from '../../api/client';
-import { startV2 } from '../../crypto/v2-platform/runtime';
+import { markEncryptionChecked, startV2 } from '../../crypto/v2-platform/runtime';
+import { startupCache } from '../../utils/startupCache';
+import { socket } from '../../websocket/socket';
 import { backupIfDue, restoreFromBackup } from '../../crypto/backupRuntime';
 import { forgetRecoveryKey, hasSavedRecoveryKey, readSavedRecoveryKey, saveErrorMessage, saveRecoveryKey } from '../../crypto/savedRecoveryKey';
 import { syncV2 } from '../../store/chat';
@@ -39,9 +41,21 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [stage, setStage] = useState<Stage>({ name: 'checking' });
   const userId = user?.id;
 
+  // Ready from last time and not re-checked yet: the app is shown, sending waits for the check
+  const unconfirmed = useRef(false);
+  const ready = useCallback(() => {
+    unconfirmed.current = false;
+    if (userId) startupCache.setEncryptionReady(userId, true);
+    markEncryptionChecked();
+    setStage({ name: 'ready' });
+  }, [userId]);
+
   const check = useCallback(async () => {
     if (!userId) return;
-    setStage({ name: 'checking' });
+    // Set up on this phone before: open the app at once and check in the background
+    const wasReady = await startupCache.encryptionReady(userId);
+    unconfirmed.current = wasReady;
+    setStage(wasReady ? { name: 'ready' } : { name: 'checking' });
     try {
       const mine = await e2eService.mine();
       // Version 1 keys from earlier on this phone: only for reading older messages, so optional.
@@ -60,9 +74,11 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         await startFreshV2(userId);
       }
       if (status === 'listed' || (status === 'orphaned' && hasV1)) {
-        setStage({ name: 'ready' });
+        ready();
         return;
       }
+      unconfirmed.current = false;
+      startupCache.setEncryptionReady(userId, false);
       setStage({ name: 'link', mine });
     } catch (e) {
       // Logged out from another device while this phone stayed signed in: sign out, like any remote logout
@@ -70,9 +86,16 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         reportLoggedOutElsewhere();
         return;
       }
+      // Already showing the app from last time: stay there and try again when back online
+      if (unconfirmed.current) return;
       setStage({ name: 'error', message: errorMessage(e) });
     }
-  }, [userId]);
+  }, [userId, ready]);
+
+  // Opened offline from last time: check as soon as the server is reachable
+  useEffect(() => socket.onStatus((connected) => {
+    if (connected && unconfirmed.current) check();
+  }), [check]);
 
   useEffect(() => { check(); }, [check]);
 
@@ -115,7 +138,7 @@ const E2EGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     );
   }
 
-  return <LinkThisPhone mine={stage.mine} userId={userId!} footer={footer} onDone={() => setStage({ name: 'ready' })} />;
+  return <LinkThisPhone mine={stage.mine} userId={userId!} footer={footer} onDone={ready} />;
 };
 
 const LinkThisPhone: React.FC<{ mine: MyKeys; userId: string; footer: React.ReactNode; onDone: () => void }> = ({ mine, userId, footer, onDone }) => {

@@ -11,6 +11,7 @@ import { encryptForUpload, rememberDecrypted } from '../crypto/media';
 import type { E2EMedia } from '../crypto/e2e';
 import { e2eSession } from '../crypto/session';
 import { useAuth } from './auth';
+import { startupCache } from '../utils/startupCache';
 import { e2eService } from '../services/e2e.service';
 import {
   confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, joinedAt, lastLocal, localFor, pendingFields, pointerOf, receiveLive,
@@ -74,29 +75,40 @@ export const useChat = create<ChatState>((set, get) => ({
   activeId: null,
 
   loadConversations: async () => {
-    const conversations = (await chatApi.conversations()).map((c) =>
+    const request = chatApi.conversations();
+    request.catch(() => undefined); // handled below; this only stops an early "unhandled" warning
+    const me = myId();
+    // First load after start: show last time's list while the server's comes
+    if (!get().loaded && me) {
+      const cached = await startupCache.chats(me);
+      if (cached && !get().loaded) set({ conversations: cached, loaded: true });
+    }
+    const conversations = (await request).map((c) =>
       c.unreadCount && readUpTo[c.id] && c.lastMessageTime && new Date(c.lastMessageTime).getTime() <= readUpTo[c.id]
         ? { ...c, unreadCount: 0 }
         : c,
     );
-    set({ conversations, loaded: true });
-    // v2 chats: the server only knows a message was sent; the preview comes from this phone's copy
-    conversations.filter((c) => isV2Marker(c.lastMessage)).forEach((c) => {
-      set((s) => ({ conversations: s.conversations.map((x) => (x.id === c.id ? { ...x, lastMessage: 'Encrypted message' } : x)) }));
-      lastLocal(c.id).then((m) => {
-        if (!m) return;
-        const preview = previewOf({ ...fromLocal(m) } as Message);
-        set((s) => ({ conversations: s.conversations.map((x) => (x.id === c.id ? { ...x, lastMessage: preview } : x)) }));
-      }).catch(() => undefined);
-    });
+    // v2 chats: the server only knows a message was sent; the preview comes from this phone's copy.
+    // Worked out for every chat before the list is shown, so a refresh never flashes the server's
+    // marker or "Encrypted message" in each row.
+    const resolved = await Promise.all(conversations.map(async (c) => {
+      if (!isV2Marker(c.lastMessage)) return c;
+      const m = await lastLocal(c.id).catch(() => null);
+      return { ...c, lastMessage: m ? previewOf({ ...fromLocal(m) } as Message) : 'Encrypted message' };
+    }));
+    set({ conversations: resolved, loaded: true });
+    if (me) startupCache.setChats(me, resolved);
   },
 
   loadMessages: async (conversationId) => {
     const page = await chatApi.messages(conversationId);
-    const messages = await resolveV2(page.messages);
+    const current = get().messages[conversationId] || [];
+    // Rows we sent keep their clientId (the list's key), so reloading doesn't redraw them
+    const sentHere = new Map(current.filter((m) => m.clientId).map((m) => [m.id, m.clientId]));
+    const messages = (await resolveV2(page.messages)).map((m) => (sentHere.has(m.id) ? { ...m, clientId: sentHere.get(m.id) } : m));
     const { hasMore } = page;
     // keep messages still being sent
-    const pending = (get().messages[conversationId] || []).filter((m) => m.id.startsWith('temp-'));
+    const pending = (get().messages[conversationId] || []).filter((m) => m.id.startsWith('temp-')); // incl. ones sent while loading
     set((s) => ({
       messages: { ...s.messages, [conversationId]: [...messages, ...pending].sort(byTime) },
       hasMore: { ...s.hasMore, [conversationId]: hasMore },
@@ -580,7 +592,8 @@ socket.on((e) => {
         const own = !!e.clientId && e.senderId === myId();
         (own ? confirmOwn(e.clientId, e.messageId) : localFor(e.messageId)).then((local) => {
           if (!local) return;
-          const fields = fromLocal(local);
+          // Our own row kept showing the local file until now: switch to the server's copy with its key
+          const fields = { ...fromLocal(local), ...(own && e.mediaUrl ? { mediaUrl: e.mediaUrl, mediaThumbnail: e.mediaThumbnail || undefined } : {}) };
           updateMessage(set, e.roomId, e.messageId, fields);
           // Replace the "Encrypted message" placeholder in the chat list, unless a newer message came since
           set((s) => ({
@@ -597,13 +610,20 @@ socket.on((e) => {
       set((s) => {
         const list = (s.messages[e.roomId] || []).filter((m) => m.id !== message.id && (!e.clientId || m.id !== e.clientId));
         const active = s.activeId === e.roomId;
+        // Our own v2 message: keep the bubble as it's already shown (same key, same content) and only
+        // take the server's id, status and time; the local copy fills in the rest. Replacing it with a
+        // "waiting" row first made every sent message flash.
+        const optimistic = v2Row && mine && e.clientId ? (s.messages[e.roomId] || []).find((m) => m.id === e.clientId) : undefined;
+        const row: Message = optimistic
+          ? { ...optimistic, id: message.id, status: message.status, timestamp: message.timestamp, uploadProgress: undefined, uploadFailed: undefined }
+          : message;
         return {
-          messages: s.messages[e.roomId] || active ? { ...s.messages, [e.roomId]: [...list, message].sort(byTime) } : s.messages,
+          messages: s.messages[e.roomId] || active ? { ...s.messages, [e.roomId]: [...list, row].sort(byTime) } : s.messages,
           conversations: s.conversations.map((c) =>
             c.id === e.roomId
               ? {
                   ...c,
-                  lastMessage: message.e2e === 'unreadable' || message.e2e === 'pending' ? 'Encrypted message' : previewOf(message),
+                  lastMessage: row.e2e === 'unreadable' || row.e2e === 'pending' ? 'Encrypted message' : previewOf(row),
                   lastMessageTime: message.timestamp,
                   unreadCount: active || mine ? c.unreadCount : c.unreadCount + 1,
                 }

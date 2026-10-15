@@ -47,6 +47,16 @@ def enabled() -> bool:
     return _service_account() is not None
 
 
+def describe() -> str:
+    """One line for the startup log, so a server that isn't sending notifications says why."""
+    account = _service_account()
+    if account:
+        return f"on (Firebase project {account.get('project_id')})"
+    if settings.FIREBASE_SERVICE_ACCOUNT_FILE:
+        return "OFF: FIREBASE_SERVICE_ACCOUNT_FILE is set but the file couldn't be read"
+    return "OFF: FIREBASE_SERVICE_ACCOUNT_FILE is not set"
+
+
 async def _oauth_token(client: httpx.AsyncClient) -> str:
     """Short-lived Google access token, made from the service account (cached ~55 min)."""
     global _access_token
