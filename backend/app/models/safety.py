@@ -50,9 +50,35 @@ class Report(Base):
     # Text the reporter chose to share: encrypted messages can only reach a reviewer this way
     evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(10), default="open", index=True)  # open | resolved
-    resolution: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # What the review found (told to the reporter, without details): action_taken | no_violation
+    outcome: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    resolution: Mapped[str | None] = mapped_column(String(500), nullable=True)  # admins' own note
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+REPORT_OUTCOMES = ("action_taken", "no_violation")
+NOTICE_KINDS = ("warning", "report_update")
+
+
+class AccountNotice(Base):
+    """
+    A message from the ShareEven team to one person, shown in the app under Notices:
+    - warning: an admin warned them (says which rule and why; never who reported them)
+    - report_update: a report they made was reviewed (the outcome only, never the penalty)
+    """
+    __tablename__ = "account_notices"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text)
+    # warning: the rule broken (a report reason); report_update: the outcome
+    reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    report_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("reports.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

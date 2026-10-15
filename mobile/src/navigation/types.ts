@@ -33,6 +33,7 @@ export type AppStackParams = {
   Sessions: undefined;
   DeleteAccount: undefined;
   BlockedPeople: undefined;
+  Notices: undefined;
   // What's being reported; messageText is shared only if the reporter chooses to
   Report: { title: string; userId?: string; userName?: string; conversationId?: string; messageId?: string; messageText?: string };
 };

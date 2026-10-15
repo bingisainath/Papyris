@@ -26,14 +26,14 @@ export default function App() {
   const status = useAuth((s) => s.status);
   useEffect(() => { restore(); }, [restore]);
 
-  // Tapping a message notification opens that chat (once signed in and navigation is ready)
+  // Tapping a notification opens that chat (or Notices) (once signed in and navigation is ready)
   useEffect(() => {
     if (status !== 'signedIn') return;
-    return onNotificationTap((conversationId) => {
-      const go = () => navigationRef.navigate('Chat', { conversationId });
-      if (navigationRef.isReady()) go();
-      else setTimeout(go, 500);
-    });
+    const when = (go: () => void) => (navigationRef.isReady() ? go() : setTimeout(go, 500));
+    return onNotificationTap(
+      (conversationId) => when(() => navigationRef.navigate('Chat', { conversationId })),
+      () => when(() => navigationRef.navigate('Notices')),
+    );
   }, [status]);
   return (
     <SafeAreaProvider>

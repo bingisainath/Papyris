@@ -6,13 +6,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { ArrowLeft, Ban, Flag, History, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck, Trash2, Undo2, Users, X } from 'lucide-react';
+import { ArrowLeft, Ban, CircleAlert, Flag, History, LayoutDashboard, LogOut, ScanLine, Search, ShieldCheck, Trash2, Undo2, Users, X } from 'lucide-react';
 import { useAuth } from '../../app/AuthProvider';
 import { BrandMark } from '../../components/organisms/AuthLayout';
 import { ReportsReview } from '../../components/organisms/SafetySettings';
 import DailyBars from '../../components/admin/DailyBars';
 import { AdminAISettings } from '../../components/expenses/ExpenseSettingsSections';
 import { adminService } from '../../services/admin.service';
+import { REPORT_REASONS, safetyService } from '../../services/safety.service';
+import type { ReportReason } from '../../services/safety.service';
 import type { AccountDetails, AccountFilter, AccountSummary, AdminActionView, Overview, ScanAllowance } from '../../services/admin.service';
 import { parseApiError } from '../../utils/apiError';
 
@@ -32,7 +34,7 @@ const nameOf = (u: { name: string | null; username: string }) => u.name || u.use
 
 const ACTION_LABELS: Record<string, string> = {
   view_user: 'Viewed account', suspend: 'Suspended', unsuspend: 'Lifted suspension', sign_out: 'Signed out everywhere',
-  delete_account: 'Deleted account', resolve_report: 'Resolved report',
+  delete_account: 'Deleted account', resolve_report: 'Resolved report', warn: 'Warned',
   ai_model_added: 'Added AI model', ai_model_changed: 'Changed AI model', scan_limit_changed: 'Changed the app scan limit',
   scan_limit_set: 'Set scan limit', extra_scans: 'Gave extra scans',
 };
@@ -265,7 +267,7 @@ const Avatar: React.FC<{ a: AccountSummary; size?: number }> = ({ a, size = 36 }
       </span>
 );
 
-type PanelAction = 'suspend' | 'unsuspend' | 'sign_out' | 'delete' | null;
+type PanelAction = 'warn' | 'suspend' | 'unsuspend' | 'sign_out' | 'delete' | null;
 
 const DURATIONS: { label: string; days: number | null }[] = [
   { label: '1 day', days: 1 }, { label: '7 days', days: 7 }, { label: '30 days', days: 30 }, { label: 'Until lifted', days: null },
@@ -276,6 +278,7 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
   const [action, setAction] = useState<PanelAction>(null);
   const [reason, setReason] = useState('');
   const [days, setDays] = useState<number | null>(7);
+  const [rule, setRule] = useState<ReportReason>('harassment');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -290,6 +293,10 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
     if (!a || !action) return;
     setBusy(true);
     try {
+      if (action === 'warn') {
+        await safetyService.warn(a.id, rule, reason.trim());
+        toast.success(`Warning sent to @${a.username}`);
+      }
       if (action === 'suspend') await adminService.suspend(a.id, reason.trim(), days);
       if (action === 'unsuspend') await adminService.unsuspend(a.id, reason.trim());
       if (action === 'sign_out') {
@@ -353,10 +360,12 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
             <Fact label="Signed-in sessions" value={fmt(a.counts.signed_in_sessions)} />
             <Fact label="Blocked by" value={`${fmt(a.counts.blocked_by)} people`} />
             <Fact label="Reports made" value={fmt(a.counts.reports_made)} />
+            <Fact label="Warnings" value={fmt(a.counts.warnings ?? 0)} />
           </dl>
 
           {!protectedAccount && (
             <div className="flex flex-wrap gap-2">
+              <ActionButton icon={CircleAlert} label="Warn" onClick={() => start('warn')} />
               {a.suspension
                 ? <ActionButton icon={Undo2} label="Lift suspension" onClick={() => start('unsuspend')} />
                 : <ActionButton icon={Ban} label="Suspend" danger onClick={() => start('suspend')} />}
@@ -369,17 +378,25 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
           {action && (
             <div className="p-4 rounded-xl border border-muted-200 space-y-3">
               <p className="text-sm font-semibold text-muted-900">
+                {action === 'warn' && `Warn @${a.username}?`}
                 {action === 'suspend' && `Suspend @${a.username}?`}
                 {action === 'unsuspend' && `Lift @${a.username}'s suspension?`}
                 {action === 'sign_out' && `Sign @${a.username} out everywhere?`}
                 {action === 'delete' && `Delete @${a.username}'s account?`}
               </p>
               <p className="text-xs text-muted-500">
+                {action === 'warn' && "They see it under Notices (and as a notification): the rule and your message. It never says who reported them."}
                 {action === 'suspend' && "They're signed out on every device and can't sign in until it ends. Their devices keep their chats. They see the reason when they try to sign in."}
                 {action === 'unsuspend' && 'They can sign in again straight away.'}
                 {action === 'sign_out' && 'For a hijacked account: every sign-in ends and each device wipes its keys and messages. They can sign in again.'}
                 {action === 'delete' && 'Removes their profile, devices and what their messages said, and they leave their groups. Shared expenses stay as "Deleted user". This can\'t be undone.'}
               </p>
+              {action === 'warn' && (
+                <select value={rule} onChange={(e) => setRule(e.target.value as ReportReason)} aria-label="Rule broken"
+                  className="w-full h-9 px-2 rounded-lg border border-muted-200 text-sm bg-white">
+                  {REPORT_REASONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                </select>
+              )}
               {action === 'suspend' && (
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="How long">
                   {DURATIONS.map((d) => (
@@ -391,7 +408,7 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
                 </div>
               )}
               <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500}
-                placeholder={action === 'suspend' ? 'Reason (they will see this)' : 'Reason (kept in the admin log)'} aria-label="Reason"
+                placeholder={action === 'suspend' || action === 'warn' ? 'Message (they will see this)' : 'Reason (kept in the admin log)'} aria-label="Reason"
                 className="w-full px-3 py-2 rounded-lg border border-muted-200 text-sm outline-none focus:border-primary-500" />
               {action === 'delete' && (
                 <input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={`Type ${a.username} to confirm`} aria-label="Confirm username"
@@ -400,8 +417,8 @@ const AccountPanel: React.FC<{ id: string; onClose: () => void; onChanged: () =>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setAction(null)} className="h-9 px-3 rounded-lg text-sm font-semibold text-muted-600 hover:bg-muted-100">Cancel</button>
                 <button type="button" onClick={run} disabled={!ready || busy}
-                  className={`h-9 px-3 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${action === 'unsuspend' || action === 'sign_out' ? 'bg-primary-700 hover:bg-primary-800' : 'bg-accent-600 hover:bg-accent-700'}`}>
-                  {busy ? 'Working…' : action === 'suspend' ? 'Suspend' : action === 'unsuspend' ? 'Lift suspension' : action === 'sign_out' ? 'Sign out' : 'Delete account'}
+                  className={`h-9 px-3 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${action === 'unsuspend' || action === 'sign_out' || action === 'warn' ? 'bg-primary-700 hover:bg-primary-800' : 'bg-accent-600 hover:bg-accent-700'}`}>
+                  {busy ? 'Working…' : action === 'warn' ? 'Send warning' : action === 'suspend' ? 'Suspend' : action === 'unsuspend' ? 'Lift suspension' : action === 'sign_out' ? 'Sign out' : 'Delete account'}
                 </button>
               </div>
             </div>

@@ -105,3 +105,104 @@ async def test_report_a_message_and_review_it(client, db, make_user, make_dm, ad
     assert (await client.get("/api/v1/admin/reports", headers=admin.headers)).json()["data"] == []
     resolved = (await client.get("/api/v1/admin/reports", params={"status": "resolved"}, headers=admin.headers)).json()["data"]
     assert resolved[0]["resolution"] == "Warned the user"
+
+
+async def _admin(db, make_user):
+    admin = await make_user()
+    await db.execute(update(User).where(User.id == uuid.UUID(admin.id)).values(is_app_admin=True))
+    await db.commit()
+    return admin
+
+
+async def _report(client, reporter, reported, reason="harassment"):
+    r = await client.post("/api/v1/reports", json={"user_id": reported.id, "reason": reason}, headers=reporter.headers)
+    assert r.status_code == 200, r.text
+
+
+async def _notices(client, user):
+    return (await client.get("/api/v1/notices", headers=user.headers)).json()["data"]
+
+
+async def test_a_warning_reaches_the_reported_person_without_naming_the_reporter(client, db, make_user, events):
+    reporter, reported = await make_user("reporter_ann"), await make_user("rude_rob")
+    admin = await _admin(db, make_user)
+    await _report(client, reporter, reported)
+    report = (await client.get("/api/v1/admin/reports", headers=admin.headers)).json()["data"][0]
+
+    # Nobody hears anything just because a report was made
+    assert (await _notices(client, reported))["notices"] == []
+
+    r = await client.post(f"/api/v1/admin/reports/{report['id']}/resolve", headers=admin.headers, json={
+        "resolution": "Rude messages, first time", "outcome": "no_violation",  # warning overrides this
+        "warn": True, "warning_message": "Please keep your messages respectful.",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["data"] == {"id": report["id"], "outcome": "action_taken", "warned": True}
+
+    warned = await _notices(client, reported)
+    assert warned["unread"] == 1
+    notice = warned["notices"][0]
+    assert notice["kind"] == "warning" and notice["reason"] == "harassment"
+    assert "harassing or bullying" in notice["body"] and "Please keep your messages respectful." in notice["body"]
+    assert "reporter_ann" not in notice["body"] and "report" not in notice["body"].lower()  # never who, or that anyone did
+
+    update_ = (await _notices(client, reporter))["notices"][0]
+    assert update_["kind"] == "report_update" and update_["reason"] == "action_taken"
+    assert "took action" in update_["body"] and "rude_rob" in update_["body"]
+    assert "respectful" not in update_["body"]  # not what the action was
+
+    # Both apps are told live, each about their own notice only
+    live = [(ids, p["notice"]["kind"]) for ids, p in events if p["type"] == "account_notice"]
+    assert sorted(live) == sorted([([reported.id], "warning"), ([reporter.id], "report_update")])
+
+    # Can't be resolved twice (no second round of notices)
+    again = await client.post(f"/api/v1/admin/reports/{report['id']}/resolve", headers=admin.headers, json={"resolution": "x", "warn": True})
+    assert again.status_code == 409
+
+    # Reading: one, then all
+    await client.post("/api/v1/notices/read", json={"ids": [notice["id"]]}, headers=reported.headers)
+    assert (await _notices(client, reported))["unread"] == 0
+    detail = (await client.get(f"/api/v1/admin/users/{reported.id}", headers=admin.headers)).json()["data"]
+    assert detail["counts"]["warnings"] == 1
+
+
+async def test_no_violation_tells_only_the_reporter(client, db, make_user, events):
+    reporter, reported = await make_user(), await make_user()
+    admin = await _admin(db, make_user)
+    await _report(client, reporter, reported, "spam")
+    report = (await client.get("/api/v1/admin/reports", headers=admin.headers)).json()["data"][0]
+    r = await client.post(f"/api/v1/admin/reports/{report['id']}/resolve", headers=admin.headers,
+                          json={"resolution": "Looks fine", "outcome": "no_violation"})
+    assert r.status_code == 200, r.text
+    assert (await _notices(client, reported))["notices"] == []
+    told = (await _notices(client, reporter))["notices"]
+    assert len(told) == 1 and "didn't find a breach" in told[0]["body"]
+
+
+async def test_resolving_without_an_outcome_tells_nobody(client, db, make_user):
+    reporter, reported = await make_user(), await make_user()
+    admin = await _admin(db, make_user)
+    await _report(client, reporter, reported)
+    report = (await client.get("/api/v1/admin/reports", headers=admin.headers)).json()["data"][0]
+    assert (await client.post(f"/api/v1/admin/reports/{report['id']}/resolve", headers=admin.headers,
+                              json={"resolution": "Duplicate"})).status_code == 200
+    assert (await _notices(client, reporter))["notices"] == [] and (await _notices(client, reported))["notices"] == []
+
+
+async def test_admins_can_warn_from_the_account_page(client, db, make_user, events):
+    person = await make_user()
+    admin = await _admin(db, make_user)
+    assert (await client.post(f"/api/v1/admin/users/{person.id}/warn", json={"reason": "spam"}, headers=person.headers)).status_code == 403
+    assert (await client.post(f"/api/v1/admin/users/{person.id}/warn", json={"reason": "made-up"}, headers=admin.headers)).status_code == 400
+    r = await client.post(f"/api/v1/admin/users/{person.id}/warn", json={"reason": "spam", "message": "Too many group invites."},
+                          headers=admin.headers)
+    assert r.status_code == 200, r.text
+    notice = (await _notices(client, person))["notices"][0]
+    assert notice["kind"] == "warning" and "Too many group invites." in notice["body"]
+    actions = (await client.get(f"/api/v1/admin/users/{person.id}", headers=admin.headers)).json()["data"]["admin_actions"]
+    assert actions[0]["action"] == "warn" and actions[0]["details"]["rule"] == "spam"
+    # Notices are private
+    other = await make_user()
+    assert (await _notices(client, other))["notices"] == []
+    await client.post("/api/v1/notices/read", json={}, headers=other.headers)  # marks only their own
+    assert (await _notices(client, person))["unread"] == 1

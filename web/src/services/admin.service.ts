@@ -45,7 +45,7 @@ export interface AccountDetails extends AccountSummary {
   last_login: string | null;
   counts: {
     direct_chats: number; groups: number; messages_sent: number; expenses_added: number; receipts_scanned: number;
-    signed_in_sessions: number; blocked_by: number; reports_made: number;
+    signed_in_sessions: number; blocked_by: number; reports_made: number; warnings: number;
   };
   scans: ScanAllowance;
   devices: { name: string; added_at: string | null; last_seen_at: string | null }[];

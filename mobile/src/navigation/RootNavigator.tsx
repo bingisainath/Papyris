@@ -38,6 +38,7 @@ import EncryptionScreen from '../screens/settings/EncryptionScreen';
 import DeleteAccountScreen from '../screens/settings/DeleteAccountScreen';
 import LinkApprovalPrompt from '../components/settings/LinkApprovalPrompt';
 import BlockedPeopleScreen from '../screens/settings/BlockedPeopleScreen';
+import NoticesScreen from '../screens/settings/NoticesScreen';
 import ReportScreen from '../screens/settings/ReportScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
@@ -239,6 +240,11 @@ const RootNavigator: React.FC = () => {
             name="BlockedPeople"
             component={BlockedPeopleScreen}
             options={{ title: 'Blocked people' }}
+          />
+          <AppStack.Screen
+            name="Notices"
+            component={NoticesScreen}
+            options={{ title: 'Notices' }}
           />
           <AppStack.Screen
             name="Report"

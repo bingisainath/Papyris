@@ -20,6 +20,7 @@ import { stopV2 } from "../crypto/v2-platform/runtime";
 import { ACCOUNT_DELETED_EVENT, ACCOUNT_SUSPENDED_EVENT, LOGGED_OUT_ELSEWHERE_EVENT, refreshAccessToken, SESSION_EXPIRED_EVENT } from "../utils/authRefresh";
 import { toast } from "react-toastify";
 import { chatDrafts } from "../utils/drafts";
+import { clearNotices } from '../hooks/useNotices';
 import { parseApiError } from "../utils/apiError";
 import { connectWebSocket, disconnectWebSocket } from "../redux/actions/websocketActions";
 import type { AppDispatch } from "../redux/store";
@@ -85,6 +86,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     tokenStore.clear();
     e2eSession.clear(); // signing in here again means linking it again
     chatDrafts.clearAll(); // unsent text stays with the person, not the browser
+    clearNotices();
     setUser(null);
     setError(null);
   }, [dispatch]);

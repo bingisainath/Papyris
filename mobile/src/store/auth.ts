@@ -13,6 +13,7 @@ import { stopV2, v2Runtime } from '../crypto/v2-platform/runtime';
 import { showAlert } from '../components/common/Dialog';
 import { forgetRecoveryKey } from '../crypto/savedRecoveryKey';
 import { chatDrafts } from '../utils/drafts';
+import { useNotices } from './notices';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
@@ -53,6 +54,7 @@ export const useAuth = create<AuthState>((set, get) => {
     await stopV2().catch(() => undefined);
     await e2eSession.clear();
     await chatDrafts.clearAll();
+    useNotices.getState().clear();
     set({ user: null, status: 'signedOut' });
   };
 
@@ -186,6 +188,7 @@ export const useAuth = create<AuthState>((set, get) => {
       await tokens.clear();
       await e2eSession.clear(); // signing in here again means linking it again
       await chatDrafts.clearAll(); // unsent text goes with the sign-in
+      useNotices.getState().clear();
       set({ user: null, status: 'signedOut' });
     },
   };
