@@ -288,8 +288,10 @@ async def apply_extraction(db: AsyncSession, receipt: Receipt, data: ReceiptExtr
             enabled=True,
         ))
 
-    await _add_store_rule(db, receipt)
     await db.flush()  # adjustment ids
+    warnings.extend(match_bill_discounts(receipt))
+    await _add_store_rule(db, receipt)
+    await db.flush()
     result, error = compute(receipt)
     if error:
         warnings.append(error)
@@ -382,9 +384,100 @@ async def _add_store_rule(db: AsyncSession, receipt: Receipt) -> None:
     refresh_percent_amounts(receipt)
 
 
-def refresh_percent_amounts(receipt: Receipt) -> None:
-    """Percentage discounts we added (not printed) follow the items they cover."""
-    # Price of each item after its own discounts (same allocation the engine uses)
+def _plain_percent(value: Decimal) -> str:
+    """10 -> "10", 12.50 -> "12.5" (never "1E+1")."""
+    text = format(value, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+# Usual rates for staff, member and coupon discounts, tried when a bill-wide discount isn't explained
+COMMON_PERCENTS = [Decimal(p) for p in ("5", "10", "12.5", "15", "20", "25", "30", "33.33", "40", "50")]
+
+
+def match_bill_discounts(receipt: Receipt) -> list[str]:
+    """
+    Work out which items a printed bill-wide discount was for, when the receipt doesn't say
+    (Tesco prints colleague discounts only in the totals). Pure arithmetic on what was printed:
+    - it equals exactly what a set of items cost after their own discounts (e.g. the "Special Offer"
+      items it made free), or
+    - it is a usual percentage of the items not already covered (e.g. 10% of everything else).
+    The amounts are never changed; only the items each discount is spread over. Returns notes for
+    the review screen. A discount that matches nothing stays on the whole bill.
+    """
+    open_discounts = [
+        a for a in receipt.adjustments
+        if a.source == "printed" and a.enabled and not a.item_ids and a.kind in ("store_discount", "coupon") and a.amount_minor < 0
+    ]
+    if not open_discounts:
+        return []
+    net = after_own_discounts(receipt)
+    eligible = [i for i in receipt.items if i.id in net and not (set(i.flags or []) & STORE_RULE_EXCLUDED_FLAGS)]
+    if not eligible:
+        return []
+    own: dict[int, list[ReceiptAdjustment]] = {i.id: [] for i in eligible}
+    for a in receipt.adjustments:
+        if a.enabled and STAGES.get(a.kind) == 1 and a.amount_minor < 0:
+            for t in a.item_ids:
+                if t in own:
+                    own[t].append(a)
+
+    # Sets of items a store might have discounted together, most specific first
+    groups: list[list[int]] = []
+    for label in dict.fromkeys(re.sub(r"\s+", " ", a.label.strip().lower()) for adjs in own.values() for a in adjs):
+        groups.append([i.id for i in eligible if any(re.sub(r"\s+", " ", a.label.strip().lower()) == label for a in own[i.id])])
+    groups.append([i.id for i in eligible if "reduced" in (i.flags or [])])
+    groups.append([i.id for i in eligible if own[i.id]])
+    groups.append([i.id for i in eligible if not own[i.id]])
+
+    currency = receipt.currency or "EUR"
+    notes: list[str] = []
+    claimed: set[int] = set()
+    unmatched: list[ReceiptAdjustment] = []
+
+    def assign(a: ReceiptAdjustment, ids: list[int]) -> None:
+        a.item_ids = ids
+        a.scope = "item" if len(ids) == 1 else "group"
+        a.allocation = "proportional"
+
+    # 1. It made a set of items free: the amount is exactly what they still cost
+    for a in sorted(open_discounts, key=lambda x: x.amount_minor):
+        group = next((g for g in groups if g and not claimed & set(g)
+                      and abs(sum(max(net[t], 0) for t in g) + a.amount_minor) <= 1), None)
+        if group is None:
+            unmatched.append(a)
+            continue
+        assign(a, group)
+        claimed |= set(group)
+        notes.append(f"{a.label} ({format_minor(a.amount_minor, currency)}) is exactly what {len(group)} "
+                     f"item{'s' if len(group) != 1 else ''} still cost, so it's applied to those")
+
+    # 2. A usual percentage of what's left (rounding at the till can differ by a cent or two)
+    for a in unmatched:
+        rest = [i.id for i in eligible if i.id not in claimed]
+        bases = [rest, [t for t in rest if not own[t]]]
+        found = None
+        for base in bases:
+            total = sum(max(net[t], 0) for t in base)
+            for percent in COMMON_PERCENTS:
+                if base and abs(Decimal(total) * percent / 100 + a.amount_minor) <= max(Decimal(2), Decimal(-a.amount_minor) / 200):
+                    found = (base, percent)
+                    break
+            if found:
+                break
+        if not found:
+            continue
+        base, percent = found
+        assign(a, base)
+        a.percent = a.percent or percent
+        everything = len(base) == len(eligible)
+        notes.append(f"{a.label} ({format_minor(a.amount_minor, currency)}) is {_plain_percent(percent)}% of "
+                     f"{'all the items' if everything else f'the other {len(base)} items'}, so it's applied to "
+                     f"{'them' if everything else 'those'}")
+    return notes
+
+
+def after_own_discounts(receipt: Receipt) -> dict[int, int]:
+    """Price of each item after its own discounts (same allocation the engine uses)."""
     stage1: dict[int, int] = {i.id: i.gross_minor for i in receipt.items if "voided" not in (i.flags or [])}
     for a in sorted(receipt.adjustments, key=lambda x: x.position):
         if not a.enabled or STAGES.get(a.kind) != 1:
@@ -392,6 +485,12 @@ def refresh_percent_amounts(receipt: Receipt) -> None:
         targets = [t for t in a.item_ids if t in stage1] or list(stage1)
         for t, part in zip(targets, allocate(a.amount_minor, [max(stage1[t], 0) for t in targets])):
             stage1[t] += part
+    return stage1
+
+
+def refresh_percent_amounts(receipt: Receipt) -> None:
+    """Percentage discounts we added (not printed) follow the items they cover."""
+    stage1 = after_own_discounts(receipt)
     for a in receipt.adjustments:
         if a.source == "printed" or a.percent is None or a.kind not in DISCOUNT_KINDS:
             continue
