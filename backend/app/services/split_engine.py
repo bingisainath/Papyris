@@ -6,7 +6,8 @@ per-person amounts. Pure functions on integers: no database, no AI.
 
 Order of application (see docs/expenses-design in the PR):
   1. Item and promotion discounts       -> only the item(s) they belong to
-  2. Store-wide / coupon bill discounts -> eligible items, by their price after step 1
+  2. Store-wide / coupon bill discounts -> eligible items, by their price after step 1 (and after
+     the discounts on fewer items: one item, then a group, then the whole bill)
   3. Tax added on top of prices         -> taxed items, by price
   4. Fees, service charges, tips, ...   -> by item price, equally per person, or to chosen people
 Then each item's net price is split among the people it's for.
@@ -109,6 +110,19 @@ def _round_once(exact: dict[str, Fraction]) -> dict[str, int]:
     return floors
 
 
+def _specificity(a: EngineAdjustment) -> int:
+    """
+    Within the discount stages, the discount on fewer items goes first: one item, then a group, then
+    the whole bill. A whole-bill discount is then shared by what items cost after the targeted ones,
+    so an item a targeted discount made free gets none of it (and never goes below zero), whatever
+    order the receipt printed them in. E.g. Tesco's "Colleague Shop Discount" makes the reduced items
+    free, then "Colleague Discount" (10%) is shared by everything else.
+    """
+    if STAGES.get(a.kind, 4) > 2:
+        return 0  # tax and fees keep the receipt's order
+    return 0 if a.scope == "item" else 1 if a.item_ids else 2
+
+
 def split_receipt(
     items: list[EngineItem],
     adjustments: list[EngineAdjustment],
@@ -122,7 +136,7 @@ def split_receipt(
 
     ordered = sorted(
         (a for a in adjustments if a.enabled and a.amount != 0),
-        key=lambda a: (STAGES.get(a.kind, 4), a.position, a.id),
+        key=lambda a: (STAGES.get(a.kind, 4), _specificity(a), a.position, a.id),
     )
     for adj in ordered:
         if adj.allocation in ("equal", "assign") and adj.scope == "bill":

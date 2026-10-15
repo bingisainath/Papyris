@@ -77,6 +77,25 @@ def test_design_example_tesco_six_people():
     assert result.unassigned_items == []
 
 
+def test_a_whole_bill_discount_printed_first_still_skips_items_made_free():
+    """Tesco after 9 PM: "Colleague Discount" (10%) is printed before "Colleague Shop Discount" (which
+    made the reduced items free). The free items must stay at zero and the 10% falls on the rest."""
+    eggs = EngineItem(1, 850, assignments=everyone("p1"))
+    milk = EngineItem(2, 325, assignments=everyone("p1"))
+    hummus = EngineItem(3, 1000, assignments=everyone("p2"))
+    cheddar = EngineItem(4, 700, assignments=everyone("p2"))
+    adjustments = [
+        EngineAdjustment(10, "promotion", -656, scope="item", item_ids=[3], position=0),   # Cc + Special Offer
+        EngineAdjustment(11, "promotion", -350, scope="item", item_ids=[4], position=1),   # Special Offer
+        EngineAdjustment(12, "store_discount", -118, scope="bill", position=2),             # 10% of 11.75, whole bill
+        EngineAdjustment(13, "store_discount", -694, scope="group", item_ids=[3, 4], position=3),  # makes them free
+    ]
+    result = split_receipt([eggs, milk, hummus, cheddar], adjustments, printed_total=1057)
+    assert result.item_net == {1: 765, 2: 292, 3: 0, 4: 0}
+    assert result.person_totals == {"p1": 1057, "p2": 0}
+    assert all(v >= 0 for v in result.item_net.values())
+
+
 def test_item_discount_only_hits_its_item():
     a = EngineItem(1, 1000, assignments=everyone("p1"))
     b = EngineItem(2, 1000, assignments=everyone("p2"))
