@@ -13,6 +13,8 @@ jest.mock('../websocket/socket', () => ({
 jest.mock('../api/chat', () => ({
   chatApi: { conversations: jest.fn(async () => []), markRead: jest.fn(async () => undefined), messages: jest.fn() },
 }));
+// Signed in as "me" (this test has no encryption keys, so only the account says who we are)
+jest.mock('./auth', () => ({ useAuth: { getState: () => ({ user: { id: 'me' } }) } }));
 
 import { typingNames, useChat } from './chat';
 import { socket } from '../websocket/socket';
@@ -49,6 +51,13 @@ test('messages from others count as unread unless the chat is open', () => {
   useChat.setState({ activeId: 'c1' });
   emit({ type: 'message', roomId: 'c1', messageId: 'm3', senderId: 'bob', text: 'again', timestamp: new Date().toISOString() });
   expect(useChat.getState().conversations[0].unreadCount).toBe(1);
+});
+
+test('our own message from another device is ours: not unread, not acknowledged as delivered', () => {
+  (socket.delivered as jest.Mock).mockClear();
+  emit({ type: 'message', roomId: 'c1', messageId: 'm9', senderId: 'me', text: 'from the web', timestamp: new Date().toISOString(), status: 'sent' });
+  expect(useChat.getState().conversations[0].unreadCount).toBe(0);
+  expect(socket.delivered).not.toHaveBeenCalled();
 });
 
 test('a message from someone else is acknowledged, and delivered receipts give our messages two ticks', () => {
