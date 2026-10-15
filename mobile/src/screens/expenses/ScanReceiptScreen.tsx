@@ -56,6 +56,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
   const me = useAuth((s) => s.user)!;
   const { members } = useChatMoney(conversationId);
   const [photos, setPhotos] = useState<Asset[]>([]);
+  const [note, setNote] = useState('');
   const [stage, setStage] = useState<'pick' | 'uploading' | 'reading' | 'review'>(route.params.receiptId ? 'reading' : 'pick');
   const [receiptId, setReceiptId] = useState<string | undefined>(route.params.receiptId);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -87,7 +88,7 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
     try {
       const urls = [];
       for (const photo of photos) urls.push(await uploadPhoto(photo));
-      const created = await expenseService.scanReceipt(conversationId, urls);
+      const created = await expenseService.scanReceipt(conversationId, urls, note.trim());
       setReceiptId(created.id);
       setStage('reading');
     } catch (e) {
@@ -206,6 +207,16 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
             <Button title="Gallery" icon={Images} variant="secondary" onPress={() => add('library')} style={styles.flex} />
           </View>
         )}
+        <TextInput
+          value={note}
+          onChangeText={setNote}
+          maxLength={300}
+          multiline
+          placeholder="Note for the scan (optional), e.g. “ignore the bag charge”"
+          placeholderTextColor={colors.muted400}
+          style={styles.note}
+          accessibilityLabel="Note for the scan"
+        />
         <Button title="Read receipt" onPress={start} disabled={!photos.length} style={{ marginTop: space(4) }} />
       </ScrollView>
     );
@@ -523,6 +534,10 @@ const ScanReceiptScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ScanRe
 };
 
 const styles = StyleSheet.create({
+  note: {
+    marginTop: space(4), minHeight: 72, padding: space(3), borderWidth: 1, borderColor: colors.muted200, borderRadius: 12,
+    backgroundColor: colors.white, color: colors.muted900, fontSize: 15, textAlignVertical: 'top',
+  },
   flex: { flex: 1 },
   content: { padding: space(4), paddingBottom: space(10), backgroundColor: colors.background, flexGrow: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space(8), backgroundColor: colors.white },

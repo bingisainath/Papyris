@@ -401,3 +401,65 @@ async def test_excel_export_summary_and_discounted_products(client, six, fake_ai
     outsider = await make_user("outsider")
     r = await client.get(f"/api/v1/conversations/{group}/expenses/export", headers=outsider.headers)
     assert r.status_code == 404
+
+
+# Tesco Ireland, bought after 9 PM (receipt 8 in developement/receipts, as the AI read it). The two
+# colleague discounts are only in the totals: "Colleague Shop Discount" made the six Special Offer
+# items free, and "Colleague Discount" is 10% off everything else.
+LATE_TESCO_LINES = [  # name, quantity, line total, own discounts printed under it
+    ("Eggs", "2", "8.50", []), ("Greek Yoghurt", "1", "4.50", [("item_discount", "Cc €3.75", "-0.75")]),
+    ("0% Greek Yoghurt", "1", "4.50", [("item_discount", "Cc €3.75", "-0.75")]), ("Honey", "1", "1.25", []),
+    ("Antipasti", "1", "4.99", [("promotion", "Cc Any 3 For 2", "-0.67"), ("promotion", "Special Offer", "-2.99")]),
+    ("Milk 3l", "1", "3.25", []), ("Benylin", "1", "4.49", []),
+    ("Cheese Snack Bar", "1", "2.80", [("promotion", "Special Offer", "-1.34")]), ("Milk 1l", "1", "1.15", []),
+    ("Blueberries", "2", "4.00", []), ("Prawns", "3", "12.00", [("promotion", "Cc Any 3 For €10", "-2.00")]),
+    ("Kalamata Antipasti", "2", "9.98", [("promotion", "Cc Any 3 For 2", "-1.28"), ("promotion", "Special Offer", "-6.08")]),
+    ("Peppercorn Sauce", "1", "3.50", [("promotion", "Special Offer", "-1.75")]),
+    ("Hummus", "5", "10.00", [("promotion", "Cc Any 3 For 2", "-0.86"), ("promotion", "Special Offer", "-5.70")]),
+    ("Chicken", "1", "7.15", [("item_discount", "Cc €5.00", "-2.15")]),
+    ("Mature Cheddar", "2", "7.00", [("promotion", "Special Offer", "-3.50")]),
+    ("Onions", "3", "4.47", []), ("Tomatoes", "2", "2.58", []),
+]
+LATE_TESCO = {
+    "is_receipt": True, "store_name": "Tesco Ireland", "purchased_at": "2026-10-14", "currency": "EUR",
+    "prices_include_tax": True,
+    "items": [item(name, price, quantity=qty) for name, qty, price, _ in LATE_TESCO_LINES],
+    "adjustments": [adjustment(kind, label, amount, [n]) for n, (*_, own) in enumerate(LATE_TESCO_LINES) for kind, label, amount in own]
+    + [adjustment("store_discount", "Colleague Discount", "-5.21"), adjustment("store_discount", "Colleague Shop Discount", "-14.10")],
+    "subtotal": "96.11", "total": "46.98", "payment_method": "card", "warnings": [],
+}
+SPECIAL_OFFER = [4, 7, 11, 12, 13, 15]
+
+
+async def test_bill_wide_discounts_are_matched_to_the_items_they_were_for(client, six, fake_ai):
+    people, group = await six()
+    p1, p2, p3 = people[:3]
+    fake_ai.response = LATE_TESCO
+    receipt = await scan(client, p1, group)
+    assert receipt["status"] == "ready", receipt["warnings"]
+    shop = next(a for a in receipt["adjustments"] if a["label"] == "Colleague Shop Discount")
+    colleague = next(a for a in receipt["adjustments"] if a["label"] == "Colleague Discount")
+    assert shop["item_indexes"] == SPECIAL_OFFER and shop["amount_minor"] == -1410  # made them free
+    assert colleague["item_indexes"] == [n for n in range(18) if n not in SPECIAL_OFFER]
+    assert colleague["amount_minor"] == -521 and colleague["percent"] == "10"  # printed amount kept
+    assert any("10% of the other 12 items" in w for w in receipt["warnings"])
+
+    # Eggs for p1 alone, the free items for p2, everything else for p3
+    assign = {n: [p2.id] if n in SPECIAL_OFFER else [p3.id] for n in range(18)}
+    assign[0] = [p1.id]
+    body = review_body(receipt, assign)
+    body["printed_total"] = "46.98"
+    r = await client.put(f"/api/v1/receipts/{receipt['id']}", json=body, headers=p1.headers)
+    assert r.status_code == 200, r.text
+    totals = {p["user_id"]: p["amount_minor"] for p in r.json()["data"]["totals"]["people"]}
+    assert totals[p1.id] == 765  # €8.50 less 10%, not €6.02
+    assert totals.get(p2.id, 0) == 0  # the Special Offer items were free
+    assert totals[p1.id] + totals[p3.id] == 4698
+
+
+async def test_a_bill_discount_that_matches_nothing_stays_on_the_whole_bill(client, six, fake_ai):
+    people, group = await six()
+    fake_ai.response = {**TESCO, "adjustments": TESCO["adjustments"] + [adjustment("coupon", "Voucher", "-0.37")], "total": "17.83"}
+    receipt = await scan(client, people[0], group)
+    voucher = next(a for a in receipt["adjustments"] if a["label"] == "Voucher")
+    assert voucher["item_indexes"] == [] and voucher["percent"] is None

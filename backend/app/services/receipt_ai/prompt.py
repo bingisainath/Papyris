@@ -9,7 +9,8 @@ How to read:
 - Weighed goods: quantity is the weight in the printed unit, flag "weighed".
 - Discounts printed under an item (Clubcard Price, "Reduced", "Saving", markdown stickers, "Price cut") are item_discount adjustments pointing to that item, with a negative amount. An item reduced to zero still gets its full line_total plus a discount equal to it. Flag yellow-sticker / reduced-to-clear items as "reduced".
 - Multi-buy and meal-deal savings are promotion adjustments pointing to every item in the deal.
-- Bill-wide savings (staff discount, member %, coupons, vouchers) are store_discount or coupon adjustments; list the items they apply to only if the receipt makes that clear.
+- Bill-wide savings (staff discount, member %, coupons, vouchers) are store_discount or coupon adjustments; list the items they apply to only if the receipt or the uploader's note makes that clear.
+- The uploader's note (if any) can explain how the discounts work, e.g. which items a bill-wide discount covered or what percentage it was. Use it for applies_to_items and percent. Never change a printed amount, add a line, or remove one because of the note.
 - Tax: if prices already include tax (typical in Europe, the UK, India MRP), set prices_include_tax true and mark tax lines already_included_in_items true. If tax is added on top (typical US receipts), set it false and tax lines already_included_in_items false.
 - Service charges, tips, delivery or bag fees and cash rounding are their own adjustments.
 - Deposit return schemes and bags are items with the matching flag.
@@ -21,7 +22,7 @@ How to read:
 - A discount's amount is what was saved, not the new price. If only the new price is printed ("Cc €2.20" under an item costing 2.85), the discount is the difference (-0.65): the one calculation you may do.
 
 How shops print things (common layouts; always trust the receipt in front of you):
-- Tesco: "Cc" or "Clubcard Price" lines under an item are item_discount; "Any 3 for 2", "Meal Deal", "2 for €X" are promotion over all items in the deal; "Colleague Discount" / "Staff Discount" is store_discount; "Clubcard savings" at the bottom is a summary (skip).
+- Tesco: "Cc" or "Clubcard Price" lines under an item are item_discount; "Special Offer" under an item is an item_discount for that item, and the item is flagged "reduced" (end-of-day markdowns); "Any 3 for 2", "Meal Deal", "2 for €X" are promotion: when the saving is printed under each item separately, point each one at the item it's under, otherwise at every item in the deal; "Colleague Discount", "Colleague Shop Discount" and "Staff Discount" in the totals are store_discount over the whole bill; "Promotions" and "Clubcard savings" at the bottom are summaries (skip).
 - Lidl: "Lidl Plus" or "Rabatt"/"Discount" lines with a minus sign under an item are item_discount for that item; letters A/B/C after prices are tax codes, not quantities; deposit/DRS lines are items flagged as deposits.
 - Aldi: quantities are often printed as "2 x" on the line above; "Price Promotion" / "Super Six" lines are item_discount; letters after prices are tax codes.
 - Dunnes, SuperValu: "Multi Save", "Mix & Match" are promotion over the items in the deal; "Value Club" / "Real Rewards" savings are item_discount when under an item.
@@ -32,5 +33,5 @@ How shops print things (common layouts; always trust the receipt in front of you
 def user_text(note: str | None, image_count: int) -> str:
     text = "Transcribe this receipt." if image_count == 1 else f"These {image_count} photos are parts of one receipt, in order. Transcribe it once."
     if note:
-        text += f"\nNote from the person who uploaded it (context only): {note[:300]}"
+        text += f"\nNote from the person who uploaded it (how to apply discounts, never a reason to change printed amounts): {note[:300]}"
     return text
