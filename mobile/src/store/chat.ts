@@ -565,6 +565,14 @@ socket.on((e) => {
         reactions: [],
         expenseId: e.expenseId || null,
       } as Message);
+      // Quoting a v2 message: the server only has its marker; the quoted text is in this phone's copy
+      const quoted = message.replyTo;
+      if (quoted && isV2Marker(quoted.text)) {
+        message.replyTo = { ...quoted, text: '' };
+        localFor(quoted.id).then((local) => {
+          updateMessage(set, e.roomId, e.messageId, { replyTo: { ...quoted, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } });
+        }).catch(() => undefined);
+      }
       const v2Row = isV2Marker(e.text);
       if (v2Row) {
         Object.assign(message, pendingFields);
