@@ -7,7 +7,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,10 +17,11 @@ from app.db.session import get_db
 from app.models.conversation import Conversation
 from app.models.conversation_member import ConversationMember
 from app.models.message import Message
-from app.models.safety import Report, UserBlock
+from app.models.safety import REPORT_OUTCOMES, REPORT_REASONS, AccountNotice, Report, UserBlock
 from app.models.user import User
 from app.services import admin as admin_service
 from app.services import media_storage
+from app.services import notices as notice_service
 from app.websocket.routes import publish_users
 
 router = APIRouter(tags=["Safety"])
@@ -36,7 +37,17 @@ class ReportRequest(BaseModel):
     block: bool = False
 
 class ResolveRequest(BaseModel):
-    resolution: str = Field(..., min_length=1, max_length=500)
+    resolution: str = Field(..., min_length=1, max_length=500)  # the admins' own note
+    # Told to the reporter (without details). Older clients leave it out: then nobody is told anything.
+    outcome: Optional[Literal["action_taken", "no_violation"]] = None
+    # Warn the reported person: the rule (defaults to the report's reason) and a message they'll read
+    warn: bool = False
+    warning_reason: Optional[str] = None
+    warning_message: Optional[str] = Field(None, max_length=500)
+
+
+class ReadNoticesRequest(BaseModel):
+    ids: Optional[list[uuid.UUID]] = None  # None: all of them
 
 def _person(u: User | None) -> dict | None:
     if u is None:
@@ -154,7 +165,7 @@ async def list_reports(
         "conversation": {"id": str(r.conversation_id), "kind": convs[r.conversation_id].kind, "title": convs[r.conversation_id].title}
         if r.conversation_id in convs else None,
         "message_id": str(r.message_id) if r.message_id else None,
-        "resolution": r.resolution, "created_at": r.created_at.isoformat(),
+        "resolution": r.resolution, "outcome": r.outcome, "created_at": r.created_at.isoformat(),
         "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
     } for r in reports]}
 
@@ -167,7 +178,49 @@ async def resolve_report(
     r = await db.get(Report, report_id)
     if r is None:
         raise HTTPException(status_code=404, detail="Report not found")
+    if r.status == "resolved":
+        raise HTTPException(status_code=409, detail="This report was already resolved")
+    if body.warn and not r.reported_user_id:
+        raise HTTPException(status_code=400, detail="There's no one to warn on this report")
+    warning_reason = body.warning_reason or r.reason
+    if body.warn and warning_reason not in REPORT_REASONS:
+        raise HTTPException(status_code=400, detail="Choose which rule was broken")
+    # Warning someone means action was taken, whatever was picked
+    outcome = "action_taken" if body.warn else body.outcome
     r.status, r.resolution, r.resolved_by, r.resolved_at = "resolved", body.resolution.strip(), current_user.id, datetime.now(timezone.utc)
-    await admin_service.log(db, current_user, "resolve_report", r.reported_user_id, r.resolution, report_id=str(r.id))
+    r.outcome = outcome
+    await admin_service.log(db, current_user, "resolve_report", r.reported_user_id, r.resolution, report_id=str(r.id), outcome=outcome)
+
+    sent: list[AccountNotice] = []
+    if body.warn:
+        sent.append(notice_service.warning(r.reported_user_id, warning_reason, body.warning_message, r.id))
+        await admin_service.log(db, current_user, "warn", r.reported_user_id, (body.warning_message or "").strip() or None,
+                                rule=warning_reason, report_id=str(r.id))
+    if outcome and r.reporter_id:
+        reported = await db.get(User, r.reported_user_id) if r.reported_user_id else None
+        sent.append(notice_service.report_update(r.reporter_id, outcome, reported.username if reported else None, r.id))
+    db.add_all(sent)
     await db.commit()
-    return {"success": True, "message": "Report resolved", "data": {"id": str(r.id)}}
+    await notice_service.deliver(db, sent)
+    return {"success": True, "message": "Report resolved", "data": {"id": str(r.id), "outcome": outcome, "warned": body.warn}}
+
+
+# ------------------------------------------------------------------ notices (warnings, report updates)
+
+@router.get("/notices")
+async def my_notices(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Messages from the ShareEven team to me, newest first."""
+    rows = (await db.execute(
+        select(AccountNotice).where(AccountNotice.user_id == current_user.id).order_by(AccountNotice.created_at.desc()).limit(50)
+    )).scalars().all()
+    return {"success": True, "data": {"notices": [notice_service.view(n) for n in rows], "unread": sum(1 for n in rows if n.read_at is None)}}
+
+
+@router.post("/notices/read")
+async def read_notices(body: ReadNoticesRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    query = update(AccountNotice).where(AccountNotice.user_id == current_user.id, AccountNotice.read_at.is_(None))
+    if body.ids is not None:
+        query = query.where(AccountNotice.id.in_(body.ids))
+    await db.execute(query.values(read_at=datetime.now(timezone.utc)))
+    await db.commit()
+    return {"success": True, "data": None}

@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
-  ArrowLeft, Ban, Bell, ChevronRight, Coins, FileText, HelpCircle, Info, KeyRound, LayoutDashboard, LifeBuoy,
+  ArrowLeft, Ban, Bell, ChevronRight, Inbox, Coins, FileText, HelpCircle, Info, KeyRound, LayoutDashboard, LifeBuoy,
   LockKeyhole, LogOut, MonitorSmartphone, ReceiptText, ShieldCheck, Sparkles, Store, UserRound,
 } from 'lucide-react';
 import { Avatar } from '../../components/atoms';
@@ -17,6 +17,8 @@ import EncryptionSettings from '../../components/organisms/EncryptionSettings';
 import BackupSettings from '../../components/organisms/BackupSettings';
 import AccountDataSettings from '../../components/organisms/AccountDataSettings';
 import { BlockedPeopleSettings } from '../../components/organisms/SafetySettings';
+import { NoticesSection } from '../../components/organisms/Notices';
+import { useNotices } from '../../hooks/useNotices';
 import { expenseService } from '../../services/expense.service';
 import type { AISettings } from '../../services/expense.service';
 import { getNotificationStatus, setNotificationsEnabled } from '../../utils/notifications';
@@ -48,6 +50,7 @@ const SECTIONS: Section[] = [
   { slug: 'receipts', icon: ReceiptText, label: 'Receipt scanning', hint: 'Your monthly scans' },
   { slug: 'discounts', icon: Store, label: 'Store discounts', hint: 'Your personal store offers' },
   { slug: 'blocked', icon: Ban, label: 'Blocked people', hint: "People who can't message you" },
+  { slug: 'notices', icon: Inbox, label: 'Notices', hint: 'Messages from the ShareEven team' },
   { slug: 'help', icon: HelpCircle, label: 'Help & about', hint: 'FAQ, contact us, terms and privacy' },
 ];
 
@@ -254,6 +257,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
   const { section } = useParams<{ section?: string }>();
   const navigate = useNavigate();
   const [scansLeft, setScansLeft] = useState<number | null>(null);
+  const unreadNotices = useNotices().unread;
 
   useEffect(() => {
     if (section) return;
@@ -285,6 +289,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
             {section === 'receipts' && <ReceiptsSection />}
             {section === 'discounts' && <StoreDiscountSettings />}
             {section === 'blocked' && <BlockedPeopleSettings />}
+            {section === 'notices' && <NoticesSection />}
             {section === 'help' && <HelpSection />}
           </div>
         </div>
@@ -293,6 +298,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
   }
 
   const badges: Record<string, Badge | undefined> = {
+    notices: unreadNotices ? { text: `${unreadNotices} new`, tone: 'warn' } : undefined,
     receipts: scansLeft === null ? undefined : { text: `${scansLeft} scans left`, tone: scansLeft > 0 ? 'good' : 'warn' },
   };
   const link = (slug: string) => {
@@ -323,6 +329,7 @@ const SettingsPage: React.FC<{ user: any; onEditProfile: () => void; onLogout: (
           {link('discounts')}
           <CurrencyRow />
           {link('blocked')}
+          {link('notices')}
           {link('help')}
           {user.is_app_admin && (
             <Link to="/admin" className={rowClass}>

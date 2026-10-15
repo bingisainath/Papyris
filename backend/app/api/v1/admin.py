@@ -23,10 +23,11 @@ from app.models.e2e_v2 import E2EDevice
 from app.models.expense import Expense
 from app.models.message import Message
 from app.models.receipt import Receipt
-from app.models.safety import Report, UserBlock
+from app.models.safety import REPORT_REASONS, AccountNotice, Report, UserBlock
 from app.models.user import User
 from app.services import admin as admin_service
 from app.services import media_storage
+from app.services import notices as notice_service
 from app.services.receipt_ai import pipeline
 from app.websocket.routes import publish_users
 
@@ -167,6 +168,7 @@ async def user_details(user_id: uuid.UUID, admin: User = Depends(get_app_admin),
             "signed_in_sessions": await count(select(AuthSession.id).where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))),
             "blocked_by": await count(select(UserBlock.blocker_id).where(UserBlock.blocked_id == user.id)),
             "reports_made": await count(select(Report.id).where(Report.reporter_id == user.id)),
+            "warnings": await count(select(AccountNotice.id).where(AccountNotice.user_id == user.id, AccountNotice.kind == "warning")),
         },
         "scans": {**await pipeline.person_scan_limit(db, user), "used": await pipeline.scans_used(db, user.id)},
         "devices": [{"name": d.name, "added_at": _iso(d.created_at), "last_seen_at": _iso(d.last_seen_at)} for d in devices],
@@ -186,6 +188,25 @@ async def suspend(user_id: uuid.UUID, body: SuspendRequest, admin: User = Depend
     await db.commit()
     await publish_users([str(user.id)], {"type": "account_suspended"})
     return {"success": True, "message": "Account suspended", "data": _summary(user)}
+
+
+class WarnRequest(BaseModel):
+    reason: str = Field(..., description="Which rule (a report reason)")
+    message: Optional[str] = Field(None, max_length=500)
+
+
+@router.post("/users/{user_id}/warn")
+async def warn(user_id: uuid.UUID, body: WarnRequest, admin: User = Depends(get_app_admin), db: AsyncSession = Depends(get_db)):
+    """A warning they'll see under Notices (and as a notification). It doesn't say who reported them."""
+    if body.reason not in REPORT_REASONS:
+        raise HTTPException(status_code=400, detail="Choose which rule was broken")
+    user = await _target(db, user_id, admin)
+    notice = notice_service.warning(user.id, body.reason, body.message)
+    db.add(notice)
+    await admin_service.log(db, admin, "warn", user.id, (body.message or "").strip() or None, rule=body.reason)
+    await db.commit()
+    await notice_service.deliver(db, [notice])
+    return {"success": True, "message": "Warning sent", "data": _summary(user)}
 
 
 @router.post("/users/{user_id}/unsuspend")

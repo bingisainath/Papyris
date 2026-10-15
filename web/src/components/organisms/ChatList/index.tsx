@@ -9,6 +9,7 @@ import { Input, Button, Typography, Loading } from '../../atoms';
 import Icon from '../../atoms/Icon';
 import { useSelector } from 'react-redux';
 import { ChatListItem } from '../../molecules';
+import { NoticesBanner } from '../Notices';
 import { selectAllTypingUsers, selectTypingNames } from '../../../redux/slices/websocketSlice';
 
 interface Conversation {
@@ -219,6 +220,7 @@ const ChatList: React.FC<ChatListProps> = ({
 
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5">
+        <NoticesBanner />
         {!searchQuery.trim() && showArchived && (
           <button type="button" onClick={() => setShowArchived(false)} className="flex items-center gap-2 px-2 py-1 text-sm font-semibold text-primary-700 hover:underline">
             <ArrowLeft className="w-4 h-4" /> Archived chats

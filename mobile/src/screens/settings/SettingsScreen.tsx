@@ -5,7 +5,7 @@ import React, { useCallback, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ban, Bell, ChevronRight, Coins, HelpCircle, KeyRound, LogOut, MonitorSmartphone, ReceiptText, ShieldCheck, Store } from 'lucide-react-native';
+import { Ban, Bell, ChevronRight, Coins, HelpCircle, Inbox, KeyRound, LogOut, MonitorSmartphone, ReceiptText, ShieldCheck, Store } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Avatar from '../../components/common/Avatar';
 import { SettingsCard, SettingsRow } from '../../components/settings/SettingsUI';
@@ -17,6 +17,7 @@ import { errorMessage } from '../../api/client';
 import { logoutRisk } from '../../crypto/backupRuntime';
 import { useAuth } from '../../store/auth';
 import { useChat } from '../../store/chat';
+import { useNotices } from '../../store/notices';
 import { colors, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import { showAlert } from '../../components/common/Dialog';
@@ -26,6 +27,7 @@ type PushState = Awaited<ReturnType<typeof pushStatus>>;
 const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParams>>();
   const { user, logout, setUser } = useAuth();
+  const unreadNotices = useNotices((st) => st.unread);
   const [push, setPush] = useState<PushState | null>(null);
   const [pickingCurrency, setPickingCurrency] = useState(false);
   const [scansLeft, setScansLeft] = useState<number | null>(null);
@@ -124,6 +126,8 @@ const SettingsScreen: React.FC = () => {
           <SettingsRow icon={Coins} label="Currency" hint="Also show amounts converted at today's rate"
             badge={{ text: user.display_currency || 'Off', tone: user.display_currency ? 'tint' : 'off' }} onPress={() => setPickingCurrency(true)} />
           <SettingsRow icon={Ban} label="Blocked people" hint="People who can't message you" onPress={() => navigation.navigate('BlockedPeople')} />
+          <SettingsRow icon={Inbox} label="Notices" hint="Messages from the ShareEven team"
+            badge={unreadNotices ? { text: `${unreadNotices} new`, tone: 'warn' } : undefined} onPress={() => navigation.navigate('Notices')} />
           <SettingsRow icon={HelpCircle} label="Help & about" hint="FAQ, contact us, terms and privacy" onPress={() => navigation.navigate('Help')} />
         </SettingsCard>
         <CurrencyPicker visible={pickingCurrency} value={user.display_currency || ''} offLabel="Off (original currencies only)"

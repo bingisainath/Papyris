@@ -93,11 +93,18 @@ export async function disablePush(): Promise<void> {
   currentToken = null;
 }
 
-/** Call `open(conversationId)` when a notification is tapped (app in background or closed). */
-export function onNotificationTap(open: (conversationId: string) => void): () => void {
+/**
+ * When a notification is tapped (app in background or closed): `open(conversationId)` for a
+ * message, `openNotices()` for a notice from the ShareEven team.
+ */
+export function onNotificationTap(open: (conversationId: string) => void, openNotices?: () => void): () => void {
   if (!configured()) return () => undefined;
   const messaging = getMessaging();
   const handle = (message: RemoteMessage | null) => {
+    if (message?.data?.type === 'notice') {
+      openNotices?.();
+      return;
+    }
     const conversationId = message?.data?.conversationId;
     if (typeof conversationId === 'string' && conversationId) open(conversationId);
   };

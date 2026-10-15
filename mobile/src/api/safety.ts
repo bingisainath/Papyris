@@ -23,4 +23,17 @@ export const safetyApi = {
     user_id?: string; conversation_id?: string; message_id?: string; reason: ReportReason;
     details?: string; evidence?: string; block?: boolean;
   }) => data<{ reported: boolean; blocked: boolean }>(api.post('/reports', body)),
+  notices: () => data<{ notices: Notice[]; unread: number }>(api.get('/notices')),
+  readNotices: (ids?: string[]) => data(api.post('/notices/read', ids ? { ids } : {})),
 };
+
+/** A message from the ShareEven team: a warning, or the outcome of a report you made. */
+export interface Notice {
+  id: string;
+  kind: 'warning' | 'report_update';
+  title: string;
+  body: string;
+  reason: string | null;
+  created_at: string;
+  read: boolean;
+}

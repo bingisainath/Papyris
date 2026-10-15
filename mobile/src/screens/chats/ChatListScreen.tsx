@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { Archive, ArrowLeft, BellOff, Lock, MessageSquarePlus, MessagesSquare, Pin, Search, UsersRound } from 'lucide-react-native';
+import NoticesBanner from '../../components/common/NoticesBanner';
 import { searchMessages } from '../../services/messageSearch';
 import type { SearchHit } from '../../services/messageSearch';
 import { chatApi, isMuted } from '../../api/chat';
@@ -119,6 +120,7 @@ const ChatListScreen: React.FC = () => {
           </Pressable>
         ))}
       </View>
+      <NoticesBanner onPress={() => navigation.navigate('Notices')} />
       <FlatList
         data={list}
         keyExtractor={(c) => c.id}
