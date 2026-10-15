@@ -463,3 +463,20 @@ async def test_a_bill_discount_that_matches_nothing_stays_on_the_whole_bill(clie
     receipt = await scan(client, people[0], group)
     voucher = next(a for a in receipt["adjustments"] if a["label"] == "Voucher")
     assert voucher["item_indexes"] == [] and voucher["percent"] is None
+
+
+async def test_the_10_percent_falls_on_the_other_items_when_the_ai_assigned_the_free_ones(client, six, fake_ai):
+    """What the AI returned for receipt 8 with the uploader's note: the shop discount on the six
+    Special Offer items, the 10% left on the whole bill and printed first."""
+    people, group = await six()
+    colleague = {**adjustment("store_discount", "Colleague Discount", "-5.21"), "percent": "10"}
+    shop = adjustment("store_discount", "Colleague Shop Discount", "-14.10", SPECIAL_OFFER)
+    fake_ai.response = {**LATE_TESCO, "adjustments": LATE_TESCO["adjustments"][:-2] + [colleague, shop]}
+    receipt = await scan(client, people[0], group)
+    assert receipt["status"] == "ready", receipt["warnings"]
+    found = next(a for a in receipt["adjustments"] if a["label"] == "Colleague Discount")
+    assert found["item_indexes"] == [n for n in range(18) if n not in SPECIAL_OFFER]
+    nets = {i["name"]: i["net_minor"] for i in receipt["items"]}
+    assert nets["Eggs"] == 765
+    assert all(nets[LATE_TESCO_LINES[n][0]] == 0 for n in SPECIAL_OFFER)
+    assert all(v >= 0 for v in nets.values()) and receipt["totals"]["difference_minor"] == 0

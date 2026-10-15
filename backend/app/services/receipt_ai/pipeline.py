@@ -431,7 +431,12 @@ def match_bill_discounts(receipt: Receipt) -> list[str]:
 
     currency = receipt.currency or "EUR"
     notes: list[str] = []
-    claimed: set[int] = set()
+    # Items a bill-stage discount already points at (the AI read it from the receipt or the note):
+    # treated as covered, so e.g. 10% is looked for among the other items
+    claimed: set[int] = {
+        t for a in receipt.adjustments
+        if a.enabled and STAGES.get(a.kind) == 2 and a.item_ids and a.amount_minor < 0 for t in a.item_ids
+    }
     unmatched: list[ReceiptAdjustment] = []
 
     def assign(a: ReceiptAdjustment, ids: list[int]) -> None:
@@ -479,7 +484,7 @@ def match_bill_discounts(receipt: Receipt) -> list[str]:
 def after_own_discounts(receipt: Receipt) -> dict[int, int]:
     """Price of each item after its own discounts (same allocation the engine uses)."""
     stage1: dict[int, int] = {i.id: i.gross_minor for i in receipt.items if "voided" not in (i.flags or [])}
-    for a in sorted(receipt.adjustments, key=lambda x: x.position):
+    for a in sorted(receipt.adjustments, key=lambda x: (0 if len(x.item_ids or []) == 1 else 1, x.position)):  # as the engine
         if not a.enabled or STAGES.get(a.kind) != 1:
             continue
         targets = [t for t in a.item_ids if t in stage1] or list(stage1)
