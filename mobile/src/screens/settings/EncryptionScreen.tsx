@@ -1,24 +1,28 @@
 // src/screens/settings/EncryptionScreen.tsx
-// Settings → End-to-end encryption: what's encrypted, and linking a new device (scan its QR code,
-// or type the code it shows). It's added to the account, and the keys and (optionally) the message
-// history go to it encrypted for it alone.
+// Settings → Linked devices: linking a new device (scan its QR code, or type the code it shows; new
+// devices usually ask "Is this you?" instead), and where you're signed in. The new device is added to
+// the account, and the keys and (optionally) the message history go to it encrypted for it alone.
 import React, { useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, CameraType } from 'react-native-camera-kit';
-import { QrCode, ShieldCheck, X } from 'lucide-react-native';
+import { MonitorSmartphone, QrCode, X } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { AppStackParams } from '../../navigation/types';
 import { Banner, Button, TextField } from '../../components/common/ui';
 import { findByCode, findByQr } from '../../crypto/v2-platform/link';
 import type { FoundDevice } from '../../crypto/v2-platform/link';
 import { errorMessage } from '../../api/client';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { cameraAllowed } from '../../utils/camera';
-import BackupSection from '../../components/settings/BackupSection';
+import { SettingsCard, SettingsRow } from '../../components/settings/SettingsUI';
 import { useAuth } from '../../store/auth';
 import { colors, radius, space } from '../../theme';
 import { showAlert } from '../../components/common/Dialog';
 
 const EncryptionScreen: React.FC = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParams>>();
   const keyboard = useKeyboardOffset();
   const userId = useAuth((s) => s.user?.id);
   const [code, setCode] = useState('');
@@ -74,17 +78,6 @@ const EncryptionScreen: React.FC = () => {
   return (
     <View ref={keyboard.ref} style={[styles.flex, { paddingBottom: keyboard.offset }]}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.card}>
-          <ShieldCheck size={24} color={colors.primary700} />
-          <View style={styles.flex}>
-            <Text style={styles.title}>End-to-end encryption is on</Text>
-            <Text style={styles.text}>
-              Messages, photos, videos, voice messages and files in chats where everyone has set it up are encrypted on your devices.
-              Expenses, receipt scans and group names and photos aren't: the server needs them to work out balances and show your chats.
-            </Text>
-          </View>
-        </View>
-
         <Text style={styles.section}>Link a device</Text>
         {!!error && <Banner text={error} />}
         {found ? (
@@ -117,7 +110,12 @@ const EncryptionScreen: React.FC = () => {
               disabled={code.replace(/[^a-z0-9]/gi, '').length < 16} onPress={() => lookup(() => findByCode(userId!, code))} />
           </>
         )}
-        {userId && <BackupSection userId={userId} />}
+
+        <Text style={[styles.section, styles.sectionGap]}>Where you're signed in</Text>
+        <SettingsCard>
+          <SettingsRow first icon={MonitorSmartphone} label="Sessions" hint="Every phone and browser signed in to your account; sign one out"
+            onPress={() => navigation.navigate('Sessions')} />
+        </SettingsCard>
       </ScrollView>
 
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>
@@ -152,7 +150,8 @@ const styles = StyleSheet.create({
   text: { fontSize: 13, color: colors.muted600, marginTop: space(1) },
   or: { textAlign: 'center', marginVertical: space(3) },
   codeInput: { fontFamily: 'monospace', letterSpacing: 1 },
-  section: { marginTop: space(6), marginBottom: space(2), fontSize: 12, fontWeight: '700', color: colors.muted500, textTransform: 'uppercase', letterSpacing: 0.5 },
+  section: { marginTop: space(2), marginBottom: space(2), fontSize: 12, fontWeight: '700', color: colors.muted500, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionGap: { marginTop: space(8) },
   history: { flexDirection: 'row', alignItems: 'center', gap: space(3), marginTop: space(3) },
   flexText: { flex: 1 },
   historyTitle: { fontSize: 14, fontWeight: '600', color: colors.muted900 },

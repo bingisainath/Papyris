@@ -24,6 +24,10 @@ export type AppStackParams = {
   ScanReceipt: { conversationId: string; receiptId?: string };
   ExpenseDetail: { expenseId: string };
   Profile: undefined;
+  Account: undefined;
+  Backup: undefined;
+  ReceiptScanning: undefined;
+  Help: undefined;
   StoreDiscounts: undefined;
   Encryption: undefined;
   Sessions: undefined;

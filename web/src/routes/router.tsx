@@ -87,14 +87,15 @@ export const router = createBrowserRouter([
       </RequireAuth>
     ),
   },
-  {
-    path: '/settings',
+  // /settings is the list; each category is its own page at /settings/<section>
+  ...['/settings', '/settings/:section'].map((path) => ({
+    path,
     element: (
       <RequireAuth>
         <Home />
       </RequireAuth>
     ),
-  },
+  })),
   // The admin console (app admins only; the server checks every call)
   ...['/admin', '/admin/:tab'].map((path) => ({
     path,

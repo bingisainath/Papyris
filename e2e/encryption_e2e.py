@@ -176,7 +176,7 @@ def main():
         second.get_by_role("button", name="Use a code instead").click()
         code = second.get_by_test_id("link-code").inner_text()
         second.screenshot(path=SHOTS / "c3-link-qr.png")
-        bob.goto(f"{WEB}/settings")
+        bob.goto(f"{WEB}/settings/devices")
         # Bob's browser asks "Is this you?" too; close it to approve with the code instead
         bob.get_by_role("alertdialog", name="Is this you?").get_by_role("button", name="Not now").click()
         bob.get_by_role("button", name="Link a device").click()

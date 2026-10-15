@@ -9,7 +9,14 @@ import { colors, radius, space } from '../../theme';
 
 let cache: CurrencyInfo[] | null = null;
 
-const CurrencyPicker: React.FC<{ visible: boolean; value: string; onPick: (code: string) => void; onClose: () => void }> = ({ visible, value, onPick, onClose }) => {
+const CurrencyPicker: React.FC<{
+  visible: boolean;
+  value: string;
+  onPick: (code: string) => void;
+  onClose: () => void;
+  /** Label for an extra first choice that picks '' (e.g. Settings → Currency: "Off"). */
+  offLabel?: string;
+}> = ({ visible, value, onPick, onClose, offLabel }) => {
   const [list, setList] = useState<CurrencyInfo[]>(cache || []);
   const [query, setQuery] = useState('');
   useEffect(() => {
@@ -29,6 +36,12 @@ const CurrencyPicker: React.FC<{ visible: boolean; value: string; onPick: (code:
         </View>
         <TextInput value={query} onChangeText={setQuery} placeholder="Search" placeholderTextColor={colors.muted400} style={styles.search} autoCapitalize="none" />
         <FlatList
+          ListHeaderComponent={offLabel && !query.trim() ? (
+            <Pressable onPress={() => onPick('')} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted50 }]}>
+              <Text style={styles.name}>{offLabel}</Text>
+              {!value && <Check size={18} color={colors.primary700} />}
+            </Pressable>
+          ) : null}
           data={shown}
           keyExtractor={(c) => c.code}
           renderItem={({ item }) => (

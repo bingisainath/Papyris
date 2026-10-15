@@ -65,9 +65,13 @@ const SessionsSettings: React.FC = () => {
       <div className="flex gap-3">
         <MonitorSmartphone className="w-6 h-6 text-primary-600 flex-shrink-0" strokeWidth={1.75} />
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold text-muted-900">Sessions</h2>
-          <p className="text-sm text-muted-500">Phones and browsers signed in to your account. Don't recognise one? Log it out.</p>
+          <h2 className="text-base font-bold text-muted-900">Where you're signed in</h2>
+          <p className="mt-1 text-sm text-muted-500">Phones and browsers signed in to your account. Don't recognise one? Log it out.</p>
           {error && <p className="mt-2 text-sm text-accent-600">{error}</p>}
+        </div>
+      </div>
+      <div>
+        <div>
           <ul className="mt-4 space-y-2" aria-label="Active sessions">
             {sessions?.map((s) => {
               const Icon = BROWSERS.test(s.name) ? Globe : Smartphone;
