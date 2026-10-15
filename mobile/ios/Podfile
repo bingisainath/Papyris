@@ -10,6 +10,8 @@ prepare_react_native_project!
 
 # Firebase (push notifications) needs its pods as static frameworks
 $RNFirebaseAsStaticFramework = true
+# RNFirebase 26.x resolves Firebase via SPM by default, which collides with static linkage
+$RNFirebaseDisableSPM = true
 linkage = ENV['USE_FRAMEWORKS'] || 'static'
 Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
 use_frameworks! :linkage => linkage.to_sym
@@ -30,5 +32,41 @@ target 'mobile' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Newer Xcode only supports iOS 15+; bump older pod targets to avoid deployment target errors
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        if current.nil? || current.to_f < 15.0
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+        end
+      end
+    end
+
+    # glog #includes log_severity.h / vlog_is_on.h inside `namespace google`; the generated
+    # modulemap makes them submodules, which newer clang rejects. Mark them textual instead.
+    glog_modulemap = File.join(installer.sandbox.root, 'Target Support Files', 'glog', 'glog.modulemap')
+    if File.exist?(glog_modulemap)
+      File.write(glog_modulemap, <<~MODULEMAP)
+        framework module glog {
+          umbrella header "glog-umbrella.h"
+          textual header "log_severity.h"
+          textual header "vlog_is_on.h"
+          export *
+        }
+      MODULEMAP
+    end
+
+    # fmt 11.0.2 consteval checks fail to compile with the newer Apple clang, and base.h
+    # sets FMT_USE_CONSTEVAL unconditionally, so a -D flag can't override it; patch the header
+    fmt_base = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base)
+      src = File.read(fmt_base)
+      marker = '#if !defined(__cpp_lib_is_constant_evaluated)'
+      if src.include?(marker) && !src.include?('shareeven: consteval disabled')
+        File.chmod(0644, fmt_base)
+        File.write(fmt_base, src.sub(marker, "#if 1  // shareeven: consteval disabled\n#  define FMT_USE_CONSTEVAL 0\n#elif !defined(__cpp_lib_is_constant_evaluated)"))
+      end
+    end
   end
 end
