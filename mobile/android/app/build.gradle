@@ -82,8 +82,8 @@ android {
         applicationId "com.shareeven.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 8
-        versionName "0.9.6-beta"
+        versionCode 9
+        versionName "0.9.7-beta"
     }
     signingConfigs {
         debug {

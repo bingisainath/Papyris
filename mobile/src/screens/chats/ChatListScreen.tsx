@@ -1,5 +1,5 @@
 // src/screens/chats/ChatListScreen.tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -81,39 +81,15 @@ const ChatListScreen: React.FC = () => {
     setRefreshing(false);
   };
 
+  // Rows get plain values (and the latest handlers through `act`), so a typing or online change
+  // re-renders only the row it's about
+  const act = useRef({ open: (id: string) => navigation.navigate('Chat', { conversationId: id }), actions });
+  act.current = { open: (id: string) => navigation.navigate('Chat', { conversationId: id }), actions };
   const renderItem = ({ item }: { item: Conversation }) => {
     const other = !item.isGroup ? item.members.find((id) => id !== me?.id) : undefined;
     const typers = typingNames(typing, item.id);
     const preview = typers.length ? (item.isGroup ? `${typers[0]} is typing…` : 'typing…') : item.lastMessage || 'No messages yet';
-    return (
-      <Pressable
-        onPress={() => navigation.navigate('Chat', { conversationId: item.id })}
-        onLongPress={() => actions(item)}
-        style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-        accessibilityLabel={`${item.name}${item.unreadCount ? `, ${item.unreadCount} unread` : ''}`}
-      >
-        <Avatar uri={item.avatar} name={item.name} size={50} online={!!other && online.includes(other)} />
-        <View style={styles.rowBody}>
-          <View style={styles.rowTop}>
-            <View style={styles.nameRow}>
-              {item.isGroup && <UsersRound size={14} color={colors.muted400} />}
-              <Text style={[styles.name, item.unreadCount > 0 && styles.bold]} numberOfLines={1}>{item.name}</Text>
-              {isMuted(item) && <BellOff size={14} color={colors.muted400} accessibilityLabel="Muted" />}
-            </View>
-            <Text style={[styles.time, item.unreadCount > 0 && { color: colors.primary700 }]}>{listTime(item.lastMessageTime)}</Text>
-          </View>
-          <View style={styles.rowTop}>
-            <Text style={[styles.preview, typers.length > 0 && styles.typing]} numberOfLines={1}>{preview}</Text>
-            <View style={styles.badges}>
-              {item.isPinned && <Pin size={14} color={colors.muted400} />}
-              {item.unreadCount > 0 && (
-                <View style={[styles.badge, isMuted(item) && { backgroundColor: colors.muted400 }]}><Text style={styles.badgeText}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text></View>
-              )}
-            </View>
-          </View>
-        </View>
-      </Pressable>
-    );
+    return <ChatRow item={item} preview={preview} typing={typers.length > 0} online={!!other && online.includes(other)} act={act} />;
   };
 
   return (
@@ -189,6 +165,42 @@ const ChatListScreen: React.FC = () => {
     </SafeAreaView>
   );
 };
+
+const ChatRow = React.memo<{
+  item: Conversation;
+  preview: string;
+  typing: boolean;
+  online: boolean;
+  act: React.MutableRefObject<{ open: (id: string) => void; actions: (c: Conversation) => void }>;
+}>(({ item, preview, typing, online, act }) => (
+  <Pressable
+    onPress={() => act.current.open(item.id)}
+    onLongPress={() => act.current.actions(item)}
+    style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    accessibilityLabel={`${item.name}${item.unreadCount ? `, ${item.unreadCount} unread` : ''}`}
+  >
+    <Avatar uri={item.avatar} name={item.name} size={50} online={online} />
+    <View style={styles.rowBody}>
+      <View style={styles.rowTop}>
+        <View style={styles.nameRow}>
+          {item.isGroup && <UsersRound size={14} color={colors.muted400} />}
+          <Text style={[styles.name, item.unreadCount > 0 && styles.bold]} numberOfLines={1}>{item.name}</Text>
+          {isMuted(item) && <BellOff size={14} color={colors.muted400} accessibilityLabel="Muted" />}
+        </View>
+        <Text style={[styles.time, item.unreadCount > 0 && { color: colors.primary700 }]}>{listTime(item.lastMessageTime)}</Text>
+      </View>
+      <View style={styles.rowTop}>
+        <Text style={[styles.preview, typing && styles.typing]} numberOfLines={1}>{preview}</Text>
+        <View style={styles.badges}>
+          {item.isPinned && <Pin size={14} color={colors.muted400} />}
+          {item.unreadCount > 0 && (
+            <View style={[styles.badge, isMuted(item) && { backgroundColor: colors.muted400 }]}><Text style={styles.badgeText}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text></View>
+          )}
+        </View>
+      </View>
+    </View>
+  </Pressable>
+));
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.white },

@@ -296,7 +296,10 @@ const styles = StyleSheet.create({
   expenseText: { flexShrink: 1, fontSize: 14, color: colors.muted900 },
 });
 
-export default React.memo(MessageBubble);
+// Re-render only when the message or how it's shown changes. The screen passes callbacks that read its
+// latest handlers when called (ChatScreen `act`), so new callback objects on each render don't matter.
+export default React.memo(MessageBubble, (a, b) =>
+  a.message === b.message && a.mine === b.mine && a.showSender === b.showSender && a.currentUserId === b.currentUserId);
 
 const STATUS_WORDS: Record<string, string> = { sending: 'sending', sent: 'sent', delivered: 'delivered', read: 'read', failed: 'not sent' };
 
