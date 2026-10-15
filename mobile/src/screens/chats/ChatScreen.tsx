@@ -286,6 +286,11 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
   jumpToRef.current = jumpTo;
   const [searching, setSearching] = useState(false);
 
+  // The newest handlers, read when tapped: rows can keep the same callbacks and skip re-rendering
+  const act = useRef({ setSelected, react, retry, openMedia, save, cancelUpload, retryUpload, jumpTo });
+  act.current = { setSelected, react, retry, openMedia, save, cancelUpload, retryUpload, jumpTo };
+  const openAlbumItem = useCallback((id: string) => act.current.openMedia(id), []);
+
   const renderRow = ({ item }: { item: Row }) => {
     if (item.kind === 'day') return <Text style={styles.day}>{item.label}</Text>;
     if (item.kind === 'unread') {
@@ -296,7 +301,7 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
       );
     }
     if (item.kind === 'album') {
-      return <AlbumGrid messages={item.messages} mine={item.messages[0].senderId === me.id} showSender={!!conversation?.isGroup} onOpen={openMedia} />;
+      return <AlbumGrid messages={item.messages} mine={item.messages[0].senderId === me.id} showSender={!!conversation?.isGroup} onOpen={openAlbumItem} />;
     }
     const m = item.message;
     const bubble = (
@@ -305,15 +310,16 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
         mine={m.senderId === me.id}
         showSender={!!conversation?.isGroup}
         currentUserId={me.id}
-        onLongPress={() => setSelected(m)}
-        onReact={(emoji) => react(m, emoji)}
-        onRetry={() => retry(conversationId, m.id)}
-        onOpenMedia={() => openMedia(m.id)}
-        onOpenFile={() => save(m)}
-        onCancelUpload={() => cancelUpload(conversationId, m.id)}
-        onRetryUpload={() => retryUpload(m.id)}
+        // Through `act` (the latest handlers), so MessageBubble's memo can skip unchanged messages
+        onLongPress={() => act.current.setSelected(m)}
+        onReact={(emoji) => act.current.react(m, emoji)}
+        onRetry={() => act.current.retry(conversationId, m.id)}
+        onOpenMedia={() => act.current.openMedia(m.id)}
+        onOpenFile={() => act.current.save(m)}
+        onCancelUpload={() => act.current.cancelUpload(conversationId, m.id)}
+        onRetryUpload={() => act.current.retryUpload(m.id)}
         onOpenExpense={(expenseId) => navigation.navigate('ExpenseDetail', { expenseId })}
-        onJumpToReply={jumpTo}
+        onJumpToReply={(id) => act.current.jumpTo(id)}
       />
     );
     return highlighted === m.id ? <View style={styles.highlight}>{bubble}</View> : bubble;

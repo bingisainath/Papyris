@@ -95,4 +95,7 @@ const styles = StyleSheet.create({
   time: { fontSize: 10.5, color: colors.white },
 });
 
-export default AlbumGrid;
+// The album's rows are rebuilt when any message changes; redraw only if one of its own photos did
+export default React.memo(AlbumGrid, (a, b) =>
+  a.mine === b.mine && a.showSender === b.showSender && a.onOpen === b.onOpen &&
+  a.messages.length === b.messages.length && a.messages.every((m, i) => m === b.messages[i]));
