@@ -564,7 +564,15 @@ socket.on((e) => {
         // The content comes in this phone's own packet; ours is already in the local database
         const own = !!e.clientId && e.senderId === e2eSession.userId();
         (own ? confirmOwn(e.clientId, e.messageId) : localFor(e.messageId)).then((local) => {
-          if (local) updateMessage(set, e.roomId, e.messageId, fromLocal(local));
+          if (!local) return;
+          const fields = fromLocal(local);
+          updateMessage(set, e.roomId, e.messageId, fields);
+          // Replace the "Encrypted message" placeholder in the chat list, unless a newer message came since
+          set((s) => ({
+            conversations: s.conversations.map((c) =>
+              c.id === e.roomId && c.lastMessageTime === message.timestamp ? { ...c, lastMessage: previewOf({ ...message, ...fields } as Message) } : c,
+            ),
+          }));
         }).catch(() => undefined);
       } else {
         flagUnverified(e.roomId, [message]);
