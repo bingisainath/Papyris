@@ -564,6 +564,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         reactions: [],
       } as Message);
 
+      const timestamp: string = data.timestamp || new Date().toISOString();
       const v2 = isV2Marker(data.text);
       dispatch(upsertMessage({ conversationId: data.roomId, message: v2 ? { ...message, ...pendingFields } : message }));
       if (v2) {
@@ -573,7 +574,19 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
         const clientId = data.clientId;
         const own = !!clientId && data.senderId === localStorage.getItem('userId');
         (own ? confirmOwn(clientId!, messageId) : localFor(messageId)).then(local => {
-          if (local) dispatch(updateMessage({ conversationId: roomId, messageId, updates: fromLocal(local) }));
+          if (!local) return;
+          const fields = fromLocal(local);
+          dispatch(updateMessage({ conversationId: roomId, messageId, updates: fields }));
+          // Replace the "Encrypted message" placeholder in the chat list, unless a newer message came since
+          dispatch((_: AppDispatch, getState: () => RootState) => {
+            const conversation = getState().chat.conversations.find(c => c.id === roomId);
+            if (conversation?.lastMessageTime !== timestamp) return;
+            dispatch(updateConversationLastMessage({
+              conversationId: roomId,
+              lastMessage: messagePreview(fields.text, fields.mediaType, fields.mediaFilename),
+              timestamp,
+            }));
+          });
         }).catch(() => undefined);
       } else {
         flagUnverified(dispatch, data.roomId, [message]);
@@ -589,7 +602,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
       dispatch(updateConversationLastMessage({
         conversationId: data.roomId,
         lastMessage: isV2Marker(data.text) ? 'Encrypted message' : messagePreview(message.text, message.mediaType, message.mediaFilename),
-        timestamp: data.timestamp || new Date().toISOString()
+        timestamp
       }));
 
       const roomId = data.roomId;
