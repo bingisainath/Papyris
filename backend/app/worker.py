@@ -145,7 +145,12 @@ class MessageWorker:
             "type": "message",
             "conversationId": str(message.conversation_id),
             "messageId": str(message.id),
-        })
+            # For phones that show the notification themselves (after decrypting the message)
+            "sender": sender,
+            "chat": (conversation.title or "Group") if conversation is not None and conversation.kind == "group" else "",
+            "encrypted": "1" if media_storage.is_encrypted(message.text) else "",
+            "hideText": "" if settings.PUSH_SHOW_MESSAGE_TEXT else "1",  # the phone keeps "New message" too
+        }, app_renders=True)
 
     async def process_message(self, msg_id: str, fields: dict):
         """Process a single message from the stream"""

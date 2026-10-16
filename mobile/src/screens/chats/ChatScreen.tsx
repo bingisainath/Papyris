@@ -22,7 +22,7 @@ import { safetyApi } from '../../api/safety';
 import { chatDrafts } from '../../utils/drafts';
 import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { useAuth } from '../../store/auth';
-import { mediaPayloadOf, typingNames, useChat } from '../../store/chat';
+import { mediaPayloadOf, onScreen, typingNames, useChat } from '../../store/chat';
 import { sealFor } from '../../crypto/messages';
 import { editV2 } from '../../crypto/v2-platform/chat';
 import { socket } from '../../websocket/socket';
@@ -103,10 +103,11 @@ const ChatScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Chat'>> = ({ 
     return () => open(null);
   }, [conversationId, open, loadMessages]));
 
-  // Tell the server we've read up to the newest message from someone else
+  // Tell the server we've read up to the newest message from someone else (only while the app is in
+  // front: a chat left open in the background isn't being read; coming back reads it, see store/chat)
   const latestFromOthers = useMemo(() => [...messages].reverse().find((m) => m.senderId !== me.id && !m.id.startsWith('temp-')), [messages, me.id]);
   useEffect(() => {
-    if (latestFromOthers) socket.read(conversationId, latestFromOthers.id);
+    if (latestFromOthers && onScreen()) socket.read(conversationId, latestFromOthers.id);
   }, [latestFromOthers, conversationId]);
 
   const otherId = conversation && !conversation.isGroup ? conversation.members.find((id) => id !== me.id) : undefined;

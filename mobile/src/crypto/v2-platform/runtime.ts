@@ -6,6 +6,7 @@ import { AppState } from 'react-native';
 import { api } from '../../api/client';
 import { DeviceManager, EncryptedStore, Messenger } from '../v2';
 import type { DeviceState, E2EHttp } from '../v2';
+import type { KV } from '../v2/storage';
 import { openSqliteKV } from './sqliteKV';
 import { phoneName } from '../../utils/device';
 
@@ -20,13 +21,16 @@ interface Runtime { userId: string; store: EncryptedStore; manager: DeviceManage
 
 let current: Promise<Runtime> | null = null;
 let stopWatching: (() => void) | null = null;
+// One connection to the encrypted database, shared by every start (a second one would skip the store's lock)
+let database: Promise<KV> | null = null;
+const openDatabase = () => (database ??= openSqliteKV().catch((e) => { database = null; throw e; }));
 
 export function startV2(userId: string): Promise<Runtime> {
   if (current) {
     return current.then((r) => (r.userId === userId ? r : stopV2(false).then(() => startV2(userId))));
   }
   current = (async () => {
-    const store = new EncryptedStore(await openSqliteKV());
+    const store = new EncryptedStore(await openDatabase());
     const manager = new DeviceManager(store, http, userId, phoneName());
     const state = await manager.bootstrap();
     // Top up prekeys whenever the app comes back to the foreground
@@ -53,3 +57,14 @@ export async function stopV2(logout = true): Promise<void> {
 }
 
 export const v2Runtime = (): Promise<Runtime> | null => current;
+
+/**
+ * For work in the background (a notification arriving while the app is closed): start v2 only if this
+ * phone is already set up for this account. Never registers or links a device; that happens in the app.
+ */
+export async function startV2IfSetUp(userId: string): Promise<Runtime | null> {
+  if (current) return startV2(userId);
+  const device = await new EncryptedStore(await openDatabase()).device();
+  if (!device?.listed || device.userId !== userId || device.deviceId === null) return null;
+  return startV2(userId);
+}

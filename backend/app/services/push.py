@@ -70,12 +70,21 @@ async def _oauth_token(client: httpx.AsyncClient) -> str:
 
 async def send_to_users(
     db: AsyncSession, user_ids: list[uuid.UUID], title: str, body: str, data: dict[str, str],
+    app_renders: bool = False,
 ) -> int:
-    """Notify every registered phone of these users. Returns how many were accepted."""
+    """
+    Notify every registered phone of these users. Returns how many were accepted.
+
+    app_renders: phones whose app shows chat notifications itself (DeviceToken.renders_messages) get a
+    data-only push with the title and body in `data`; the app decrypts the message and shows its text,
+    or this title and body if it can't. Other phones get the notification as usual.
+    """
     if not enabled() or not user_ids:
         return 0
-    tokens = (await db.execute(select(DeviceToken.token).where(DeviceToken.user_id.in_(user_ids)))).scalars().all()
-    if not tokens:
+    rows = (await db.execute(
+        select(DeviceToken.token, DeviceToken.renders_messages).where(DeviceToken.user_id.in_(user_ids))
+    )).all()
+    if not rows:
         return 0
     account = _service_account()
     url = f"https://fcm.googleapis.com/v1/projects/{account['project_id']}/messages:send"
@@ -86,14 +95,21 @@ async def send_to_users(
         except Exception:
             logger.exception("Couldn't get a Firebase access token")
             return 0
-        for token in tokens:
-            message = {
-                "token": token,
-                "notification": {"title": title[:100], "body": body[:240]},
-                "data": data,
-                "android": {"priority": "high", "notification": {"channel_id": "messages", "tag": data.get("conversationId", "")}},
-                "apns": {"payload": {"aps": {"sound": "default", "thread-id": data.get("conversationId", "")}}},
-            }
+        for token, renders in rows:
+            if app_renders and renders:
+                message = {
+                    "token": token,
+                    "data": {**data, "title": title[:100], "body": body[:240]},
+                    "android": {"priority": "high"},
+                }
+            else:
+                message = {
+                    "token": token,
+                    "notification": {"title": title[:100], "body": body[:240]},
+                    "data": data,
+                    "android": {"priority": "high", "notification": {"channel_id": "messages", "tag": data.get("conversationId", "")}},
+                    "apns": {"payload": {"aps": {"sound": "default", "thread-id": data.get("conversationId", "")}}},
+                }
             try:
                 r = await client.post(url, json={"message": message}, headers=auth)
             except httpx.HTTPError:

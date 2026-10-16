@@ -123,3 +123,33 @@ async def test_worker_notifies_other_members(firebase, make_user, make_group, db
     assert [m["token"][:10] for m in firebase["sent"]] == ["bobs-phone"]  # not the sender
     assert firebase["sent"][0]["notification"] == {"title": "Flat 4B", "body": f"{alice.username}: Dinner at 8?"}
     assert firebase["sent"][0]["data"]["conversationId"] == group
+
+
+async def test_phones_that_show_notifications_themselves_get_data_only(firebase, client, make_user, make_group, db):
+    from datetime import datetime, timezone
+    from app.worker import MessageWorker
+    from tests.test_worker import FakeStreams
+
+    alice, bob = await make_user("alice"), await make_user("bob")
+    group = await make_group(alice, [bob], "Flat 4B")
+    new_phone, old_phone = "bobs-new-phone-" + "e" * 30, "bobs-old-phone-" + "f" * 30
+    await client.post("/api/v1/devices", json={"token": new_phone, "platform": "android", "renders_messages": True}, headers=bob.headers)
+    await client.post("/api/v1/devices", json={"token": old_phone, "platform": "android"}, headers=bob.headers)
+
+    worker = MessageWorker.__new__(MessageWorker)
+    worker.streams = FakeStreams()
+    message_id = str(uuid.uuid4())
+    await worker.process_message("1-0", {"data": json.dumps({
+        "messageId": message_id, "conversationId": group, "senderId": alice.id, "senderName": alice.username,
+        "text": "e2e2:", "timestamp": datetime.now(timezone.utc).isoformat(),
+    })})
+    sent = {m["token"]: m for m in firebase["sent"]}
+    # The new app decrypts and shows it itself: no notification part, the fallback text rides in data
+    new = sent[new_phone]
+    assert "notification" not in new and new["android"] == {"priority": "high"}
+    assert new["data"] | {} == {
+        "type": "message", "conversationId": group, "messageId": message_id, "sender": alice.username, "chat": "Flat 4B",
+        "encrypted": "1", "hideText": "", "title": "Flat 4B", "body": f"{alice.username}: New message",
+    }
+    # An older app still gets a notification Android shows by itself
+    assert sent[old_phone]["notification"] == {"title": "Flat 4B", "body": f"{alice.username}: New message"}

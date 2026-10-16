@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 class DeviceRequest(BaseModel):
     token: str = Field(..., min_length=20, max_length=512)
     platform: Literal["android", "ios"]
+    # Newer Android apps decrypt and show chat notifications themselves (data-only pushes)
+    renders_messages: bool = False
 
 
 class RemoveDeviceRequest(BaseModel):

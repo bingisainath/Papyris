@@ -5,7 +5,7 @@
 // Until the Firebase config file is added (android/app/google-services.json,
 // ios/GoogleService-Info.plist) there's no Firebase app and all of this quietly does nothing.
 
-import { PermissionsAndroid, Platform } from 'react-native';
+import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { getApps } from '@react-native-firebase/app';
 import {
   AuthorizationStatus,
@@ -16,6 +16,7 @@ import {
   onNotificationOpenedApp,
   onTokenRefresh,
   requestPermission,
+  setBackgroundMessageHandler,
 } from '@react-native-firebase/messaging';
 import type { RemoteMessage } from '@react-native-firebase/messaging';
 import { api } from '../api/client';
@@ -37,9 +38,29 @@ async function allowed(ask: boolean): Promise<boolean> {
   return status === AuthorizationStatus.AUTHORIZED || status === AuthorizationStatus.PROVISIONAL;
 }
 
+// Android only (android/app/.../NotificationsModule.kt); elsewhere these do nothing
+const shade: { clear(ids: string[]): void; clearAll(): void; showMessage?: unknown; initialChat?(): Promise<string | null> } | undefined =
+  NativeModules.ShareEvenNotifications;
+
 async function register(token: string) {
   currentToken = token;
-  await api.post('/devices', { token, platform: Platform.OS === 'ios' ? 'ios' : 'android' });
+  await api.post('/devices', {
+    token,
+    platform: Platform.OS === 'ios' ? 'ios' : 'android',
+    // This app decrypts chat messages and shows their notifications itself (src/notifications/messageNotification.ts)
+    renders_messages: Platform.OS === 'android' && !!shade?.showMessage,
+  });
+}
+
+/**
+ * Call once at startup (index.js, with showMessageNotification): chat pushes that arrive while the app is in the background or
+ * closed are decrypted and shown by the app (they carry no notification of their own).
+ */
+export function handlePushesInBackground(show: (data: NonNullable<RemoteMessage['data']>) => Promise<void>): void {
+  if (!configured()) return;
+  setBackgroundMessageHandler(getMessaging(), async (message) => {
+    if (message.data?.type === 'message') await show(message.data);
+  });
 }
 
 /**
@@ -98,7 +119,11 @@ export async function disablePush(): Promise<void> {
  * message, `openNotices()` for a notice from the ShareEven team.
  */
 export function onNotificationTap(open: (conversationId: string) => void, openNotices?: () => void): () => void {
-  if (!configured()) return () => undefined;
+  // Chat notifications the app showed itself
+  const openChat = (id: string | null) => { if (id) open(id); };
+  shade?.initialChat?.().then(openChat).catch(() => undefined);
+  const taps = shade?.initialChat ? new NativeEventEmitter(NativeModules.ShareEvenNotifications).addListener('ShareEvenOpenChat', openChat) : null;
+  if (!configured()) return () => taps?.remove();
   const messaging = getMessaging();
   const handle = (message: RemoteMessage | null) => {
     if (message?.data?.type === 'notice') {
@@ -109,5 +134,19 @@ export function onNotificationTap(open: (conversationId: string) => void, openNo
     if (typeof conversationId === 'string' && conversationId) open(conversationId);
   };
   getInitialNotification(messaging).then(handle).catch(() => undefined);
-  return onNotificationOpenedApp(messaging, handle);
+  const stop = onNotificationOpenedApp(messaging, handle);
+  return () => {
+    stop();
+    taps?.remove();
+  };
+}
+
+/** Take these chats' notifications off the phone once they're read (here or on another device). */
+export function clearChatNotifications(conversationIds: string[]): void {
+  if (conversationIds.length) shade?.clear(conversationIds);
+}
+
+/** Signing out: nothing of this account stays in the notification shade. */
+export function clearAllNotifications(): void {
+  shade?.clearAll();
 }

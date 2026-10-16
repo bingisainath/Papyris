@@ -66,7 +66,7 @@ async def test_no_push_from_someone_you_blocked(db, make_user, make_group, add_m
     await db.commit()
     sent = []
 
-    async def fake_send(db_, user_ids, title, body, data):
+    async def fake_send(db_, user_ids, title, body, data, app_renders=False):
         sent.extend(user_ids)
     monkeypatch.setattr(push, "enabled", lambda: True)
     monkeypatch.setattr(push, "send_to_users", fake_send)
