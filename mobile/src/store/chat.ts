@@ -1,6 +1,7 @@
 // src/store/chat.ts
 // Chats and messages, kept up to date by the WebSocket (mirrors the web app's chat slice).
 
+import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { chatApi, Conversation, Message, MuteDuration, ReplyPreview } from '../api/chat';
 import { OutgoingMedia, socket, WsEvent } from '../websocket/socket';
@@ -19,6 +20,7 @@ import {
 import type { ChatInfo } from '../crypto/v2-platform/chat';
 import type { Received } from '../crypto/v2';
 import { showAlert } from '../components/common/Dialog';
+import { clearChatNotifications } from '../notifications/push';
 
 const TYPING_TTL_MS = 6000;
 
@@ -80,6 +82,8 @@ export const useChat = create<ChatState>((set, get) => ({
         : c,
     );
     set({ conversations, loaded: true });
+    // Read on another device (or here) while this phone was away: their notifications go too
+    clearChatNotifications(conversations.filter((c) => !c.unreadCount).map((c) => c.id));
     // v2 chats: the server only knows a message was sent; the preview comes from this phone's copy
     conversations.filter((c) => isV2Marker(c.lastMessage)).forEach((c) => {
       set((s) => ({ conversations: s.conversations.map((x) => (x.id === c.id ? { ...x, lastMessage: 'Encrypted message' } : x)) }));
@@ -130,6 +134,7 @@ export const useChat = create<ChatState>((set, get) => ({
     set({ activeId: conversationId });
     if (!conversationId) return;
     markReadLocally(conversationId);
+    clearChatNotifications([conversationId]);
     socket.join(conversationId);
     set((s) => ({ conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c)) }));
     chatApi.markRead(conversationId).catch(() => undefined);
@@ -537,6 +542,25 @@ socket.onStatus((connected) => {
   }
 });
 
+/** The app is in front of the user (an open chat in the background isn't being read). */
+export const onScreen = () => AppState.currentState === 'active';
+
+let appState = AppState.currentState;
+AppState.addEventListener('change', (next) => {
+  const back = /inactive|background/.test(appState) && next === 'active';
+  appState = next;
+  if (!back) return;
+  const { activeId, loadConversations, loadMessages } = useChat.getState();
+  // Back to a chat that stayed open: what came meanwhile is read now (not while the app was away)
+  if (activeId) useChat.getState().open(activeId);
+  // With the WebSocket still open: phones can keep it connected in the background while blocking the
+  // app's other network requests, so packets that came then may be waiting to be read
+  if (!socket.connected) return; // reconnecting does the same (onStatus above)
+  syncV2();
+  loadConversations().catch(() => undefined);
+  if (activeId) loadMessages(activeId).catch(() => undefined);
+});
+
 socket.on((e) => {
   const set = useChat.setState as unknown as Setter;
   const state = useChat.getState();
@@ -596,7 +620,7 @@ socket.on((e) => {
       const mine = e.senderId === myId();
       set((s) => {
         const list = (s.messages[e.roomId] || []).filter((m) => m.id !== message.id && (!e.clientId || m.id !== e.clientId));
-        const active = s.activeId === e.roomId;
+        const active = s.activeId === e.roomId && onScreen();
         return {
           messages: s.messages[e.roomId] || active ? { ...s.messages, [e.roomId]: [...list, message].sort(byTime) } : s.messages,
           conversations: s.conversations.map((c) =>
@@ -613,7 +637,7 @@ socket.on((e) => {
       });
       if (!state.conversations.some((c) => c.id === e.roomId)) state.loadConversations().catch(() => undefined);
       if (!mine && e.messageType !== 'system') socket.delivered(e.roomId, e.messageId);
-      if (state.activeId === e.roomId) {
+      if (state.activeId === e.roomId && onScreen()) {
         markReadLocally(e.roomId, new Date(message.timestamp).getTime());
         if (!mine) socket.read(e.roomId, e.messageId);
       }
@@ -648,6 +672,12 @@ socket.on((e) => {
       }
       break;
     case 'read':
+      if (e.roomId && e.userId && e.userId === myId()) {
+        // We read this chat on another device: no unread badge or notification left here
+        markReadLocally(e.roomId);
+        clearChatNotifications([e.roomId]);
+        set((s) => ({ conversations: s.conversations.map((c) => (c.id === e.roomId ? { ...c, unreadCount: 0 } : c)) }));
+      }
       if (e.roomId && e.readUpTo) {
         const upTo = new Date(e.readUpTo).getTime();
         set((s) => ({
@@ -705,7 +735,7 @@ socket.on((e) => {
       break;
     case 'e2e_envelope':
       if (typeof e.deviceId === 'number' && e.envelope) {
-        receiveLive(e.deviceId, e.envelope).then((r) => { if (r) applyV2(r); }).catch(() => undefined);
+        receiveLive(e.deviceId, e.envelope, applyV2).then((r) => { if (r) applyV2(r); }).catch(() => undefined);
       }
       break;
     case 'expense_reminder':

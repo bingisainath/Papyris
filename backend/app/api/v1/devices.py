@@ -27,8 +27,10 @@ async def register_device(body: DeviceRequest, current_user: User = Depends(get_
     if existing:
         # Same phone, possibly a different account now: notifications follow whoever is signed in
         existing.user_id, existing.platform, existing.last_seen_at = current_user.id, body.platform, now
+        existing.renders_messages = body.renders_messages
     else:
-        db.add(DeviceToken(user_id=current_user.id, token=body.token, platform=body.platform, last_seen_at=now))
+        db.add(DeviceToken(user_id=current_user.id, token=body.token, platform=body.platform,
+                           renders_messages=body.renders_messages, last_seen_at=now))
     await db.commit()
     return {"success": True, "message": "Device registered", "data": None}
 

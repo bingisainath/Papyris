@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status bar / notification icon: the app icon's chat bubble and S, white on transparent
+     (Android draws notification icons from their shape only). Source: docs/brand/app-icon-android.svg -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="320"
+    android:viewportHeight="320">
+    <group android:translateX="-96" android:translateY="-104">
+        <path
+            android:pathData="M184 128H328A72 72 0 0 1 400 200V280A72 72 0 0 1 328 352H228L150 408L166 346A72 72 0 0 1 112 280V200A72 72 0 0 1 184 128Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="26"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M298 196C286 182 270 176 254 176C230 176 212 190 212 209C212 231 233 237 256 243C281 249 302 257 302 279C302 297 284 306 258 306C237 306 220 299 208 285"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="26"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M256 160V322"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="24"
+            android:strokeLineCap="round" />
+    </group>
+</vector>

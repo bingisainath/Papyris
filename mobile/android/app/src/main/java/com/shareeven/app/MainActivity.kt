@@ -1,5 +1,6 @@
 package com.shareeven.app
 
+import android.content.Intent
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -30,5 +31,12 @@ class MainActivity : ReactActivity() {
    */
   override fun invokeDefaultOnBackPressed() {
     moveTaskToBack(true)
+  }
+
+  /** A chat notification tapped while the app was open in the background (see NotificationsModule). */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    NotificationsModule.onNewIntent(intent)
   }
 }

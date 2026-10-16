@@ -13,11 +13,14 @@ jest.mock('../websocket/socket', () => ({
 jest.mock('../api/chat', () => ({
   chatApi: { conversations: jest.fn(async () => []), markRead: jest.fn(async () => undefined), messages: jest.fn() },
 }));
+const cleared: string[][] = [];
+jest.mock('../notifications/push', () => ({ clearChatNotifications: (ids: string[]) => { cleared.push(ids); } }));
 // Signed in as "me" (this test has no encryption keys, so only the account says who we are)
 jest.mock('./auth', () => ({ useAuth: { getState: () => ({ user: { id: 'me' } }) } }));
 
 import { typingNames, useChat } from './chat';
 import { socket } from '../websocket/socket';
+import { AppState } from 'react-native';
 
 const emit = (e: any) => listeners.forEach((l) => l(e));
 // Sending first checks whether the chat is end-to-end encrypted (async)
@@ -25,6 +28,7 @@ const settle = () => new Promise<void>((r) => setTimeout(() => r(), 0));
 const conversation = { id: 'c1', name: 'Flat', lastMessage: '', lastMessageTime: null, unreadCount: 0, isGroup: true, members: ['me', 'bob'], isPinned: false, pinnedAt: null };
 
 beforeEach(() => {
+  (AppState as any).currentState = 'active'; // the app is in front unless a test says otherwise
   sent.length = 0;
   useChat.setState({ conversations: [conversation], messages: { c1: [] }, typing: {}, online: [], activeId: null });
 });
@@ -51,6 +55,16 @@ test('messages from others count as unread unless the chat is open', () => {
   useChat.setState({ activeId: 'c1' });
   emit({ type: 'message', roomId: 'c1', messageId: 'm3', senderId: 'bob', text: 'again', timestamp: new Date().toISOString() });
   expect(useChat.getState().conversations[0].unreadCount).toBe(1);
+});
+
+test("a chat left open in the background isn't read until the app is back in front", () => {
+  (AppState as any).currentState = 'background';
+  (socket.read as jest.Mock).mockClear();
+  useChat.setState({ activeId: 'c1' });
+  emit({ type: 'message', roomId: 'c1', messageId: 'm4', senderId: 'bob', text: 'still there?', timestamp: new Date().toISOString() });
+  expect(useChat.getState().conversations[0].unreadCount).toBe(1); // counts, and the sender sees no blue ticks
+  expect(socket.read).not.toHaveBeenCalled();
+  useChat.setState({ activeId: null });
 });
 
 test('our own message from another device is ours: not unread, not acknowledged as delivered', () => {
@@ -126,4 +140,21 @@ test('a chat read on the phone stays read even if the server is a moment behind'
   chatApi.conversations.mockResolvedValueOnce([{ ...conversation, unreadCount: 1, lastMessageTime: new Date(Date.now() + 60000).toISOString() }]);
   await useChat.getState().loadConversations();
   expect(useChat.getState().conversations[0].unreadCount).toBe(1);
+});
+
+test('reading a chat on another device clears its unread badge and notification here', () => {
+  useChat.setState({ conversations: [{ ...conversation, unreadCount: 3 }] });
+  cleared.length = 0;
+  emit({ type: 'read', roomId: 'c1', userId: 'bob', lastMessageId: 'm9', readUpTo: new Date().toISOString() });
+  expect(useChat.getState().conversations[0].unreadCount).toBe(3); // someone else reading: only ticks change
+  emit({ type: 'read', roomId: 'c1', userId: 'me', lastMessageId: 'm9', readUpTo: new Date().toISOString() });
+  expect(useChat.getState().conversations[0].unreadCount).toBe(0);
+  expect(cleared).toEqual([['c1']]);
+});
+
+test('opening a chat clears its notification', () => {
+  cleared.length = 0;
+  useChat.getState().open('c1');
+  expect(cleared).toEqual([['c1']]);
+  useChat.getState().open(null);
 });

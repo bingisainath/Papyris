@@ -197,7 +197,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
         <div
           onClick={handleBubbleClick}
           className={`
-            relative
+            relative max-w-full
             ${visual ? 'p-[3px]' : 'px-4 py-2.5'}
             rounded-2xl
             ${isSent

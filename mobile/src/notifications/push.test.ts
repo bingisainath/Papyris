@@ -27,7 +27,7 @@ test('on reconnect, an allowed phone registers its current token without a promp
   jest.spyOn(PermissionsAndroid, 'check').mockResolvedValue(true);
   await enablePush({ ask: false });
   expect(request).not.toHaveBeenCalled();
-  expect(posts).toEqual([['/devices', { token: 'new-token-after-reinstall-0123456789', platform: 'android' }]]);
+  expect(posts).toEqual([['/devices', { token: 'new-token-after-reinstall-0123456789', platform: 'android', renders_messages: false }]]);
 });
 
 test('on reconnect, a phone with notifications turned off is left alone', async () => {

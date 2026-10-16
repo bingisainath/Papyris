@@ -802,7 +802,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     const envelope = data.envelope;
     if (typeof deviceId !== 'number' || !envelope) return;
     dispatch((_: AppDispatch, getState: () => RootState) => {
-      receiveLive(deviceId, envelope).then(r => { if (r) applyV2(dispatch, getState, r); }).catch(() => undefined);
+      receiveLive(deviceId, envelope, (r) => applyV2(dispatch, getState, r)).then(r => { if (r) applyV2(dispatch, getState, r); }).catch(() => undefined);
     });
   });
 
