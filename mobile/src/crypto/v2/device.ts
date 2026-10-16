@@ -27,6 +27,16 @@ export interface E2EHttp {
 export const httpStatus = (e: unknown): number | undefined => (e as { response?: { status?: number } })?.response?.status;
 
 /**
+ * The server couldn't be reached or failed for a moment (axios-style error with no response, or a 5xx/429):
+ * worth trying again later. Phones block an app's network in the background while its WebSocket still delivers.
+ */
+export const isTransientHttpError = (e: unknown): boolean => {
+  if (!(e as { isAxiosError?: boolean })?.isAxiosError) return false;
+  const status = httpStatus(e);
+  return status === undefined || status >= 500 || status === 429;
+};
+
+/**
  * This device was removed from the account on another device ("Log out this device") while this one
  * stayed signed in. Its local keys are wiped; the app should sign out, as if logged out remotely.
  */

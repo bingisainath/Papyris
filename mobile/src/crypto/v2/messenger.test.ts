@@ -1,6 +1,6 @@
 // Phase 4: sending and receiving between several people with several devices each.
 
-import { certifyDevice, IncomingEnvelope, loadDeviceIdentity, signDeviceList } from './index';
+import { certifyDevice, IncomingEnvelope, loadDeviceIdentity, Messenger, signDeviceList } from './index';
 import { Device, Server } from './testing';
 
 /** The primary device certifies another device of the same account (what linking will do in phase 5). */
@@ -50,6 +50,17 @@ describe('direct chats', () => {
       expect((await aliceLaptop.read())).toEqual([`b${i}`]);
     }
     expect((await alicePhone.read()).length).toBe(6); // the phone saw all of them too
+  });
+
+  it("keeps a packet for later when the sender's devices can't be fetched (offline), and reads it once they can", async () => {
+    const { server, alicePhone, bob } = await setup();
+    await alicePhone.send('dm', false, ['alice', 'bob'], 'first hello');
+    const packet = server.mail.get('bob:1')![0];
+    // A phone in the background: the WebSocket delivered the packet, but other requests fail
+    const offline = { ...server.http('bob'), get: async () => { throw Object.assign(new Error('Network Error'), { isAxiosError: true }); } };
+    expect((await new Messenger(bob.store, offline, bob.address).receive(packet)).kind).toBe('waiting');
+    const back = await bob.messenger.receive(packet);
+    expect(back.kind).toBe('message');
   });
 
   it('a packet delivered twice is stored once; one meant for another device is refused', async () => {

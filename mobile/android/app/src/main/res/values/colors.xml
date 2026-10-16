@@ -1,0 +1,4 @@
+<resources>
+    <!-- Accent of notifications (icon circle, app name) -->
+    <color name="notification_accent">#543f7d</color>
+</resources>

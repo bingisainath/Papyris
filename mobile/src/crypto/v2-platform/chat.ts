@@ -168,18 +168,58 @@ export async function confirmOwn(clientId: string, serverId: string): Promise<Lo
   return runtime ? runtime.messenger.confirmSent(clientId, serverId) : null;
 }
 
-export async function receiveLive(deviceId: number, envelope: IncomingEnvelope): Promise<Received | null> {
-  const runtime = await v2Runtime()?.catch(() => null);
-  if (!runtime || deviceId !== runtime.state.deviceId) return null;
-  const result = await runtime.messenger.receive(envelope);
-  if (result.kind !== 'waiting') await runtime.messenger.ack([envelope.id]).catch(() => undefined);
-  return result;
+// Live packets are opened one at a time, in the order they came. A group's first message follows
+// the packet carrying its key; opened side by side (the key's packet is slower the first time two
+// people talk), the message was tried first and stayed unread until the next reconnect.
+let liveQueue: Promise<unknown> = Promise.resolve();
+let somethingWaits = false;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+const RETRY_WAITING_MS = 15_000;
+
+/**
+ * `onLater`: packets that had to wait (for a group key, or because the server couldn't be reached)
+ * and can be read now: when the key comes, or on a retry a little later.
+ */
+export function receiveLive(deviceId: number, envelope: IncomingEnvelope, onLater?: (r: Received) => void): Promise<Received | null> {
+  const run = liveQueue.then(async () => {
+    const runtime = await v2Runtime()?.catch(() => null);
+    if (!runtime || deviceId !== runtime.state.deviceId) return null;
+    const result = await runtime.messenger.receive(envelope);
+    if (result.kind === 'waiting') {
+      somethingWaits = true;
+      if (onLater && !retryTimer) {
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          if (somethingWaits) drainLive(onLater);
+        }, RETRY_WAITING_MS);
+      }
+    } else {
+      await runtime.messenger.ack([envelope.id]).catch(() => undefined);
+    }
+    if (result.kind === 'control' && somethingWaits && onLater) await drainNow(runtime, onLater);
+    return result;
+  });
+  liveQueue = run.catch(() => undefined);
+  return run;
 }
 
-export async function drainMailbox(onReceived: (r: Received, e: IncomingEnvelope) => void): Promise<void> {
-  const runtime = await v2Runtime()?.catch(() => null);
-  if (!runtime?.state.listed) return;
-  await runtime.messenger.drain(onReceived);
+async function drainNow(runtime: NonNullable<Awaited<ReturnType<typeof v2Runtime>>>, onReceived: (r: Received) => void) {
+  somethingWaits = false;
+  await runtime.messenger.drain((r) => { if (r.kind === 'waiting') somethingWaits = true; onReceived(r); }).catch(() => { somethingWaits = true; });
+}
+
+/** Process the mailbox in turn with live packets (so the same packet isn't opened twice at once). */
+function drainLive(onReceived: (r: Received) => void): Promise<void> {
+  const run = liveQueue.then(async () => {
+    const runtime = await v2Runtime()?.catch(() => null);
+    if (runtime?.state.listed) await drainNow(runtime, onReceived);
+  });
+  liveQueue = run.catch(() => undefined);
+  return run;
+}
+
+export function drainMailbox(onReceived: (r: Received) => void): Promise<void> {
+  return drainLive(onReceived);
 }
 
 export async function forgetDirectory(user?: string): Promise<void> {

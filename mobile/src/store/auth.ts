@@ -7,7 +7,7 @@ import { authApi, TokenPair, User } from '../api/auth';
 import { errorMessage, setSessionExpiredHandler } from '../api/client';
 import { tokens } from '../api/tokens';
 import { socket } from '../websocket/socket';
-import { disablePush, enablePush } from '../notifications/push';
+import { clearAllNotifications, disablePush, enablePush } from '../notifications/push';
 import { e2eSession } from '../crypto/session';
 import { stopV2, v2Runtime } from '../crypto/v2-platform/runtime';
 import { showAlert } from '../components/common/Dialog';
@@ -183,6 +183,7 @@ export const useAuth = create<AuthState>((set, get) => {
 
     logout: async () => {
       await disablePush(); // while still signed in, so the server accepts it
+      clearAllNotifications();
       await stopV2().catch(() => undefined); // v2: the server forgets this device; local data is wiped
       socket.stop();
       await tokens.clear();

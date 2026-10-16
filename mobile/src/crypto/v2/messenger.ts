@@ -19,7 +19,7 @@ import type { PreKeyBundle } from './prekeys';
 import { distribution, fromDistribution, groupDecrypt, groupEncrypt, needsRotation, newSenderKey } from './senderKeys';
 import { fromGroupPacket, fromMessagePacket, GroupPacket, MessagePacket, senderName, toGroupPacket, toMessagePacket } from './packets';
 import type { E2EHttp } from './device';
-import { httpStatus } from './device';
+import { httpStatus, isTransientHttpError } from './device';
 import type { EncryptedStore, LocalMessage, StoreView } from './storage';
 
 export interface OutgoingEnvelope { to_user: string; to_device: number; packet: MessagePacket | GroupPacket }
@@ -37,7 +37,7 @@ export type Received =
   | { kind: 'edit'; message: LocalMessage }
   | { kind: 'control' } // sender key distribution etc.
   | { kind: 'duplicate' }
-  | { kind: 'waiting' } // can't be read yet (e.g. a group key hasn't arrived); keep it for later
+  | { kind: 'waiting' } // can't be read yet (a group key hasn't arrived, or the server is unreachable); keep it for later
   | { kind: 'failed'; error: string };
 
 const DIRECTORY_TTL_MS = 10 * 60 * 1000;
@@ -201,6 +201,9 @@ export class Messenger {
         ? await this.receiveGroup(envelope, envelope.packet as GroupPacket)
         : await this.receiveDirect(envelope, envelope.packet as MessagePacket, device);
     } catch (e) {
+      // Couldn't fetch the sender's devices (offline, or the phone blocks the app's network in the
+      // background): keep the packet for the next try instead of dropping it as unreadable
+      if (isTransientHttpError(e)) return { kind: 'waiting' };
       return { kind: 'failed', error: (e as Error).message };
     }
   }
