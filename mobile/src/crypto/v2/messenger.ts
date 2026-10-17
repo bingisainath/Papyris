@@ -32,11 +32,30 @@ export interface IncomingEnvelope {
   packet: MessagePacket | GroupPacket;
 }
 
+/**
+ * What the server says about a new message, next to each device's packet (protocol 3): enough to show
+ * it in the chat as soon as the packet is decrypted, or as "Waiting for this message…" if it can't be.
+ */
+export interface EnvelopeMeta {
+  messageId: string;
+  roomId: string;
+  senderId: string;
+  senderName?: string;
+  senderAvatar?: string | null;
+  messageType?: string;
+  mediaType?: string | null;
+  mediaUrl?: string | null;
+  mediaThumbnail?: string | null;
+  replyTo?: { id: string; text?: string; senderId?: string; senderName?: string | null; messageType?: string; isDeleted?: boolean } | null;
+  timestamp: string;
+  fromDevice: number;
+}
+
 export type Received =
   | { kind: 'message'; message: LocalMessage }
   | { kind: 'edit'; message: LocalMessage }
   | { kind: 'control' } // sender key distribution etc.
-  | { kind: 'duplicate' }
+  | { kind: 'duplicate'; message?: LocalMessage } // already here (another tab read it, or a resend): our copy
   | { kind: 'waiting' } // can't be read yet (a group key hasn't arrived, or the server is unreachable); keep it for later
   | { kind: 'failed'; error: string };
 
@@ -244,8 +263,9 @@ export class Messenger {
     if (await tx.hasMessage(body.id)) {
       // Our own message coming back to another of our devices, or a replay: link the server id at most
       const existing = (await tx.message(body.id))!;
-      if (envelope.message_id && !existing.serverId) await tx.saveMessage({ ...existing, serverId: envelope.message_id }, true);
-      return { kind: 'duplicate' };
+      const linked = envelope.message_id && !existing.serverId ? { ...existing, serverId: envelope.message_id } : existing;
+      if (linked !== existing) await tx.saveMessage(linked, true);
+      return { kind: 'duplicate', message: linked };
     }
     const message: LocalMessage = {
       id: body.id, conv: body.conv, sender: envelope.from, ts: body.ts, kind: body.kind,
@@ -280,6 +300,28 @@ export class Messenger {
   /** Acknowledge one envelope (after a live WebSocket delivery was processed). */
   async ack(ids: string[]): Promise<void> {
     if (ids.length) await this.http.post(`/e2e/v2/mailbox/${this.me.device}/ack`, { ids });
+  }
+
+  /**
+   * Another device couldn't read one of our messages and asked for it again (a retry request): encrypt
+   * our copy once more, for that device only, over a new session (the old one may be what broke), as
+   * WhatsApp does. Always a direct packet, also in groups. Null if this device doesn't have the message.
+   */
+  async resend(serverId: string, to: Address): Promise<OutgoingEnvelope | null> {
+    const message = await this.store.messageByServerId(serverId);
+    if (!message || message.sender.user !== this.me.user || message.deleted || (message.kind !== 'text' && message.kind !== 'media')) return null;
+    const device = (await this.devicesOf(to.user, true))?.find((d) => d.id === to.device);
+    if (!device) return null;
+    const body: MessageBody = {
+      v: 2, id: message.id, conv: message.conv, ts: message.ts, kind: message.kind,
+      ...(message.text !== undefined ? { text: message.text } : {}), ...(message.media ? { media: message.media } : {}),
+      ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+    };
+    return this.store.transaction(async (tx) => {
+      await tx.removeSession(to);
+      const e = await encryptFor(tx, to, device, encodeBody(body), this.bundle(to.user, to.device));
+      return { to_user: to.user, to_device: to.device, packet: toMessagePacket(message.conv, this.me, to, e) };
+    });
   }
 
   /** For edits: who gets a follow-up to an existing message (same rules as sending). */

@@ -511,6 +511,40 @@ acknowledged. Today the apps re-download and decrypt history from the server; in
 locally, and new devices get it through history transfer (§3.5). This is the biggest change for the
 existing system, and it's the change that removes W1.
 
+### 4.7 Delivery: envelope-first, complete fan-out and retry requests (protocol 3)
+
+As on Signal and WhatsApp, a device shows a message **only once it has decrypted its own packet**.
+Apps connect with `?proto=3`:
+
+- **The packet carries the message's details.** Each `e2e_envelope` event has `meta`: server message
+  id, conversation, sender, server time, type, signed media links, reply preview, sending device. The
+  app decrypts the packet, then puts the message in the chat with its text. There's no blank bubble
+  first: before protocol 3, a marker `message` event came first and the bubble flashed "Waiting for
+  this message…" until the packet arrived.
+- **The sender gets `message_sent`** (`clientId` → server id, time, `fromDevice`). The sending device
+  (any of its tabs, which share the local database) links its copy to the timeline row. The account's
+  other devices show the message from their own packets, like any received one.
+- **Complete fan-out.** For a new message the server checks the packets cover every device on every
+  member's signed list that hasn't logged out, except the sending one (`e2e_mailbox.queue(complete=True)`).
+  If not, it queues nothing and answers `error` with `code: "devices_changed"` and the `missing` and
+  `extra` devices. The app fetches those lists again and encrypts once more, as Signal does with its
+  mismatched-devices answer. A newly linked device can't silently miss messages because of a cached list.
+- **Waiting and unreadable packets.** A packet that can't be read yet (a group key still on its way)
+  shows "Waiting for this message…" only if it's still unread after 4 seconds. A packet that can't be
+  decrypted at all, live or from the mailbox after being away, shows the placeholder and makes a
+  **retry request**: `POST /e2e/v2/retry-requests {device_id, message_id, sender_device}`. The server
+  keeps it until the sending device handles it (live `e2e_retry_request`, and
+  `GET /e2e/v2/retry-requests/{device}` on every connect). That device encrypts its copy again for the
+  requester only, over a **new session** (the old one may be what broke), as a direct packet also in
+  groups (`Messenger.resend`). It delivers it with `POST /conversations/{id}/envelopes` and the original
+  `message_id`, then marks the request done.
+  - Requests are kept after handling, so the limit of 3 per message and device holds.
+  - Only messages less than 30 days old can be requested.
+- **Follow-ups** (edits, resends) can only be attached to the sender's own messages in that chat.
+- **Older apps** (no `proto`) keep the previous events: the marker `message` (sent only to their
+  sockets, `_legacy`), then the packets. The new checks don't apply to them, so they keep working
+  until they update.
+
 ---
 
 ## 5. Groups: Sender Keys
@@ -930,3 +964,4 @@ export function deviceCert(aikPriv: Uint8Array, user: string, deviceId: number, 
 | 5 (open) | Approving from the phone was not tried by hand (the test phone blocks automated taps). | |
 | 6 | Trust (`v2/trust.ts`, shared; `v2-platform/trust.ts` per app): the security code is the 60-digit safety number of both account keys, so it doesn't change when either person links a device. "Mark as verified" after comparing, or scan the QR code under the code with the phone app (both people and both keys must match). When someone's account key changes the chat shows "X's security code changed" until dismissed; if they were verified, sending to them is refused (`identity_changed`) until the new code is verified again or accepted. Browser test `e2e/trust_e2e.py`. Verification is kept per device (not yet synced between your own devices). | Done |
 | 7 | Migration and hardening. New accounts are version 2 only; version 1 keys are kept just to read older messages, and "start fresh" retires them (`DELETE /keys/me`, kept as previous keys for old signatures). Sign-in is decided by the version 2 device list; whether a chat is encrypted counts both versions (`GET /conversations/{id}/keys`: `missing`, `v1_missing`, `v2_ready`), and version 1 is sent only while some member has no version 2 yet. Backups and restores work without version 1, and a restore older than the account's current key is refused while another device is signed in. Tests: RFC 7748/8032/5869/8439 vectors, known answers for our KDFs from Python, a seeded hostile-network test; browser tests updated. Review brief: [encryption-review-brief.md](encryption-review-brief.md). External review: not done yet. | Done (review open) |
+| 8 | Envelope-first delivery (§4.7): messages shown only once decrypted, with their details in the packet; `message_sent` for the sender; complete fan-out checked by the server (`devices_changed`, resent automatically); retry requests answered by the sending device over a new session (migration 0024). Older apps keep the previous events. Tests: `backend/tests/test_envelope_first.py`, `crypto/v2/messenger.test.ts` (resend), browser test `e2e/envelope_first_e2e.py`. | Done (Android not tried on a phone yet) |

@@ -62,6 +62,14 @@ export interface WebSocketEvent {
   // encryption v2
   deviceId?: number;
   envelope?: import('../crypto/v2').IncomingEnvelope;
+  // Envelope-first (proto=3): a new message's details next to its packet, and `message_sent` for ours
+  meta?: import('../crypto/v2').EnvelopeMeta;
+  fromDevice?: number;
+  // error code devices_changed: whose devices to fetch again; e2e_retry_request: who asked
+  code?: string;
+  missing?: { user: string; device: number }[];
+  extra?: { user: string; device: number }[];
+  request?: import('../crypto/v2-platform/chat').RetryRequest;
   version?: number;
   readUpTo?: string | null;
   deliveredUpTo?: string | null;
@@ -142,7 +150,8 @@ class WebSocketService {
       this.token = token;
       this.shouldReconnect = true;
 
-      const url = `${this.wsUrl}?token=${encodeURIComponent(token)}`;
+      // proto=3: encrypted (v2) messages arrive as envelopes carrying their details (envelope-first)
+      const url = `${this.wsUrl}?token=${encodeURIComponent(token)}&proto=3`;
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
