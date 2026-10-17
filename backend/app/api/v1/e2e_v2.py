@@ -20,6 +20,10 @@ Mailboxes (one queue per device; packets are deleted once acknowledged)
   POST   /e2e/v2/conversations/{id}/envelopes    deliver packets to devices
   GET    /e2e/v2/mailbox/{device_id}             pending packets for one of my devices
   POST   /e2e/v2/mailbox/{device_id}/ack         done with these
+Retry requests (a device couldn't decrypt a message: the sending device encrypts it again)
+  POST   /e2e/v2/retry-requests                  ask the sender's device
+  GET    /e2e/v2/retry-requests/{device_id}      requests waiting for one of my devices
+  POST   /e2e/v2/retry-requests/{request_id}/done   handled (sent again, or can't be)
 """
 
 import logging
@@ -36,7 +40,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.conversation_member import ConversationMember
-from app.models.e2e_v2 import E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequest, E2EOneTimePreKey, E2ESignedPreKey
+from app.models.e2e_v2 import E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequest, E2EOneTimePreKey, E2ERetryRequest, E2ESignedPreKey
+from app.models.message import Message
+from app.services.message_service import MessageService
 from app.models.user import User
 from app.services import e2e_v2 as checks
 from app.services import e2e_mailbox as mailbox_service
@@ -44,7 +50,7 @@ from app.services import media_storage
 from app.services import push, sessions
 from app.websocket.routes import publish_users
 from app.schemas.e2e_v2 import (
-    MAX_ONE_TIME_PREKEYS, RegisterDevice, PreKeyUpload, PublishList, LinkRequestBody, GrantBody, SendBody, AckBody,
+    MAX_ONE_TIME_PREKEYS, RegisterDevice, PreKeyUpload, PublishList, LinkRequestBody, GrantBody, SendBody, AckBody, RetryRequestBody,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,10 @@ router = APIRouter(prefix="/e2e/v2", tags=["Encryption v2"])
 MAX_DEVICES = 10
 LINK_TTL = timedelta(minutes=10)
 MAILBOX_PAGE = 200
+# Retry requests: only for recent messages, a few times per message and device
+RETRY_MAX_AGE = timedelta(days=30)
+RETRY_MAX_ATTEMPTS = 3
+RETRY_PAGE = 100
 STALE_UNLINKED = timedelta(days=1)
 
 
@@ -470,6 +480,11 @@ async def deny_link(request_id: uuid.UUID, user: User = Depends(get_current_user
 
 async def deliver(db: AsyncSession, user: User, conversation_id: uuid.UUID, body: SendBody) -> list[str]:
     """Queue packets for devices of the conversation's members (and the sender's own devices)."""
+    if body.message_id is not None:
+        # Follow-ups (edits, resends) belong to one of the sender's own messages in this chat
+        message = await MessageService.get_message(db, body.message_id, wait_seconds=2)
+        if message is None or message.conversation_id != conversation_id or message.sender_id != user.id:
+            raise HTTPException(status_code=404, detail="Message not found")
     try:
         rows = await mailbox_service.queue(db, user.id, conversation_id, body.from_device,
                                            [mailbox_service.Outgoing(p.to_user, p.to_device, p.packet) for p in body.packets], body.message_id)
@@ -496,6 +511,73 @@ async def mailbox(device_id: int, user: User = Depends(get_current_user), db: As
     ).order_by(E2EEnvelope.created_at, E2EEnvelope.id).limit(MAILBOX_PAGE + 1))).scalars().all()
     await db.commit()
     return {"success": True, "data": [mailbox_service.envelope_view(e) for e in rows[:MAILBOX_PAGE]], "has_more": len(rows) > MAILBOX_PAGE}
+
+
+def _retry_view(r: E2ERetryRequest) -> dict:
+    return {"id": str(r.id), "message_id": str(r.message_id), "conversation_id": str(r.conversation_id),
+            "requester": {"user": str(r.requester_user_id), "device": r.requester_device_id},
+            "sender_device": r.sender_device_id, "attempts": r.attempts,
+            "created_at": r.created_at.isoformat() if r.created_at else None}
+
+
+@router.post("/retry-requests")
+async def request_retry(body: RetryRequestBody, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """This device couldn't decrypt a message: ask the device that sent it to encrypt it again."""
+    await _my_device(db, user, body.device_id)
+    message = await db.get(Message, body.message_id)
+    if message is None or message.text != media_storage.V2_MARKER or message.sender_id is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if user.id not in {uuid.UUID(m) for m in await MessageService.member_ids(db, message.conversation_id)}:
+        raise HTTPException(status_code=404, detail="Message not found")
+    created = message.created_at if message.created_at.tzinfo else message.created_at.replace(tzinfo=timezone.utc)
+    if _now() - created > RETRY_MAX_AGE:
+        raise HTTPException(status_code=410, detail="This message is too old to send again")
+    sender_device = (await db.execute(select(E2EDevice).where(
+        E2EDevice.user_id == message.sender_id, E2EDevice.device_id == body.sender_device, E2EDevice.removed_at.is_(None),
+    ))).scalar_one_or_none()
+    if sender_device is None:
+        raise HTTPException(status_code=404, detail="The device that sent this message is no longer signed in")
+    if message.sender_id == user.id and body.sender_device == body.device_id:
+        raise HTTPException(status_code=422, detail="A device can't ask itself")
+    request = (await db.execute(select(E2ERetryRequest).where(
+        E2ERetryRequest.message_id == message.id, E2ERetryRequest.requester_user_id == user.id,
+        E2ERetryRequest.requester_device_id == body.device_id,
+    ))).scalar_one_or_none()
+    if request is None:
+        request = E2ERetryRequest(message_id=message.id, conversation_id=message.conversation_id, requester_user_id=user.id,
+                                  requester_device_id=body.device_id, sender_user_id=message.sender_id,
+                                  sender_device_id=body.sender_device, attempts=1)
+        db.add(request)
+    elif request.attempts >= RETRY_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Already asked several times")
+    else:
+        request.attempts += 1
+        request.sender_device_id = body.sender_device
+        request.handled_at = None
+    await db.commit()
+    await db.refresh(request)
+    await publish_users([str(message.sender_id)], {"type": "e2e_retry_request", "request": _retry_view(request)})
+    return {"success": True, "data": _retry_view(request)}
+
+
+@router.get("/retry-requests/{device_id}")
+async def retry_requests(device_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Requests waiting for one of my devices (fetched on every connect; live ones also come over the WebSocket)."""
+    await _my_device(db, user, device_id)
+    mine = (E2ERetryRequest.sender_user_id == user.id, E2ERetryRequest.sender_device_id == device_id)
+    await db.execute(delete(E2ERetryRequest).where(*mine, E2ERetryRequest.created_at < _now() - RETRY_MAX_AGE))
+    rows = (await db.execute(select(E2ERetryRequest).where(*mine, E2ERetryRequest.handled_at.is_(None))
+                             .order_by(E2ERetryRequest.created_at).limit(RETRY_PAGE))).scalars().all()
+    await db.commit()
+    return {"success": True, "data": [_retry_view(r) for r in rows]}
+
+
+@router.post("/retry-requests/{request_id}/done")
+async def retry_done(request_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await db.execute(update(E2ERetryRequest).where(E2ERetryRequest.id == request_id, E2ERetryRequest.sender_user_id == user.id)
+                     .values(handled_at=_now()))
+    await db.commit()
+    return {"success": True}
 
 
 @router.post("/mailbox/{device_id}/ack")

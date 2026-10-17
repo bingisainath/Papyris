@@ -18,7 +18,7 @@ from app.models.e2e_key import KeyLinkRequest, PreviousUserKeys, UserKeys
 from app.models.auth_session import AuthSession
 from app.models.safety import AccountNotice, Report, UserBlock
 from app.models.admin import AdminAction
-from app.models.e2e_v2 import E2EBackup, E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequest, E2EOneTimePreKey, E2ESignedPreKey
+from app.models.e2e_v2 import E2EBackup, E2EDevice, E2EDeviceList, E2EEnvelope, E2ELinkRequest, E2EOneTimePreKey, E2ERetryRequest, E2ESignedPreKey
 
 __all__ = [
     "AccountNotice",
@@ -33,6 +33,7 @@ __all__ = [
     "E2EEnvelope",
     "E2ELinkRequest",
     "E2EOneTimePreKey",
+    "E2ERetryRequest",
     "E2ESignedPreKey",
     "KeyLinkRequest",
     "PreviousUserKeys",

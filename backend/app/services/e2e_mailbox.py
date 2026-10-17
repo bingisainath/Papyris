@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.e2e_v2 import E2EDevice, E2EEnvelope
+from app.models.e2e_v2 import E2EDevice, E2EDeviceList, E2EEnvelope
 from app.services.message_service import MessageService
 
 MAX_PACKET_BYTES = 256 * 1024
@@ -27,6 +27,20 @@ class MailboxError(Exception):
         self.detail = detail
 
 
+class DevicesChanged(MailboxError):
+    """The packets don't match the members' device lists: the sender refreshes them and encrypts again."""
+
+    def __init__(self, missing: list[tuple[uuid.UUID, int]], extra: list[tuple[uuid.UUID, int]]):
+        super().__init__(409, "Some devices were removed. Fetch the device lists again." if extra and not missing
+                         else "Someone's devices changed. Fetch the device lists again.")
+        self.missing = missing
+        self.extra = extra
+
+    def details(self) -> dict:
+        view = lambda pairs: [{"user": str(u), "device": d} for u, d in sorted(pairs, key=lambda p: (str(p[0]), p[1]))]
+        return {"code": "devices_changed", "missing": view(self.missing), "extra": view(self.extra)}
+
+
 @dataclass
 class Outgoing:
     to_user: uuid.UUID
@@ -34,9 +48,26 @@ class Outgoing:
     packet: dict[str, Any]
 
 
+async def listed_devices(db: AsyncSession, user_ids: set[uuid.UUID]) -> set[tuple[uuid.UUID, int]]:
+    """(user, device) for every device on these users' signed device lists that hasn't logged out."""
+    listed = set()
+    for row in (await db.execute(select(E2EDeviceList).where(E2EDeviceList.user_id.in_(user_ids)))).scalars():
+        listed |= {(row.user_id, d["id"]) for d in json.loads(row.signed_list).get("devices", []) if isinstance(d.get("id"), int)}
+    if not listed:
+        return listed
+    active = set((await db.execute(select(E2EDevice.user_id, E2EDevice.device_id).where(
+        E2EDevice.user_id.in_(user_ids), E2EDevice.removed_at.is_(None),
+    ))).all())
+    return listed & active
+
+
 async def queue(db: AsyncSession, sender_id: uuid.UUID, conversation_id: uuid.UUID, from_device: int,
-                packets: list[Outgoing], message_id: uuid.UUID | None) -> list[E2EEnvelope]:
-    """Add the packets to the devices' mailboxes (not committed). Raises MailboxError."""
+                packets: list[Outgoing], message_id: uuid.UUID | None, complete: bool = False) -> list[E2EEnvelope]:
+    """
+    Add the packets to the devices' mailboxes (not committed). Raises MailboxError.
+    With `complete`, the packets must reach every listed device of every member except the sending one
+    (a new message, like Signal's mismatched-devices check), so no device silently misses it.
+    """
     if not packets or len(packets) > MAX_PACKETS_PER_SEND:
         raise MailboxError(422, "Nothing to send, or too many packets")
     sender_device = (await db.execute(select(E2EDevice.id).where(
@@ -54,7 +85,11 @@ async def queue(db: AsyncSession, sender_id: uuid.UUID, conversation_id: uuid.UU
         E2EDevice.user_id.in_({u for u, _ in targets}), E2EDevice.removed_at.is_(None),
     ))).all())
     if not targets <= active:
-        raise MailboxError(409, "Some devices were removed. Fetch the device lists again.")
+        raise DevicesChanged([], list(targets - active))
+    if complete:
+        expected = await listed_devices(db, members) - {(sender_id, from_device)}
+        if expected - targets:
+            raise DevicesChanged(list(expected - targets), [])
     rows = []
     for p in packets:
         raw = json.dumps(p.packet)
@@ -76,6 +111,11 @@ def envelope_view(e: E2EEnvelope) -> dict:
             "packet": json.loads(e.packet), "created_at": e.created_at.isoformat() if e.created_at else None}
 
 
-def events(rows: list[E2EEnvelope]) -> list[tuple[str, dict]]:
-    """(recipient user id, WebSocket event) for each queued packet."""
-    return [(str(e.recipient_user_id), {"type": "e2e_envelope", "deviceId": e.recipient_device_id, "envelope": envelope_view(e)}) for e in rows]
+def events(rows: list[E2EEnvelope], meta: dict | None = None) -> list[tuple[str, dict]]:
+    """
+    (recipient user id, WebSocket event) for each queued packet. `meta`: the new message's details
+    (server id, time, sender, media links), so a device can show the message as soon as it has
+    decrypted it, without waiting for anything else.
+    """
+    return [(str(e.recipient_user_id), {"type": "e2e_envelope", "deviceId": e.recipient_device_id, "envelope": envelope_view(e),
+                                        **({"meta": meta} if meta else {})}) for e in rows]

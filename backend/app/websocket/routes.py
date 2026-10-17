@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.session import async_session_maker
-from app.websocket.manager import WSManager
+from app.websocket.manager import ENVELOPE_FIRST_PROTO, LEGACY_KEY, WSManager
 from app.websocket.auth import get_token_from_ws, verify_ws_token
 from app.websocket.pubsub import PubSub
 from app.websocket.streams import RedisStreams
@@ -57,6 +57,23 @@ async def publish_room(room_id: str, payload: dict):
 async def publish_users(user_ids: list[str], payload: dict):
     """Publish event to every socket of the given users, on any backend instance"""
     await pubsub.publish({"userIds": user_ids, "payload": payload})
+
+
+async def publish_message_v2(member_ids: list[str], rows: list, meta: dict, client_id: str | None):
+    """Announce a new encrypted (v2) message: `meta` holds its details, `rows` the queued packets."""
+    # Older apps: the marker row first, then the packets (the order they were built for)
+    await publish_users(member_ids, {
+        "type": "message", "clientId": client_id, "text": media_storage.V2_MARKER, "status": "sent",
+        **meta, LEGACY_KEY: True,
+    })
+    # Every device shows the message once it has decrypted its own packet (like Signal)
+    for uid, event in e2e_mailbox.events(rows, meta):
+        await publish_users([uid], event)
+    # The sending device (any of its tabs) links its copy to the timeline row
+    await publish_users([meta["senderId"]], {
+        "type": "message_sent", "roomId": meta["roomId"], "clientId": client_id, "messageId": meta["messageId"],
+        "timestamp": meta["timestamp"], "fromDevice": meta["fromDevice"], "status": "sent",
+    })
 
 
 async def publish_global(payload: dict):
@@ -142,8 +159,12 @@ async def ws_chat(ws: WebSocket):
             return
 
     # 2. Accept connection and track presence
+    try:
+        proto = int(ws.query_params.get("proto") or 0)
+    except ValueError:
+        proto = 0
     await manager.accept(ws)
-    manager.track_user(user_id_str, ws)
+    manager.track_user(user_id_str, ws, proto)
 
     socket_count = await pubsub.redis.hincrby(PRESENCE_KEY, user_id_str, 1)
     if socket_count == 1:
@@ -370,8 +391,8 @@ async def ws_chat(ws: WebSocket):
             if event_type == "message_v2" and room_id:
                 client_id = data.get("clientId")
 
-                async def reject_v2(reason: str):
-                    await ws.send_json({"type": "error", "message": reason, "clientId": client_id, "roomId": room_id})
+                async def reject_v2(reason: str, **details):
+                    await ws.send_json({"type": "error", "message": reason, "clientId": client_id, "roomId": room_id, **details})
 
                 message_type = data.get("messageType") or "text"
                 attachments = [a for a in (data.get("attachments") or []) if isinstance(a, str)][:2]
@@ -398,7 +419,12 @@ async def ws_chat(ws: WebSocket):
                 timestamp = datetime.now(timezone.utc).isoformat()
                 async with async_session_maker() as db:
                     try:
-                        rows = await e2e_mailbox.queue(db, user_id, conv_uuid, from_device, outgoing, uuid.UUID(msg_id))
+                        # Apps on protocol 3 refresh device lists and resend when one is missing
+                        rows = await e2e_mailbox.queue(db, user_id, conv_uuid, from_device, outgoing, uuid.UUID(msg_id),
+                                                       complete=manager.proto(ws) >= ENVELOPE_FIRST_PROTO)
+                    except e2e_mailbox.DevicesChanged as e:
+                        await reject_v2(e.detail, **e.details())
+                        continue
                     except e2e_mailbox.MailboxError as e:
                         await reject_v2(e.detail)
                         continue
@@ -431,17 +457,16 @@ async def ws_chat(ws: WebSocket):
                     "mediaThumbnail": thumbnail, "hasLink": data.get("hasLink") is True,
                     "replyToId": reply_to["id"] if reply_to else None, "timestamp": timestamp,
                 })
-                await publish_users(member_ids, {
-                    "type": "message", "roomId": room_id, "messageId": msg_id, "clientId": client_id,
-                    "senderId": user_id_str, "senderName": sender.username if sender else "Unknown",
+                meta = {
+                    "messageId": msg_id, "roomId": room_id, "senderId": user_id_str,
+                    "senderName": sender.username if sender else "Unknown",
                     "senderAvatar": media_storage.sign_url(sender.avatar if sender else None),
-                    "text": media_storage.V2_MARKER, "messageType": message_type, "mediaType": media_type,
+                    "messageType": message_type, "mediaType": media_type,
                     "mediaUrl": media_storage.sign_url(attachments[0]) if attachments else None,
                     "mediaThumbnail": media_storage.sign_url(thumbnail), "replyTo": reply_to,
-                    "timestamp": timestamp, "status": "sent", "fromDevice": from_device,
-                })
-                for uid, event in e2e_mailbox.events(rows):
-                    await publish_users([uid], event)
+                    "timestamp": timestamp, "fromDevice": from_device,
+                }
+                await publish_message_v2(member_ids, rows, meta, client_id)
                 continue
 
             # TYPING INDICATOR
