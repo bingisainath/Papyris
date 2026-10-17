@@ -11,7 +11,7 @@ import { captureVideoPoster, compressImage, measureMedia, mediaTypeOf } from '..
 import type { UploadQuality } from '../../utils/media';
 import type { Message, ReplyPreview } from '../../redux/slices/chatSlice';
 import { encryptMedia, isV2Marker, LocalMessage, MediaPointer, MessageBody } from '../v2';
-import type { IncomingEnvelope, OutgoingEnvelope, Received } from '../v2';
+import type { Address, IncomingEnvelope, OutgoingEnvelope, Received } from '../v2';
 import { rememberDecrypted } from '../media';
 import { jpegOrientation, stripJpegMetadata } from '../e2e';
 import { v2Runtime } from './runtime';
@@ -79,11 +79,75 @@ export async function lastLocal(conversationId: string): Promise<LocalMessage | 
   return runtime ? runtime.store.lastMessage(conversationId) : null;
 }
 
-function sendOverSocket(chat: ChatInfo, clientId: string, deviceId: number, messageType: string, envelopes: OutgoingEnvelope[], extra: { attachments?: string[]; replyToId?: string; hasLink?: boolean }) {
+interface SendExtra { attachments?: string[]; replyToId?: string; hasLink?: boolean }
+
+// Sends the server hasn't confirmed yet, kept so a "devices changed" answer can encrypt them again
+const unconfirmed = new Map<string, { chat: ChatInfo; messageType: string; extra: SendExtra; body: MessageBody; resent: boolean }>();
+
+function sendOverSocket(chat: ChatInfo, clientId: string, deviceId: number, messageType: string, envelopes: OutgoingEnvelope[], extra: SendExtra, body: MessageBody) {
+  unconfirmed.set(clientId, { chat, messageType, extra, body, resent: false });
   return wsService.sendEvent({
     type: 'message_v2', roomId: chat.conversationId, clientId, fromDevice: deviceId, messageType,
     envelopes, attachments: extra.attachments || [], ...(extra.replyToId ? { replyToId: extra.replyToId } : {}), hasLink: !!extra.hasLink,
   });
+}
+
+/**
+ * The server refused a message because someone's devices changed since we fetched their lists (a new
+ * phone was linked, one logged out): fetch the lists again and encrypt it once more, like Signal does.
+ * False if it can't be resent; the message is then shown as failed.
+ */
+export async function resendAfterDevicesChanged(clientId: string, users: string[]): Promise<boolean> {
+  const pending = unconfirmed.get(clientId);
+  if (!pending || pending.resent) return false;
+  pending.resent = true;
+  const runtime = await v2Runtime()?.catch(() => null);
+  if (!runtime) return false;
+  users.forEach((user) => runtime.messenger.forget(user));
+  const v2 = await v2For(pending.chat);
+  if (!v2) return false;
+  const envelopes = await v2.runtime.messenger.encrypt(pending.chat.conversationId, pending.chat.isGroup, v2.members, pending.body);
+  return wsService.sendEvent({
+    type: 'message_v2', roomId: pending.chat.conversationId, clientId, fromDevice: v2.runtime.state.deviceId, messageType: pending.messageType,
+    envelopes, attachments: pending.extra.attachments || [], ...(pending.extra.replyToId ? { replyToId: pending.extra.replyToId } : {}),
+    hasLink: !!pending.extra.hasLink,
+  });
+}
+
+/** This browser's device number (null before encryption v2 has started). */
+export async function myDeviceId(): Promise<number | null> {
+  const runtime = await v2Runtime()?.catch(() => null);
+  return runtime ? runtime.state.deviceId : null;
+}
+
+/** This browser couldn't decrypt a message: ask the device that sent it to encrypt it again. */
+export async function askAgain(messageId: string, senderDevice: number): Promise<void> {
+  const runtime = await v2Runtime()?.catch(() => null);
+  if (!runtime) return;
+  await api.post('/api/v1/e2e/v2/retry-requests', { device_id: runtime.state.deviceId, message_id: messageId, sender_device: senderDevice }).catch(() => undefined);
+}
+
+export interface RetryRequest { id: string; message_id: string; conversation_id: string; requester: Address; sender_device: number }
+
+/** Another device asked for one of our messages again: encrypt it for that device only. */
+export async function answerRetry(request: RetryRequest): Promise<void> {
+  const runtime = await v2Runtime()?.catch(() => null);
+  if (!runtime || request.sender_device !== runtime.state.deviceId) return;
+  const envelope = await runtime.messenger.resend(request.message_id, request.requester).catch(() => null);
+  if (envelope) {
+    await api.post(`/api/v1/e2e/v2/conversations/${request.conversation_id}/envelopes`, {
+      from_device: runtime.state.deviceId, message_id: request.message_id, packets: [envelope],
+    }).catch(() => undefined);
+  }
+  await api.post(`/api/v1/e2e/v2/retry-requests/${request.id}/done`).catch(() => undefined);
+}
+
+/** Requests that came while this browser was away (after connecting). */
+export async function answerWaitingRetries(): Promise<void> {
+  const runtime = await v2Runtime()?.catch(() => null);
+  if (!runtime) return;
+  const r = await api.get(`/api/v1/e2e/v2/retry-requests/${runtime.state.deviceId}`).catch(() => null);
+  for (const request of (r?.data?.data || []) as RetryRequest[]) await answerRetry(request);
 }
 
 /** Send a text message with v2. Returns false if the socket is down. */
@@ -92,7 +156,7 @@ export async function sendTextV2(v2: NonNullable<Awaited<ReturnType<typeof v2For
   const body: MessageBody = { v: 2, id: clientId, conv: chat.conversationId, ts: Date.now(), kind: 'text', text, ...(replyTo ? { replyTo: replyTo.id } : {}) };
   const envelopes = await runtime.messenger.encrypt(chat.conversationId, chat.isGroup, members, body);
   await runtime.messenger.rememberSent({ id: clientId, conv: chat.conversationId, sender: { user: runtime.userId, device: runtime.state.deviceId }, ts: body.ts, kind: 'text', text, replyTo: body.replyTo, status: 'sending' });
-  return sendOverSocket(chat, clientId, runtime.state.deviceId, 'text', envelopes, { replyToId: replyTo?.id, hasLink: LINK_RE.test(text) });
+  return sendOverSocket(chat, clientId, runtime.state.deviceId, 'text', envelopes, { replyToId: replyTo?.id, hasLink: LINK_RE.test(text) }, body);
 }
 
 /** Encrypt a file (PMV2) and upload it. */
@@ -136,7 +200,7 @@ export async function sendMediaV2(
   await runtime.messenger.rememberSent({ id: clientId, conv: chat.conversationId, sender: { user: runtime.userId, device: runtime.state.deviceId }, ts: body.ts, kind: 'media', text: caption, media: [pointer], replyTo: body.replyTo, status: 'sending' });
   return sendOverSocket(chat, clientId, runtime.state.deviceId, kind, envelopes, {
     attachments: [main.url, ...(thumb ? [thumb.url] : [])], replyToId: options.replyTo?.id, hasLink: LINK_RE.test(caption),
-  });
+  }, body);
 }
 
 /** Forward an existing v2 or plain message into a v2 chat (files are reused: only their key is sealed again). */
@@ -147,7 +211,7 @@ export async function forwardV2(v2: NonNullable<Awaited<ReturnType<typeof v2For>
   await runtime.messenger.rememberSent({ id: clientId, conv: chat.conversationId, sender: { user: runtime.userId, device: runtime.state.deviceId }, ts: body.ts, kind: body.kind as 'text' | 'media', text, media: body.media, status: 'sending' });
   return sendOverSocket(chat, clientId, runtime.state.deviceId, pointer ? (pointer.type || 'file') : 'text', envelopes, {
     attachments: pointer ? [pointer.url, ...(pointer.thumb ? [pointer.thumb.url] : [])] : [], hasLink: LINK_RE.test(text),
-  });
+  }, body);
 }
 
 /** The v2 media pointer of a chat message (to forward it). */
@@ -175,6 +239,7 @@ export async function editV2(chat: ChatInfo, message: Message, text: string): Pr
 
 /** Our message came back from the server: link our local copy to the timeline row. */
 export async function confirmOwn(clientId: string, serverId: string): Promise<LocalMessage | null> {
+  unconfirmed.delete(clientId);
   const runtime = await v2Runtime()?.catch(() => null);
   return runtime ? runtime.messenger.confirmSent(clientId, serverId) : null;
 }
@@ -217,7 +282,12 @@ export function receiveLive(deviceId: number, envelope: IncomingEnvelope, onLate
 
 async function drainNow(runtime: NonNullable<Awaited<ReturnType<typeof v2Runtime>>>, onReceived: (r: Received) => void) {
   somethingWaits = false;
-  await runtime.messenger.drain((r) => { if (r.kind === 'waiting') somethingWaits = true; onReceived(r); }).catch(() => { somethingWaits = true; });
+  await runtime.messenger.drain((r, envelope) => {
+    if (r.kind === 'waiting') somethingWaits = true;
+    // Unreadable while we were away: ask the sender's device for it again, as for a live one
+    if (r.kind === 'failed' && envelope.message_id) askAgain(envelope.message_id, envelope.from.device).catch(() => undefined);
+    onReceived(r);
+  }).catch(() => { somethingWaits = true; });
 }
 
 /** Process the mailbox in turn with live packets (so the same packet isn't opened twice at once). */

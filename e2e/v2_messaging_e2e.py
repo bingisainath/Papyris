@@ -107,7 +107,7 @@ def main():
             problems.append(f"server stored more than the marker: {rows}")
 
         # ---- photo
-        a.get_by_label("Attach").click()
+        a.get_by_label("Attach", exact=True).click()
         with a.expect_file_chooser() as chooser:
             a.get_by_role("menuitem", name=re.compile("Photos & videos")).click()
         chooser.value.set_files(str(photo))

@@ -55,3 +55,10 @@ class SendBody(BaseModel):
 
 class AckBody(BaseModel):
     ids: list[uuid.UUID] = Field(..., max_length=500)
+
+
+class RetryRequestBody(BaseModel):
+    """This device couldn't decrypt `message_id`, which came from the sender's `sender_device`."""
+    device_id: int
+    message_id: uuid.UUID
+    sender_device: int

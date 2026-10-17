@@ -117,7 +117,7 @@ def main():
         expect(page.get_by_label("Message", exact=True)).to_be_visible()
 
         # ---- 5 photos at once -> album; shrunk to 1600px, no location
-        page.get_by_label("Attach").click()
+        page.get_by_label("Attach", exact=True).click()
         with page.expect_file_chooser() as chooser:
             page.get_by_role("menuitem", name=re.compile("Photos & videos")).click()
         chooser.value.set_files([str(x) for x in photos])
@@ -143,7 +143,7 @@ def main():
             problems.append(f"photos not shrunk or still carry camera data: {checked}")
 
         # ---- document keeps full resolution (but not location)
-        page.get_by_label("Attach").click()
+        page.get_by_label("Attach", exact=True).click()
         with page.expect_file_chooser() as chooser:
             page.get_by_role("menuitem", name=re.compile("Document")).click()
         chooser.value.set_files(str(document))
@@ -172,7 +172,7 @@ def main():
 
         # ---- failed upload -> Retry
         page.route("**/media/upload**", lambda route: route.abort())
-        page.get_by_label("Attach").click()
+        page.get_by_label("Attach", exact=True).click()
         with page.expect_file_chooser() as chooser:
             page.get_by_role("menuitem", name=re.compile("Document")).click()
         chooser.value.set_files(str(photos[0]))
@@ -187,7 +187,7 @@ def main():
         cdp = context.new_cdp_session(page)
         cdp.send("Network.enable")
         cdp.send("Network.emulateNetworkConditions", {"offline": False, "latency": 50, "downloadThroughput": -1, "uploadThroughput": 200 * 1024})
-        page.get_by_label("Attach").click()
+        page.get_by_label("Attach", exact=True).click()
         with page.expect_file_chooser() as chooser:
             page.get_by_role("menuitem", name=re.compile("Document")).click()
         chooser.value.set_files(str(big_video))

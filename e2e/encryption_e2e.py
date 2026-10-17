@@ -133,7 +133,7 @@ def main():
         expect(bob.locator("[data-message-id]", has_text=secret).last).to_be_visible(timeout=15000)
 
         # ---- encrypted photo
-        alice.get_by_label("Attach").click()
+        alice.get_by_label("Attach", exact=True).click()
         with alice.expect_file_chooser() as chooser:
             alice.get_by_role("menuitem", name=re.compile("Photos & videos")).click()
         chooser.value.set_files(str(photo))

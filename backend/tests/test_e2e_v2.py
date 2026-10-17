@@ -201,13 +201,13 @@ async def test_one_tap_link_requests(client, make_user, events):
     assert (await client.get(f"{API}/link-requests/{older['id']}", headers=a.headers)).json()["data"]["status"] == "approved"
 
 
-async def test_mailboxes(client, make_user, make_group, events):
+async def test_mailboxes(client, make_user, make_group, add_message, events):
     a, b, c, outsider = await make_user(), await make_user(), await make_user(), await make_user()
     group = await make_group(a, [b, c])
     a1, b1, b2 = await register(client, a, Device()), await register(client, b, Device()), await register(client, b, Device())
     o1 = await register(client, outsider, Device())
 
-    message_id = str(uuid.uuid4())
+    message_id = await add_message(group, a, "e2e2:")  # packets belong to one of the sender's own messages
     body = {"from_device": a1.id, "message_id": message_id, "packets": [
         {"to_user": b.id, "to_device": b1.id, "packet": {"v": 2, "kind": "pkmsg", "c": "for b1"}},
         {"to_user": b.id, "to_device": b2.id, "packet": {"v": 2, "kind": "pkmsg", "c": "for b2"}},

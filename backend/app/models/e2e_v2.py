@@ -111,6 +111,31 @@ class E2EEnvelope(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class E2ERetryRequest(Base):
+    """
+    A device couldn't decrypt a message and asks the sending device to encrypt it again (like
+    WhatsApp's retry receipts). Kept until the sender handles it, so it works while the sender is offline.
+    """
+
+    __tablename__ = "e2e_retry_requests"
+    __table_args__ = (
+        UniqueConstraint("message_id", "requester_user_id", "requester_device_id", name="uq_e2e_retry_request"),
+        Index("ix_e2e_retry_sender", "sender_user_id", "sender_device_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"))
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"))
+    requester_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    requester_device_id: Mapped[int] = mapped_column(Integer)
+    sender_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    sender_device_id: Mapped[int] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Set once the sender sent it again; kept so the attempt limit still counts
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class E2EBackup(Base):
     """
     The account's optional encrypted backup (one at a time). The blob is end-to-end encrypted with a

@@ -124,3 +124,59 @@ describe('groups (sender keys)', () => {
     expect(server.mail.get('carol:1')).toEqual([]);
   });
 });
+
+describe('retry requests (a device asks the sender to encrypt a message again)', () => {
+  it("re-encrypts over a new session when the receiver's session broke, and a second copy is a duplicate", async () => {
+    const { server, alicePhone, bob } = await setup();
+    await alicePhone.send('dm', false, ['alice', 'bob'], 'hi');
+    expect(await bob.read()).toEqual(['hi']);
+    await bob.send('dm', false, ['alice', 'bob'], 'hey'); // now both sides use the ratchet, without prekey data
+    expect(await alicePhone.read()).toEqual(['hey']);
+
+    // Bob's phone loses the session (a restore, a bug): Alice's next message can't be read there
+    await bob.store.transaction((tx) => tx.removeSession(alicePhone.address));
+    const sent = await alicePhone.send('dm', false, ['alice', 'bob'], 'did you get this?');
+    expect(await bob.read()).toEqual([]);
+    expect(bob.inbox[bob.inbox.length - 1].kind).toBe('failed');
+
+    // Bob asks; Alice's phone (which sent it) encrypts it again for Bob's phone only
+    await alicePhone.messenger.confirmSent(sent.id, `srv-${sent.id}`);
+    const again = (await alicePhone.messenger.resend(`srv-${sent.id}`, bob.address))!;
+    expect(again.to_user).toBe('bob');
+    expect(again.packet.kind).toBe('pkmsg'); // a fresh session
+    server.deliver(alicePhone.address, [again], `srv-${sent.id}`);
+    expect(await bob.read()).toEqual(['did you get this?']);
+    expect((await bob.messenger.byServerId(`srv-${sent.id}`))!.text).toBe('did you get this?');
+
+    // Asked twice (the answer crossed a second request): the copy is recognised, and handed back
+    server.deliver(alicePhone.address, [(await alicePhone.messenger.resend(`srv-${sent.id}`, bob.address))!], `srv-${sent.id}`);
+    expect(await bob.read()).toEqual([]);
+    const last = bob.inbox[bob.inbox.length - 1];
+    expect(last.kind).toBe('duplicate');
+    expect(last.kind === 'duplicate' && last.message?.text).toBe('did you get this?');
+
+    // The conversation carries on normally on the new session
+    await alicePhone.send('dm', false, ['alice', 'bob'], 'great');
+    expect(await bob.read()).toEqual(['great']);
+  });
+
+  it('answers a group retry with a direct packet', async () => {
+    const { server, alicePhone, carol } = await setup();
+    const sent = await alicePhone.send('g', true, ['alice', 'bob', 'carol'], 'dinner at 8');
+    server.mail.set('carol:1', []); // carol's phone never got it
+    await alicePhone.messenger.confirmSent(sent.id, `srv-${sent.id}`);
+    const again = (await alicePhone.messenger.resend(`srv-${sent.id}`, carol.address))!;
+    expect(again.packet.kind).toBe('pkmsg');
+    server.deliver(alicePhone.address, [again], `srv-${sent.id}`);
+    expect(await carol.read()).toEqual(['dinner at 8']);
+  });
+
+  it("only re-sends the device's own messages", async () => {
+    const { alicePhone, bob } = await setup();
+    const sent = await alicePhone.send('dm', false, ['alice', 'bob'], 'mine');
+    expect(await bob.read()).toEqual(['mine']);
+    // Bob has a copy, but it isn't his message to vouch for
+    expect(await bob.messenger.resend(`srv-${sent.id}`, alicePhone.address)).toBeNull();
+    expect(await alicePhone.messenger.resend('srv-unknown', bob.address)).toBeNull();
+  });
+});

@@ -44,11 +44,11 @@ import type { E2EMedia } from '../../crypto/e2e';
 import { e2eService } from '../../services/e2e.service';
 import { E2E_DIRECTORY_EVENT } from '../../crypto/useChatEncryption';
 import {
-  confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, localFor, pendingFields, pointerOf, receiveLive,
-  sendMediaV2, sendTextV2, v2For,
+  answerRetry, answerWaitingRetries, askAgain, confirmOwn, drainMailbox, forgetDirectory, forwardV2, fromLocal, isV2Marker, localFor,
+  myDeviceId, pendingFields, pointerOf, receiveLive, resendAfterDevicesChanged, sendMediaV2, sendTextV2, v2For,
 } from '../../crypto/v2-platform/chat';
-import type { ChatInfo } from '../../crypto/v2-platform/chat';
-import type { LocalMessage, Received } from '../../crypto/v2';
+import type { ChatInfo, RetryRequest } from '../../crypto/v2-platform/chat';
+import type { EnvelopeMeta, LocalMessage, Received } from '../../crypto/v2';
 import type { UploadQuality } from '../../utils/media';
 import { parseApiError } from '../../utils/apiError';
 
@@ -119,7 +119,78 @@ function applyV2(dispatch: AppDispatch, getState: () => RootState, r: Received) 
 /** Process this browser's v2 mailbox (after connecting). */
 export const syncV2 = () => async (dispatch: AppDispatch, getState: () => RootState) => {
   await drainMailbox((r) => applyV2(dispatch, getState, r)).catch(() => undefined);
+  await answerWaitingRetries().catch(() => undefined); // devices that asked for one of our messages again
 };
+
+// ---------------------------------------------------------------- envelope-first (protocol 3)
+// An encrypted message enters the chat only once this browser has decrypted its own packet, which
+// carries the message's details (`meta`), as on Signal and WhatsApp: never a blank bubble first.
+// A packet that can't be read yet shows "Waiting for this message…" only after a grace period; one
+// that can't be read at all asks the sender's device to encrypt it again.
+
+const WAITING_GRACE_MS = 4000;
+
+/**
+ * The latest delivered / read receipts per chat. Our encrypted messages can enter the chat after their
+ * receipts (another device of ours decrypts its copy a moment later than the other person reads it):
+ * their ticks start from what's already known.
+ */
+const receiptsUpTo = new Map<string, { delivered?: number; read?: number }>();
+
+function noteReceipt(roomId: string, kind: 'delivered' | 'read', upTo: string) {
+  const at = new Date(upTo).getTime();
+  const known = receiptsUpTo.get(roomId) || {};
+  if (!(known[kind]! >= at)) receiptsUpTo.set(roomId, { ...known, [kind]: at });
+}
+
+/** Status of our own message sent at `timestamp`, from the receipts that already came. */
+function ownStatus(roomId: string, timestamp: string, fallback: Message['status']): Message['status'] {
+  const known = receiptsUpTo.get(roomId);
+  const at = new Date(timestamp).getTime();
+  if (known?.read !== undefined && known.read >= at) return 'read';
+  if (known?.delivered !== undefined && known.delivered >= at) return 'delivered';
+  return fallback;
+}
+/** Packets waiting for a group key (or the network): their details, to show them once they're read. */
+const waitingMeta = new Map<string, EnvelopeMeta>();
+
+const metaEvent = (meta: EnvelopeMeta) => ({ ...meta, text: 'e2e2:', status: 'sent' });
+
+const hasRow = (getState: () => RootState, roomId: string, messageId: string) =>
+  (getState().chat.messages[roomId] || []).some(m => m.id === messageId);
+
+function showEnvelope(dispatch: AppDispatch, getState: () => RootState, r: Received, meta: EnvelopeMeta) {
+  switch (r.kind) {
+    case 'message':
+      waitingMeta.delete(meta.messageId);
+      showTimelineMessage(dispatch, metaEvent(meta), r.message);
+      return;
+    case 'duplicate':
+      // Another tab of this browser read it first (they share the local database)
+      if (r.message && !hasRow(getState, meta.roomId, meta.messageId)) showTimelineMessage(dispatch, metaEvent(meta), r.message, false);
+      return;
+    case 'waiting':
+      waitingMeta.set(meta.messageId, meta);
+      setTimeout(() => {
+        if (waitingMeta.has(meta.messageId) && !hasRow(getState, meta.roomId, meta.messageId)) showTimelineMessage(dispatch, metaEvent(meta), null);
+      }, WAITING_GRACE_MS);
+      return;
+    case 'failed':
+      showTimelineMessage(dispatch, metaEvent(meta), null);
+      askAgain(meta.messageId, meta.fromDevice).catch(() => undefined);
+      return;
+    default:
+      applyV2(dispatch, getState, r);
+  }
+}
+
+/** A packet that had to wait can be read now: show it if it never made it into the chat. */
+function showLater(dispatch: AppDispatch, getState: () => RootState, r: Received) {
+  const meta = r.kind === 'message' && r.message.serverId ? waitingMeta.get(r.message.serverId) : undefined;
+  if (meta && !hasRow(getState, meta.roomId, meta.messageId)) showEnvelope(dispatch, getState, r, meta);
+  else applyV2(dispatch, getState, r);
+  if (meta) waitingMeta.delete(meta.messageId);
+}
 
 /** Who is in a conversation (for encryption v2), from the chat list. */
 export function chatInfo(getState: () => RootState, conversationId: string): ChatInfo {
@@ -521,6 +592,144 @@ export const markAsRead = (conversationId: string, lastMessageId: string) => () 
 };
 
 /**
+ * Put a timeline message in the chat: a `message` event (plain and version 1 chats, and version 2 from
+ * a server without protocol 3), or an encrypted (v2) message with its details from its envelope.
+ * `v2Local`: this browser's decrypted copy (null: couldn't be read, shown as waiting; undefined: not
+ * from an envelope). `notify`: false for a copy another tab already announced.
+ */
+function showTimelineMessage(dispatch: AppDispatch, data: any, v2Local?: LocalMessage | null, notify = true) {
+  if (!data.roomId || !data.messageId) return;
+  const message = decryptMessage({
+    id: data.messageId,
+    clientId: data.clientId || undefined,
+    conversationId: data.roomId,
+    senderId: data.senderId || '',
+    senderName: data.senderName,
+    senderAvatar: data.senderAvatar,
+    text: data.text || '',
+    timestamp: data.timestamp || new Date().toISOString(),
+    status: (data.status as 'sent' | 'delivered' | undefined) || 'delivered',
+    mediaUrl: data.mediaUrl || undefined,
+    mediaType: data.mediaType || undefined,
+    mediaSize: data.mediaSize || undefined,
+    mediaFilename: data.mediaFilename || undefined,
+    mediaThumbnail: data.mediaThumbnail || undefined,
+    mediaWidth: data.mediaWidth || undefined,
+    mediaHeight: data.mediaHeight || undefined,
+    mediaDuration: data.mediaDuration || undefined,
+    uploadProgress: undefined,
+    uploadFailed: undefined,
+    messageType: data.messageType,
+    expenseId: data.expenseId || null,
+    replyTo: data.replyTo || null,
+    reactions: [],
+  } as Message);
+
+  // Quoting a v2 message: the server only has its marker; the quoted text is in this browser's copy
+  const quoted = message.replyTo;
+  if (quoted && isV2Marker(quoted.text)) {
+    message.replyTo = { ...quoted, text: '' };
+    const quotingRoom: string = data.roomId;
+    const quotingId: string = data.messageId;
+    localFor(quoted.id).then(local => {
+      dispatch(updateMessage({
+        conversationId: quotingRoom,
+        messageId: quotingId,
+        updates: { replyTo: { ...quoted, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } },
+      }));
+    }).catch(() => undefined);
+  }
+
+  const timestamp: string = data.timestamp || new Date().toISOString();
+  const v2 = isV2Marker(data.text);
+  // From an envelope the content is already decrypted (or known to be unreadable for now)
+  const v2Fields = v2Local ? fromLocal(v2Local) : null;
+  if (v2Local !== undefined && data.senderId === localStorage.getItem('userId')) {
+    message.status = ownStatus(data.roomId, timestamp, message.status);
+  }
+  dispatch(upsertMessage({ conversationId: data.roomId, message: v2 ? { ...message, ...(v2Fields || pendingFields) } : message }));
+  if (v2 && v2Local === undefined) {
+    // A marker row without its packet (a server without protocol 3): the content comes in this
+    // device's own packet; ours is already in the local database
+    const roomId: string = data.roomId;
+    const messageId: string = data.messageId;
+    const clientId = data.clientId;
+    const own = !!clientId && data.senderId === localStorage.getItem('userId');
+    (own ? confirmOwn(clientId!, messageId) : localFor(messageId)).then(local => {
+      if (!local) return;
+      const fields = fromLocal(local);
+      dispatch(updateMessage({ conversationId: roomId, messageId, updates: fields }));
+      // Replace the "Encrypted message" placeholder in the chat list, unless a newer message came since
+      dispatch((_: AppDispatch, getState: () => RootState) => {
+        const conversation = getState().chat.conversations.find(c => c.id === roomId);
+        if (conversation?.lastMessageTime !== timestamp) return;
+        dispatch(updateConversationLastMessage({
+          conversationId: roomId,
+          lastMessage: messagePreview(fields.text, fields.mediaType, fields.mediaFilename),
+          timestamp,
+        }));
+      });
+    }).catch(() => undefined);
+  } else if (!v2) {
+    flagUnverified(dispatch, data.roomId, [message]);
+  }
+
+  // Our optimistic copy now points at the server URL; free the local preview
+  if (data.clientId && pendingPreviews.has(data.clientId)) {
+    URL.revokeObjectURL(pendingPreviews.get(data.clientId)!);
+    pendingPreviews.delete(data.clientId);
+  }
+
+  // Update last message
+  const shown = v2 ? v2Fields : message;
+  dispatch(updateConversationLastMessage({
+    conversationId: data.roomId,
+    lastMessage: shown ? messagePreview(shown.text, shown.mediaType, shown.mediaFilename) : 'Encrypted message',
+    timestamp
+  }));
+
+  const roomId = data.roomId;
+  const isOwn = data.senderId === localStorage.getItem('userId');
+
+  // Tell the sender it reached this device (their one tick becomes two)
+  if (!isOwn && data.messageType !== 'system') wsService.markDelivered(roomId, data.messageId);
+
+  // Sending a message means they stopped typing
+  if (data.senderId) setTypingWithExpiry(dispatch, roomId, data.senderId, false);
+
+  // Desktop notification for messages from others (skipped if this chat is in view). A v2 marker row
+  // without its envelope notifies when its content is decrypted (applyV2).
+  if (notify && !isOwn && data.messageType !== 'system' && (!v2 || v2Local !== undefined)) {
+    dispatch((_: AppDispatch, getState: () => RootState) => {
+      const conversation = getState().chat.conversations.find(c => c.id === roomId);
+      const sender = data.senderName || 'Someone';
+      const preview = !shown || message.e2e === 'unreadable' ? 'New message' : messagePreview(shown.text, shown.mediaType, shown.mediaFilename);
+      notifyNewMessage({
+        conversationId: roomId,
+        title: conversation?.name || sender,
+        body: conversation?.isGroup ? `${sender}: ${preview}` : preview,
+        icon: conversation?.isGroup ? conversation.avatar : data.senderAvatar,
+      });
+    });
+  }
+
+  // Keep the chat list in sync locally (last message was updated above);
+  // only reload it when the message is for a conversation we don't know yet
+  dispatch((_: AppDispatch, getState: () => RootState) => {
+    const known = getState().chat.conversations.some(c => c.id === roomId);
+    if (!known) {
+      dispatch(fetchConversations());
+      return;
+    }
+    const viewing =
+      (window as any).__activeConversationId === roomId && document.visibilityState === 'visible';
+    if (!isOwn && !viewing && notify) {
+      dispatch(incrementUnreadCount(roomId));
+    }
+  });
+}
+
+/**
  * Setup WebSocket event listeners
  */
 function setupWebSocketListeners(dispatch: AppDispatch) {
@@ -535,132 +744,9 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   listenersInitialized = true;  // ✅ Mark as initialized
 
   // Message received (also the echo of our own messages)
-  wsService.on('message', async (data) => {
+  wsService.on('message', (data) => showTimelineMessage(dispatch, data));
 
-    if (data.roomId && data.messageId) {
-      const message = decryptMessage({
-        id: data.messageId,
-        clientId: data.clientId || undefined,
-        conversationId: data.roomId,
-        senderId: data.senderId || '',
-        senderName: data.senderName,
-        senderAvatar: data.senderAvatar,
-        text: data.text || '',
-        timestamp: data.timestamp || new Date().toISOString(),
-        status: (data.status as 'sent' | 'delivered' | undefined) || 'delivered',
-        mediaUrl: data.mediaUrl || undefined,
-        mediaType: data.mediaType || undefined,
-        mediaSize: data.mediaSize || undefined,
-        mediaFilename: data.mediaFilename || undefined,
-        mediaThumbnail: data.mediaThumbnail || undefined,
-        mediaWidth: data.mediaWidth || undefined,
-        mediaHeight: data.mediaHeight || undefined,
-        mediaDuration: data.mediaDuration || undefined,
-        uploadProgress: undefined,
-        uploadFailed: undefined,
-        messageType: data.messageType,
-        expenseId: data.expenseId || null,
-        replyTo: data.replyTo || null,
-        reactions: [],
-      } as Message);
 
-      // Quoting a v2 message: the server only has its marker; the quoted text is in this browser's copy
-      const quoted = message.replyTo;
-      if (quoted && isV2Marker(quoted.text)) {
-        message.replyTo = { ...quoted, text: '' };
-        const quotingRoom: string = data.roomId;
-        const quotingId: string = data.messageId;
-        localFor(quoted.id).then(local => {
-          dispatch(updateMessage({
-            conversationId: quotingRoom,
-            messageId: quotingId,
-            updates: { replyTo: { ...quoted, text: local ? fromLocal(local).text || 'Attachment' : 'Encrypted message' } },
-          }));
-        }).catch(() => undefined);
-      }
-
-      const timestamp: string = data.timestamp || new Date().toISOString();
-      const v2 = isV2Marker(data.text);
-      dispatch(upsertMessage({ conversationId: data.roomId, message: v2 ? { ...message, ...pendingFields } : message }));
-      if (v2) {
-        // The content comes in this device's own packet; ours is already in the local database
-        const roomId: string = data.roomId;
-        const messageId: string = data.messageId;
-        const clientId = data.clientId;
-        const own = !!clientId && data.senderId === localStorage.getItem('userId');
-        (own ? confirmOwn(clientId!, messageId) : localFor(messageId)).then(local => {
-          if (!local) return;
-          const fields = fromLocal(local);
-          dispatch(updateMessage({ conversationId: roomId, messageId, updates: fields }));
-          // Replace the "Encrypted message" placeholder in the chat list, unless a newer message came since
-          dispatch((_: AppDispatch, getState: () => RootState) => {
-            const conversation = getState().chat.conversations.find(c => c.id === roomId);
-            if (conversation?.lastMessageTime !== timestamp) return;
-            dispatch(updateConversationLastMessage({
-              conversationId: roomId,
-              lastMessage: messagePreview(fields.text, fields.mediaType, fields.mediaFilename),
-              timestamp,
-            }));
-          });
-        }).catch(() => undefined);
-      } else {
-        flagUnverified(dispatch, data.roomId, [message]);
-      }
-
-      // Our optimistic copy now points at the server URL; free the local preview
-      if (data.clientId && pendingPreviews.has(data.clientId)) {
-        URL.revokeObjectURL(pendingPreviews.get(data.clientId)!);
-        pendingPreviews.delete(data.clientId);
-      }
-
-      // Update last message
-      dispatch(updateConversationLastMessage({
-        conversationId: data.roomId,
-        lastMessage: isV2Marker(data.text) ? 'Encrypted message' : messagePreview(message.text, message.mediaType, message.mediaFilename),
-        timestamp
-      }));
-
-      const roomId = data.roomId;
-      const isOwn = data.senderId === localStorage.getItem('userId');
-
-      // Tell the sender it reached this device (their one tick becomes two)
-      if (!isOwn && data.messageType !== 'system') wsService.markDelivered(roomId, data.messageId);
-
-      // Sending a message means they stopped typing
-      if (data.senderId) setTypingWithExpiry(dispatch, roomId, data.senderId, false);
-
-      // Desktop notification for messages from others (skipped if this chat is in view).
-      // v2 messages notify when their content is decrypted (applyV2).
-      if (!isOwn && data.messageType !== 'system' && !isV2Marker(data.text)) {
-        dispatch((_: AppDispatch, getState: () => RootState) => {
-          const conversation = getState().chat.conversations.find(c => c.id === roomId);
-          const sender = data.senderName || 'Someone';
-          const preview = message.e2e === 'unreadable' ? 'New message' : messagePreview(message.text, message.mediaType, message.mediaFilename);
-          notifyNewMessage({
-            conversationId: roomId,
-            title: conversation?.name || sender,
-            body: conversation?.isGroup ? `${sender}: ${preview}` : preview,
-            icon: conversation?.isGroup ? conversation.avatar : data.senderAvatar,
-          });
-        });
-      }
-
-      // Keep the chat list in sync locally (last message was updated above);
-      // only reload it when the message is for a conversation we don't know yet
-      dispatch((_: AppDispatch, getState: () => RootState) => {
-        const known = getState().chat.conversations.some(c => c.id === roomId);
-        if (!known) {
-          dispatch(fetchConversations());
-          return;
-        }
-        const viewing =
-          (window as any).__activeConversationId === roomId && document.visibilityState === 'visible';
-        if (!isOwn && !viewing) {
-          dispatch(incrementUnreadCount(roomId));
-        }
-      });
-    }
-  });
 
   // Typing indicator
   wsService.on('typing', (data) => {
@@ -689,6 +775,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // Delivery receipt: everyone has our messages up to this time on a device
   wsService.on('delivered', (data) => {
     if (data.roomId && data.deliveredUpTo) {
+      noteReceipt(data.roomId, 'delivered', data.deliveredUpTo);
       dispatch(markMessagesDelivered({ conversationId: data.roomId, deliveredUpTo: data.deliveredUpTo }));
     }
   });
@@ -698,6 +785,7 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
 
     // readUpTo: every member has read up to this time, so our older messages are read
     if (data.roomId && data.readUpTo) {
+      noteReceipt(data.roomId, 'read', data.readUpTo);
       dispatch(markMessagesRead({
         conversationId: data.roomId,
         readUpTo: data.readUpTo
@@ -801,9 +889,54 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
     const deviceId = data.deviceId;
     const envelope = data.envelope;
     if (typeof deviceId !== 'number' || !envelope) return;
+    const meta: EnvelopeMeta | undefined = data.meta;
     dispatch((_: AppDispatch, getState: () => RootState) => {
-      receiveLive(deviceId, envelope, (r) => applyV2(dispatch, getState, r)).then(r => { if (r) applyV2(dispatch, getState, r); }).catch(() => undefined);
+      receiveLive(deviceId, envelope, (r) => showLater(dispatch, getState, r)).then(r => {
+        if (!r) return;
+        // With its details (a new message): it enters the chat now. Without (edits, resends): fills a row
+        if (meta) showEnvelope(dispatch, getState, r, meta);
+        else applyV2(dispatch, getState, r);
+      }).catch(() => undefined);
     });
+  });
+
+  // The server took one of our encrypted messages: link our copy to its timeline row
+  wsService.on('message_sent', (data) => {
+    const { roomId, messageId, clientId, fromDevice } = data;
+    if (!roomId || !messageId || !clientId) return;
+    const timestamp = data.timestamp || new Date().toISOString();
+    dispatch(async (_: AppDispatch, getState: () => RootState) => {
+      if (fromDevice !== (await myDeviceId())) return; // sent from another of my devices: its envelope shows it
+      const local = await confirmOwn(clientId, messageId).catch(() => null);
+      const fields = local ? fromLocal(local) : {};
+      if (hasRow(getState, roomId, clientId)) {
+        // Sent from this tab: the optimistic bubble becomes the timeline row
+        dispatch(upsertMessage({
+          conversationId: roomId,
+          message: { id: messageId, clientId, status: ownStatus(roomId, timestamp, 'sent'), timestamp, ...fields } as Message,
+        }));
+        if (pendingPreviews.has(clientId)) {
+          URL.revokeObjectURL(pendingPreviews.get(clientId)!);
+          pendingPreviews.delete(clientId);
+        }
+        dispatch(updateConversationLastMessage({
+          conversationId: roomId,
+          lastMessage: local ? messagePreview(fields.text, fields.mediaType, fields.mediaFilename) : 'Encrypted message',
+          timestamp,
+        }));
+      } else if (local && !hasRow(getState, roomId, messageId)) {
+        // Sent from another tab of this browser (same device, same local database)
+        showTimelineMessage(dispatch, {
+          roomId, messageId, senderId: localStorage.getItem('userId'), text: 'e2e2:', timestamp, status: 'sent',
+          messageType: fields.mediaType || 'text',
+        }, local, false);
+      }
+    });
+  });
+
+  // Another device couldn't decrypt one of our messages: encrypt it again for that device
+  wsService.on('e2e_retry_request', (data) => {
+    if (data.request) answerRetry(data.request as RetryRequest).catch(() => undefined);
   });
 
   wsService.on('e2e_device_list', (data) => {
@@ -884,6 +1017,16 @@ function setupWebSocketListeners(dispatch: AppDispatch) {
   // Error
   wsService.on('error', (data) => {
     console.error('❌ WebSocket error:', data.message);
+
+    // Someone's devices changed since we fetched their lists: fetch them again and resend, once
+    if (data.code === 'devices_changed' && data.clientId && data.roomId) {
+      const users = Array.from(new Set([...(data.missing || []), ...(data.extra || [])].map((d: { user: string }) => d.user)));
+      const failed = { conversationId: data.roomId, messageId: data.clientId, updates: { status: 'failed' as const, uploadProgress: undefined } };
+      resendAfterDevicesChanged(data.clientId, users)
+        .then(sent => { if (!sent) { dispatch(updateMessage(failed)); toast.error(`Message not sent: ${data.message || 'unknown error'}`); } })
+        .catch(() => { dispatch(updateMessage(failed)); toast.error('Message not sent'); });
+      return;
+    }
 
     // Server rejected one of our messages
     if (data.clientId && data.roomId) {

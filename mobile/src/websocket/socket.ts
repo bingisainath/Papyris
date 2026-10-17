@@ -70,7 +70,8 @@ class Socket {
     if (!token) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
-    const ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
+    // proto=3: encrypted (v2) messages arrive as envelopes carrying their details (envelope-first)
+    const ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}&proto=3`);
     this.ws = ws;
 
     ws.onopen = () => {
