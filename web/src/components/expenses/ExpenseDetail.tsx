@@ -10,6 +10,7 @@ import { expenseService } from '../../services/expense.service';
 import type { Expense, HistoryEntry } from '../../services/expense.service';
 import { parseApiError } from '../../utils/apiError';
 import { resolveMediaUrl } from '../../utils/media';
+import { personTint } from '../../utils/personColor';
 import AddExpenseSheet from './AddExpenseSheet';
 import { displayName, Money, Segmented, Sheet, useChatMoney, useExpenseChanges } from './shared';
 import { confirmDialog } from '../organisms/ConfirmDialog';
@@ -50,6 +51,21 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
 
   const nameOf = (id: string) =>
     id === currentUserId ? 'You' : displayName(members.find((m) => m.id === id));
+  // Each person keeps one light colour in both lists, so it's easy to see who paid and who owes what
+  const memberIds = members.map((m) => m.id);
+  const personRow = (userId: string, minor: number, label?: string) => {
+    const tint = personTint(userId, memberIds);
+    return (
+      <div key={userId} className="flex items-center justify-between gap-3 text-sm px-3 py-2 rounded-lg" style={{ backgroundColor: tint.bg }}>
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="w-2 h-2 flex-shrink-0 rounded-full" style={{ backgroundColor: tint.fg }} aria-hidden />
+          <span className="truncate font-medium" style={{ color: tint.fg }}>{nameOf(userId)}</span>
+          {label && <span className="text-muted-500">{label}</span>}
+        </span>
+        <Money minor={minor} currency={expense?.currency || ''} className="font-semibold text-muted-900" />
+      </div>
+    );
+  };
 
   const act = async (action: () => Promise<unknown>, done: string) => {
     try {
@@ -112,22 +128,17 @@ const ExpenseDetail: React.FC<Props> = ({ expenseId, currentUserId, onClose, sta
       {tab === 'details' ? (
         <div className="space-y-5">
           <section>
-            <h3 className="text-sm font-semibold text-muted-700 mb-1">Paid by</h3>
-            {expense.payers.map((p) => (
-              <div key={p.user_id} className="flex justify-between text-sm py-1">
-                <span>{nameOf(p.user_id)}</span>
-                <Money minor={p.amount_minor} currency={expense.currency} />
-              </div>
-            ))}
+            <h3 className="text-sm font-semibold text-muted-700 mb-2">Paid by</h3>
+            <div className="space-y-1.5">
+              {expense.payers.map((p) => personRow(p.user_id, p.amount_minor))}
+            </div>
           </section>
           <section>
-            <h3 className="text-sm font-semibold text-muted-700 mb-1">Split {expense.split_mode === 'itemized' ? 'by item' : expense.split_mode === 'equal' ? 'equally' : `by ${expense.split_mode}`}</h3>
-            {expense.shares.map((s) => (
-              <div key={s.user_id} className="flex justify-between text-sm py-1">
-                <span>{nameOf(s.user_id)}{s.split_value && expense.split_mode === 'percent' ? ` (${s.split_value}%)` : ''}</span>
-                <Money minor={s.amount_minor} currency={expense.currency} />
-              </div>
-            ))}
+            <h3 className="text-sm font-semibold text-muted-700 mb-2">Split {expense.split_mode === 'itemized' ? 'by item' : expense.split_mode === 'equal' ? 'equally' : `by ${expense.split_mode}`}</h3>
+            <div className="space-y-1.5">
+              {expense.shares.map((s) =>
+                personRow(s.user_id, s.amount_minor, s.split_value && expense.split_mode === 'percent' ? `(${s.split_value}%)` : undefined))}
+            </div>
           </section>
           {expense.receipt_images.length > 0 && (
             <section>
