@@ -103,6 +103,18 @@ const ChatExpenses: React.FC<Props> = ({ conversationId, currentUserId, chatName
 
   const recordPayment = async () => {
     if (!settle) return;
+    const minor = parseMajor(settle.amount, settle.currency);
+    if (!minor || minor <= 0) { toast.error('Enter the amount paid'); return; }
+    // More than is owed flips the balance the other way: make sure that's meant
+    const owed = balances?.currencies.find((c) => c.currency === settle.currency)?.debts
+      .find((d) => d.from_user === settle.from && d.to_user === settle.to)?.amount_minor || 0;
+    if (!settle.editing && minor > owed && !(await confirmDialog({
+      title: 'More than is owed',
+      message: owed
+        ? `${settle.from === currentUserId ? 'You owe' : `${name(settle.from)} owes`} ${formatMinor(owed, settle.currency)}. Recording ${formatMinor(minor, settle.currency)} means ${settle.to === currentUserId ? 'you' : name(settle.to)} will owe the difference back.`
+        : `${settle.from === currentUserId ? 'You don’t' : `${name(settle.from)} doesn’t`} owe ${settle.to === currentUserId ? 'you' : name(settle.to)} anything in ${settle.currency}. Record it anyway?`,
+      confirmText: 'Record anyway',
+    }))) return;
     setSaving(true);
     try {
       if (settle.editing) {

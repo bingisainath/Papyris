@@ -13,7 +13,13 @@ const TINTS = [
   { bg: '#eceff3', fg: '#4b5768' }, // slate
 ];
 
-export type PersonTint = (typeof TINTS)[number];
+export type PersonTint = { bg: string; fg: string };
+
+/** Big groups: past the list, step round the colour wheel by the golden angle so hues stay apart. */
+const generated = (n: number): PersonTint => {
+  const hue = Math.round((n * 137.508) % 360);
+  return { bg: `hsl(${hue}, 70%, 94%)`, fg: `hsl(${hue}, 55%, 36%)` };
+};
 
 /**
  * Colour for `userId`. Pass the chat's member ids so people get distinct colours in member order
@@ -21,7 +27,7 @@ export type PersonTint = (typeof TINTS)[number];
  */
 export function personTint(userId: string, memberIds: string[] = []): PersonTint {
   const n = memberIds.indexOf(userId);
-  if (n >= 0) return TINTS[n % TINTS.length];
+  if (n >= 0) return n < TINTS.length ? TINTS[n] : generated(n);
   let hash = 0;
   for (let i = 0; i < userId.length; i += 1) hash = (hash * 31 + userId.charCodeAt(i)) % 1000000007;
   return TINTS[hash % TINTS.length];

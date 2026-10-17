@@ -86,12 +86,17 @@ export const useChat = create<ChatState>((set, get) => ({
     // (The keys may still be starting up: don't hold the list for long, fill those rows in later.)
     const shown = Object.fromEntries(get().conversations.map((c) => [c.id, c]));
     const late: { id: string; lookup: Promise<LocalMessage | null> }[] = [];
+    let joined: Promise<number | null> | null = null;
+    const joinedOnce = () => (joined ??= joinedAt().catch(() => null));
     const previews = await Promise.all(conversations.map(async (c) => {
       if (!isV2Marker(c.lastMessage)) return c.lastMessage;
       const lookup = lastLocal(c.id).catch(() => null);
       const m = await Promise.race([lookup, new Promise<'slow'>((resolve) => setTimeout(() => resolve('slow'), 800))]);
       if (m && m !== 'slow') return previewOf({ ...fromLocal(m) } as Message);
       if (m === 'slow') late.push({ id: c.id, lookup });
+      // Sent before this phone was linked (both from the server's clock): it was never encrypted for it
+      const since = m === null ? await joinedOnce() : null;
+      if (since && c.lastMessageTime && Date.parse(c.lastMessageTime) < since) return 'Sent before this phone was linked';
       // Not on this phone (yet): keep what the row already says about the same message
       const before = shown[c.id];
       return before && before.lastMessageTime === c.lastMessageTime && !isV2Marker(before.lastMessage)

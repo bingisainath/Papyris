@@ -119,6 +119,20 @@ const ChatExpensesScreen: React.FC<NativeStackScreenProps<AppStackParams, 'ChatE
     if (!settle) return;
     const minor = parseMajor(settle.amount, settle.currency);
     if (!minor || minor <= 0) { showAlert('Enter the amount paid'); return; }
+    // More than is owed flips the balance the other way: make sure that's meant
+    const owed = balances?.currencies.find((c) => c.currency === settle.currency)?.debts
+      .find((d) => d.from_user === settle.from && d.to_user === settle.to)?.amount_minor || 0;
+    if (!settle.editing && minor > owed) {
+      const sure = await new Promise<boolean>((resolve) => showAlert(
+        'More than is owed',
+        owed
+          ? `${settle.from === me.id ? 'You owe' : `${name(settle.from)} owes`} ${formatMinor(owed, settle.currency)}. Recording ${formatMinor(minor, settle.currency)} means ${settle.to === me.id ? 'you' : name(settle.to)} will owe the difference back.`
+          : `${settle.from === me.id ? 'You don’t' : `${name(settle.from)} doesn’t`} owe ${settle.to === me.id ? 'you' : name(settle.to)} anything in ${settle.currency}. Record it anyway?`,
+        [{ text: 'Cancel', style: 'cancel', onPress: () => resolve(false) }, { text: 'Record anyway', onPress: () => resolve(true) }],
+        { cancelable: false },
+      ));
+      if (!sure) return;
+    }
     setSaving(true);
     try {
       // Send "12.30" whatever the keyboard typed ("12,30")
