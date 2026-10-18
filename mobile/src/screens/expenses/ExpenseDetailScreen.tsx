@@ -9,6 +9,7 @@ import { errorMessage } from '../../api/client';
 import { mediaUrl } from '../../config';
 import { useAuth } from '../../store/auth';
 import { formatMinor } from '../../utils/money';
+import { personTint } from '../../utils/personColor';
 import { colors, radius, space } from '../../theme';
 import type { AppStackParams } from '../../navigation/types';
 import CategoryIcon from '../../components/expenses/CategoryIcon';
@@ -47,6 +48,20 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
   const myShare = expense.shares.find((s) => s.user_id === me.id)?.amount_minor || 0;
   const myPaid = expense.payers.find((p) => p.user_id === me.id)?.amount_minor || 0;
   const net = myPaid - myShare;
+  // Each person keeps one light colour in both lists, so it's easy to see who paid and who owes what
+  const memberIds = members.map((m) => m.id);
+  const personRow = (userId: string, minor: number, label?: string) => {
+    const tint = personTint(userId, memberIds);
+    return (
+      <View key={userId} style={[styles.line, { backgroundColor: tint.bg }]}>
+        <View style={[styles.dot, { backgroundColor: tint.fg }]} />
+        <Text style={[styles.lineName, { color: tint.fg }]} numberOfLines={1}>
+          {nameOf(userId)}{label ? <Text style={styles.lineLabel}> {label}</Text> : null}
+        </Text>
+        <Text style={styles.lineAmount}>{formatMinor(minor, expense.currency)}</Text>
+      </View>
+    );
+  };
 
   const act = async (action: () => Promise<unknown>) => {
     try { await action(); load(); } catch (err) { showAlert('Something went wrong', errorMessage(err)); }
@@ -73,13 +88,11 @@ const ExpenseDetailScreen: React.FC<NativeStackScreenProps<AppStackParams, 'Expe
       {tab === 'details' ? (
         <View style={styles.card}>
           <Text style={styles.section}>Paid by</Text>
-          {expense.payers.map((p) => (
-            <View key={p.user_id} style={styles.line}><Text style={styles.lineName}>{nameOf(p.user_id)}</Text><Text style={styles.lineAmount}>{formatMinor(p.amount_minor, expense.currency)}</Text></View>
-          ))}
+          <View style={styles.lines}>{expense.payers.map((p) => personRow(p.user_id, p.amount_minor))}</View>
           <Text style={[styles.section, { marginTop: space(4) }]}>Split {expense.split_mode === 'itemized' ? 'by item' : expense.split_mode === 'equal' ? 'equally' : `by ${expense.split_mode}`}</Text>
-          {expense.shares.map((s) => (
-            <View key={s.user_id} style={styles.line}><Text style={styles.lineName}>{nameOf(s.user_id)}</Text><Text style={styles.lineAmount}>{formatMinor(s.amount_minor, expense.currency)}</Text></View>
-          ))}
+          <View style={styles.lines}>
+            {expense.shares.map((s) => personRow(s.user_id, s.amount_minor, s.split_value && expense.split_mode === 'percent' ? `(${s.split_value}%)` : undefined))}
+          </View>
           {expense.receipt_images.length > 0 && (
             <>
               <Text style={[styles.section, { marginTop: space(4) }]}>Receipt</Text>
@@ -141,8 +154,11 @@ const styles = StyleSheet.create({
   tabs: { alignItems: 'center', marginVertical: space(3) },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space(4), borderWidth: 1, borderColor: colors.muted200 },
   section: { fontSize: 13, fontWeight: '700', color: colors.muted600, marginBottom: space(1.5) },
-  line: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: space(1.5) },
-  lineName: { fontSize: 15, color: colors.muted900 },
+  lines: { gap: space(1.5) },
+  line: { flexDirection: 'row', alignItems: 'center', gap: space(2), paddingVertical: space(2), paddingHorizontal: space(3), borderRadius: radius.md },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  lineName: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.muted900 },
+  lineLabel: { fontWeight: '400', color: colors.muted500 },
   lineAmount: { fontSize: 15, fontWeight: '600', color: colors.muted900 },
   images: { flexDirection: 'row', gap: space(2) },
   receipt: { width: 80, height: 104, borderRadius: radius.sm, backgroundColor: colors.muted100 },
